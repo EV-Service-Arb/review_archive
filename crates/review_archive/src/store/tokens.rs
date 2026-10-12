@@ -17,7 +17,7 @@ use super::{RunId, Store, parse_ts};
 /// Who pays for a scan of a target, and how much its walk may spend.
 #[derive(Clone, Debug)]
 pub struct Bill {
-	/// The members tracking it; none for a place nobody tracks, or the operator's own scan.
+	/// As [`Store::bill`] picks them.
 	pub payers: Vec<PersonId>,
 	/// Their balances together, within what the account has left this hour.
 	pub allowance: i64,
@@ -138,11 +138,22 @@ impl Store {
 		Ok(Usage { days, places_tracked })
 	}
 
-	/// Who pays for scanning `target` now, and what the walk may spend. `operator`: a scan
-	/// the operator asked for, which no member pays.
-	pub async fn bill(&self, target: TargetId, operator: bool, now: Timestamp, cfg: &Tokens) -> eyre::Result<Bill> {
+	/// Who pays for scanning `target` now, and what the walk may spend: for `job`, the member
+	/// who asked for it, or no one for the operator's; for an `ad_hoc` look, no one; else its trackers.
+	pub async fn bill(&self, target: TargetId, job: Option<i64>, ad_hoc: bool, now: Timestamp, cfg: &Tokens) -> eyre::Result<Bill> {
 		let rail = self.rail(now, cfg).await?;
-		let payers = if operator { Vec::new() } else { self.trackers(target).await? };
+		let payers = match job {
+			Some(id) => {
+				let by: Option<i64> = sqlx::query_scalar("SELECT requested_by FROM jobs WHERE id = ?")
+					.bind(id)
+					.fetch_one(&self.pool)
+					.await
+					.wrap_err_with(|| format!("loading who asked for job {id}"))?;
+				by.map(PersonId).into_iter().collect()
+			}
+			None if ad_hoc => Vec::new(),
+			None => self.trackers(target).await?,
+		};
 		if payers.is_empty() {
 			return Ok(Bill { payers, allowance: rail.left });
 		}
@@ -162,7 +173,7 @@ impl Store {
 		Ok(self.held_together(&payers, now, cfg).await? < cost::FIRST_SCREEN)
 	}
 
-	async fn held_together(&self, members: &[PersonId], now: Timestamp, cfg: &Tokens) -> eyre::Result<i64> {
+	pub(crate) async fn held_together(&self, members: &[PersonId], now: Timestamp, cfg: &Tokens) -> eyre::Result<i64> {
 		let mut tx = self.write().await?;
 		let mut held = 0;
 		for m in members {

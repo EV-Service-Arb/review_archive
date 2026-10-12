@@ -17,15 +17,16 @@ use ev_lib::{
 	i18n::{Locale, Messages, Translator},
 	t,
 	uikit::{
-		self, BadgeVariant, Button, ButtonVariant, Card, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Size, Switch,
-		Tabs, TabsList, TabsTrigger,
+		self, BadgeVariant, Button, ButtonVariant, Card, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Size, Spinner,
+		Switch, Tabs, TabsList, TabsTrigger,
 	},
 };
 use review_archive_client::{
 	Client,
-	dto::{BalanceChange, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, RunStatus, TokensChange, TokensDto},
+	dto::{BalanceChange, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, RunStatus, ScanState, TokensChange, TokensDto},
 };
 use sa_auth::{Members, Permission, PermissionSet, Tokens};
+use sa_ui::TokenCost;
 use wasm_bindgen::{JsCast, prelude::*};
 
 const TAG: &str = "mfe-review-archive-dashboard";
@@ -535,6 +536,26 @@ fn Workspace(view: Route) -> Element {
 			client.overview().await.map_err(shown)
 		}
 	});
+	// while a scan is queued or walking, its card and the balance it charges are read again
+	use_future(move || async move {
+		let Refresh(mut refresh) = refresh;
+		loop {
+			let ms = 2000;
+			wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |done, _| {
+				web_sys::window()
+					.expect("runs in a page")
+					.set_timeout_with_callback_and_timeout_and_arguments_0(&done, ms)
+					.expect("setTimeout takes a function");
+			}))
+			.await
+			.expect("a timer never rejects");
+			if let Some(Ok(gmails)) = &*overview.peek()
+				&& gmails.iter().flat_map(|g| &g.locations).any(|l| l.scan.is_some())
+			{
+				refresh += 1;
+			}
+		}
+	});
 	// `/me` is the caller whoever they act as: who a member tab is, and their balance, are read
 	// off the members list
 	let unknown = tr.clone();
@@ -768,6 +789,12 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 		None => ("bg-ink-soft", "never scanned"),
 	};
 	let last = loc.last_run_at.as_deref().map(|t| format!("last run {} · ", ago(t))).unwrap_or_default();
+	let (dot, scan) = match &loc.scan {
+		Some(ScanState::Queued { since, ahead: 0 }) => ("bg-accent-warn", format!("queued · next · since {} · ", ago(since))),
+		Some(ScanState::Queued { since, ahead }) => ("bg-accent-warn", format!("queued · {ahead} ahead · since {} · ", ago(since))),
+		Some(ScanState::Running { since }) => ("animate-pulse bg-positive", format!("scanning · started {} · ", ago(since))),
+		None => (dot, String::new()),
+	};
 	let target = loc.target.id;
 	rsx! {
 		div { class: "relative",
@@ -815,7 +842,7 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 				}
 				div { class: "flex items-center gap-2 border-t border-border pt-3 text-[11px] text-ink-soft",
 					span { class: "size-1.5 rounded-full {dot}" }
-					"{last}{status}"
+					"{scan}{last}{status}"
 				}
 			}
 		}
@@ -825,14 +852,21 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 			disabled: !gmail_on,
 			on_checked_change: move |on: bool| act(move |c| async move { c.set_track_enabled(gmail, target, on).await }),
 		}
-		Button {
-			class: "absolute right-2 bottom-2",
-			variant: ButtonVariant::Ghost,
-			size: Size::Sm,
-			icon: true,
-			r#type: "button",
-			onclick: move |_| act(move |c| async move { c.scan_tracked(gmail, target).await.map(drop) }),
-			span { title: "scan now, ahead of schedule", "↻" }
+		div { class: "absolute right-2 bottom-2",
+			if loc.scan.is_some() {
+				Button { variant: ButtonVariant::Ghost, size: Size::Sm, icon: true, r#type: "button", disabled: true, Spinner {} }
+			} else {
+				TokenCost { tokens: loc.scan_cost,
+					Button {
+						variant: ButtonVariant::Ghost,
+						size: Size::Sm,
+						icon: true,
+						r#type: "button",
+						onclick: move |_| act(move |c| async move { c.scan_tracked(gmail, target).await.map(drop) }),
+						span { title: "scan now, on top of the schedule", "↻" }
+					}
+				}
+			}
 		}
 		}
 	}

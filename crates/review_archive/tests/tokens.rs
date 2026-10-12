@@ -2,15 +2,15 @@
 //! charges split across trackers with the run's end, and no walk for a place whose trackers
 //! are out of tokens, nor past the account's hourly limit. What a member paid adds up by day.
 
-use std::path::Path;
+use std::{path::Path, sync::Mutex};
 
 use jiff::{SignedDuration, Timestamp};
 use review_archive::{
 	Archive,
 	config::Config,
 	core::{
-		Coverage, Known, PersonId, Scan, Target, TargetId,
-		dto::{BalanceChange, NewGmail, NewTarget, TokenKind, UsageDay},
+		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId,
+		dto::{BalanceChange, LocationSummary, NewGmail, NewTarget, ScanState, TokenKind, UsageDay},
 		schedule::Schedule,
 		tokens::{Meter, Tokens},
 	},
@@ -25,6 +25,50 @@ use review_archive::{
 
 /// A walk that costs `.0` tokens.
 struct Spends(i64);
+
+/// A walk Google stops.
+struct Fails;
+
+impl ReviewSource for Fails {
+	async fn scan(&self, _: &Target, _: &Known, _: &mut Meter) -> eyre::Result<Scan> {
+		eyre::bail!("blocked")
+	}
+}
+
+/// A walk that reads `member`'s card for its place while it goes.
+struct Peeks<'a> {
+	archive: &'a Archive,
+	member: PersonId,
+	seen: Mutex<Option<ScanState>>,
+}
+
+impl ReviewSource for Peeks<'_> {
+	async fn scan(&self, target: &Target, known: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
+		*self.seen.lock().unwrap() = card(self.archive, self.member, target.id).await.scan;
+		Spends(0).scan(target, known, meter).await
+	}
+}
+
+async fn card(archive: &Archive, member: PersonId, t: TargetId) -> LocationSummary {
+	archive
+		.overview(member)
+		.await
+		.unwrap()
+		.into_iter()
+		.flat_map(|g| g.locations)
+		.find(|l| l.target.id == t.0)
+		.unwrap()
+}
+
+fn recorder<'a>(archive: &'a Archive, blobs: &'a BlobStore) -> Recorder<'a> {
+	Recorder {
+		store: archive.store().unwrap(),
+		blobs,
+		now: Timestamp::now,
+		schedule: Box::leak(Box::default()),
+		tokens: Box::leak(Box::default()),
+	}
+}
 
 impl ReviewSource for Spends {
 	async fn scan(&self, _: &Target, _: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
@@ -71,10 +115,11 @@ async fn person(store: &Store, sub: &str) -> PersonId {
 	}
 }
 
-/// `member` tracks `t` under a gmail of their own.
-async fn tracks(archive: &Archive, member: PersonId, t: TargetId) {
+/// `member` tracks `t` under a gmail of their own; returns the gmail.
+async fn tracks(archive: &Archive, member: PersonId, t: TargetId) -> i64 {
 	let g = archive.add_gmail(member, &NewGmail { gmail: format!("{member}.ops") }).await.unwrap();
 	archive.assign(g.id, t).await.unwrap();
+	g.id
 }
 
 async fn set(archive: &Archive, member: PersonId, n: i64) {
@@ -130,17 +175,9 @@ async fn trackers_split_a_walk_within_their_balances() {
 	}
 
 	// the operator's own look is no member's to pay for
-	let store = archive.store().unwrap();
 	let job = archive.enqueue_scan(t.id).await.unwrap();
-	store.claim_job(Timestamp::now()).await.unwrap().unwrap();
-	let rec = Recorder {
-		store,
-		blobs: &BlobStore::new(dir.path().join("blobs")),
-		now: Timestamp::now,
-		schedule: &Schedule::default(),
-		tokens: &Tokens::default(),
-	};
-	rec.record(&Spends(10), &t, Some(job)).await.unwrap();
+	archive.store().unwrap().claim_job(Timestamp::now()).await.unwrap().unwrap();
+	recorder(&archive, &BlobStore::new(dir.path().join("blobs"))).record(&Spends(10), &t, Some(job)).await.unwrap();
 	assert_eq!(archive.tokens(rich).await.unwrap().balance, 85);
 }
 
@@ -238,4 +275,89 @@ async fn usage_sums_a_members_own_charges_by_utc_day() {
 	);
 	assert_eq!(usage.places_tracked, 2);
 	assert_eq!(store.usage(other, "2026-10-06T08:00:00Z".parse().unwrap()).await.unwrap().places_tracked, 1);
+}
+
+#[tokio::test]
+async fn a_scan_a_member_asks_for_is_theirs_alone_to_pay() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let t = target(&archive, "ChIJtokenstest00000asked").await;
+	let a = person(archive.store().unwrap(), "a").await;
+	let b = person(archive.store().unwrap(), "b").await;
+	let g = tracks(&archive, a, t.id).await;
+	tracks(&archive, b, t.id).await;
+	set(&archive, a, 100).await;
+	set(&archive, b, 100).await;
+
+	let job = archive.scan_tracked(a, g, t.id).await.unwrap();
+	assert_eq!(archive.store().unwrap().claim_job(Timestamp::now()).await.unwrap().unwrap().id, job);
+	let blobs = BlobStore::new(dir.path().join("blobs"));
+	recorder(&archive, &blobs).record(&Spends(10), &t, Some(job)).await.unwrap();
+	assert_eq!(archive.tokens(a).await.unwrap().balance, 90);
+	assert_eq!(archive.tokens(b).await.unwrap().balance, 100);
+}
+
+#[tokio::test]
+async fn a_member_out_of_tokens_cannot_ask_for_a_scan() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let t = target(&archive, "ChIJtokenstest000000poor").await;
+	let broke = person(archive.store().unwrap(), "broke").await;
+	let g = tracks(&archive, broke, t.id).await;
+	set(&archive, broke, 0).await;
+	let refused = archive.scan_tracked(broke, g, t.id).await.unwrap_err();
+	assert!(matches!(refused.downcast_ref::<Rejected>(), Some(Rejected::Busy(_))), "{refused:#}");
+}
+
+#[tokio::test]
+async fn a_scan_a_member_asks_for_leaves_the_schedule_alone() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let t = target(&archive, "ChIJtokenstest00schedule").await;
+	let m = person(archive.store().unwrap(), "m").await;
+	let g = tracks(&archive, m, t.id).await;
+	set(&archive, m, 100).await;
+	archive.record(&Spends(5), &t).await.unwrap();
+	let due = archive.due_at(&t).await.unwrap().unwrap();
+
+	let blobs = BlobStore::new(dir.path().join("blobs"));
+	let store = archive.store().unwrap();
+	let job = archive.scan_tracked(m, g, t.id).await.unwrap();
+	store.claim_job(Timestamp::now()).await.unwrap().unwrap();
+	recorder(&archive, &blobs).record(&Spends(5), &t, Some(job)).await.unwrap();
+	assert_eq!(archive.due_at(&t).await.unwrap(), Some(due), "a scan-now is not the schedule's run");
+
+	let job = archive.scan_tracked(m, g, t.id).await.unwrap();
+	store.claim_job(Timestamp::now()).await.unwrap().unwrap();
+	recorder(&archive, &blobs).record(&Fails, &t, Some(job)).await.unwrap();
+	assert_eq!(archive.due_at(&t).await.unwrap(), Some(due), "nor is its failure the schedule's backoff");
+}
+
+#[tokio::test]
+async fn the_card_shows_a_scan_queued_then_running_then_gone() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let t = target(&archive, "ChIJtokenstest00000card1").await;
+	let other = target(&archive, "ChIJtokenstest00000card2").await;
+	let m = person(archive.store().unwrap(), "m").await;
+	let g = tracks(&archive, m, t.id).await;
+	set(&archive, m, 100).await;
+	assert_eq!(card(&archive, m, t.id).await.scan, None);
+
+	archive.enqueue_scan(other.id).await.unwrap();
+	let job = archive.scan_tracked(m, g, t.id).await.unwrap();
+	assert!(matches!(card(&archive, m, t.id).await.scan, Some(ScanState::Queued { ahead: 1, .. })));
+
+	let store = archive.store().unwrap();
+	store.claim_job(Timestamp::now()).await.unwrap().unwrap();
+	assert_eq!(store.claim_job(Timestamp::now()).await.unwrap().unwrap().id, job);
+	let peek = Peeks {
+		archive: &archive,
+		member: m,
+		seen: Mutex::new(None),
+	};
+	let blobs = BlobStore::new(dir.path().join("blobs"));
+	recorder(&archive, &blobs).record(&peek, &t, Some(job)).await.unwrap();
+	assert!(matches!(*peek.seen.lock().unwrap(), Some(ScanState::Running { .. })));
+	assert_eq!(card(&archive, m, t.id).await.scan, None);
 }

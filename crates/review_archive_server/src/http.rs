@@ -508,7 +508,7 @@ async fn set_track_enabled(State(s): State<AppState>, Member(m): Member, Path((g
 	Ok(StatusCode::NO_CONTENT)
 }
 
-/// Scans a tracked place now, ahead of its schedule; its tracking members pay as for any scan.
+/// Queues a scan of a tracked place, on top of its schedule; the member who asks pays for it.
 #[utoipa::path(post, path = "/me/gmails/{gmail}/tracks/{target}/scan", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)),
 	responses((status = 202, body = JobAccepted), (status = 404, body = ErrorBody), (status = 429, body = ErrorBody)))]
 async fn scan_tracked(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>) -> ApiResult<(StatusCode, Json<JobAccepted>)> {

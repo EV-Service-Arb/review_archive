@@ -4,7 +4,11 @@
 use jiff::Timestamp;
 use review_archive_core::{
 	GbpLocation, PersonId, Rejected, ReviewId, TargetId, check_lang,
-	dto::{Board, GmailDto, GmailOverview, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, ReinstatementDto, TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto, Usage},
+	dto::{
+		Board, GmailDto, GmailOverview, JobKind, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, ReinstatementDto, TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto,
+		Usage,
+	},
+	maps::cost,
 };
 use tg_types::TelegramDestination;
 
@@ -106,10 +110,20 @@ impl Archive {
 		self.store()?.overview(member, Timestamp::now(), &self.inner.tokens).await
 	}
 
-	/// Queues a scan of a place the member's gmail tracks, ahead of its schedule. Returns the job id.
+	/// Queues a scan of a place the member's gmail tracks, on top of its schedule; the member
+	/// pays for it. Returns the job id.
 	pub async fn scan_tracked(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<i64> {
-		self.store()?.check_track(member, gmail, target).await?;
-		self.enqueue_scan(target).await
+		let store = self.store()?;
+		store.check_track(member, gmail, target).await?;
+		let now = Timestamp::now();
+		#[cfg(feature = "maps")]
+		if let Some(why) = self.closed(store.target(target).await?.kind, now).await? {
+			return Err(Rejected::Busy(why).into());
+		}
+		if store.held_together(&[member], now, &self.inner.tokens).await? < cost::FIRST_SCREEN {
+			return Err(Rejected::Busy("you are out of tokens".into()).into());
+		}
+		store.enqueue_job(JobKind::Scan, target, None, Some(member), self.inner.defaults.max_queued_jobs, now).await
 	}
 
 	/// A tracked place's reviews: snapshotted, removed, reinstating.

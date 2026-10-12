@@ -237,8 +237,8 @@ async fn jobs_are_taken_oldest_first_and_a_crash_fails_the_running_one() {
 	let store = Store::open(&dir.path().join("db.sqlite")).await.unwrap();
 	let t = target(&store).await;
 	let now = Timestamp::now();
-	let a = store.enqueue_job(JobKind::Scan, t.id, None, 20, now).await.unwrap();
-	let b = store.enqueue_job(JobKind::Capture, t.id, None, 20, now).await.unwrap();
+	let a = store.enqueue_job(JobKind::Scan, t.id, None, None, 20, now).await.unwrap();
+	let b = store.enqueue_job(JobKind::Capture, t.id, None, None, 20, now).await.unwrap();
 
 	let claimed = store.claim_job(now).await.unwrap().unwrap();
 	assert_eq!((claimed.id, claimed.kind), (a, JobKind::Scan));

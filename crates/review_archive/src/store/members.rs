@@ -6,8 +6,9 @@ use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, Target, TargetId,
-	dto::{Board, BoardCard, GmailDto, GmailOverview, LocationSummary, NewTgChannel, PostDto, ReinstatementDto, ReviewDto, TgChannelDto},
+	dto::{Board, BoardCard, GmailDto, GmailOverview, LocationSummary, NewTgChannel, PostDto, ReinstatementDto, ReviewDto, ScanState, TgChannelDto},
 	fmt_ts,
+	maps::cost,
 	tokens::Tokens,
 };
 use sqlx::FromRow;
@@ -53,6 +54,10 @@ struct LocationRow {
 	reinstating: i64,
 	last_run_at: Option<String>,
 	last_run_status: Option<String>,
+	running_since: Option<String>,
+	queued_since: Option<String>,
+	queued_ahead: i64,
+	scan_cost: Option<i64>,
 }
 
 #[derive(FromRow)]
@@ -215,7 +220,13 @@ impl Store {
 			          WHERE r.target_id = t.id AND r.gone_at IS NOT NULL AND x.managing_gmail_id = k.managing_gmail_id
 			            AND x.withdrawn_at IS NULL AND x.reinstated_at IS NULL) AS reinstating,
 			        (SELECT finished_at FROM runs WHERE target_id = t.id AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS last_run_at,
-			        (SELECT status FROM runs WHERE target_id = t.id AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS last_run_status
+			        (SELECT status FROM runs WHERE target_id = t.id AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS last_run_status,
+			        COALESCE((SELECT started_at FROM runs WHERE target_id = t.id AND finished_at IS NULL ORDER BY id DESC LIMIT 1),
+			                 (SELECT started_at FROM jobs WHERE target_id = t.id AND status = 'running' ORDER BY id DESC LIMIT 1)) AS running_since,
+			        (SELECT created_at FROM jobs WHERE target_id = t.id AND status = 'queued' AND kind = 'scan' ORDER BY id LIMIT 1) AS queued_since,
+			        (SELECT COUNT(*) FROM jobs a WHERE a.status = 'queued'
+			          AND a.id < (SELECT id FROM jobs WHERE target_id = t.id AND status = 'queued' AND kind = 'scan' ORDER BY id LIMIT 1)) AS queued_ahead,
+			        (SELECT tokens FROM runs WHERE target_id = t.id AND ad_hoc = 0 AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS scan_cost
 			 FROM tracks k
 			 JOIN managing_gmails g ON g.id = k.managing_gmail_id
 			 JOIN targets t ON t.id = k.target_id
@@ -264,6 +275,12 @@ impl Store {
 				last_run_at: r.last_run_at,
 				last_run_status: status,
 				held,
+				scan: match (r.running_since, r.queued_since) {
+					(Some(since), _) => Some(ScanState::Running { since }),
+					(None, Some(since)) => Some(ScanState::Queued { since, ahead: r.queued_ahead }),
+					(None, None) => None,
+				},
+				scan_cost: r.scan_cost.unwrap_or(cost::FIRST_SCREEN), // a place never walked costs at least its first screen
 			});
 		}
 		Ok(out)

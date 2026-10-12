@@ -636,6 +636,29 @@ pub struct LocationSummary {
 	pub last_run_status: Option<RunStatus>,
 	/// Not scanned: every member tracking it is out of tokens.
 	pub held: bool,
+	/// A scan of it under way or waiting.
+	pub scan: Option<ScanState>,
+	/// What its latest scheduled walk spent; a first screen's worth for a place never walked.
+	pub scan_cost: i64,
+}
+
+/// A scan of a place under way or waiting.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum ScanState {
+	/// Waiting for the browser.
+	Queued {
+		/// When it was asked for.
+		since: String,
+		/// Jobs before it in the queue.
+		ahead: i64,
+	},
+	/// Walking.
+	Running {
+		/// When it started.
+		since: String,
+	},
 }
 
 /// A post by a place's owner.

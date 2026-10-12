@@ -56,11 +56,10 @@ impl Recorder<'_> {
 	}
 
 	/// [`Self::run`], with the run's id and the reviews it listed. With `job`, that job ends
-	/// with the run, in the same transaction. The members tracking the target pay for its
-	/// walk, in that transaction too — but not for a job or an ad-hoc look, which are the operator's.
+	/// with the run, in the same transaction. Who pays, in that transaction too, is [`Store::bill`]'s.
 	pub async fn record<S: ReviewSource>(&self, source: &S, target: &Target, job: Option<i64>) -> eyre::Result<Recorded> {
 		let known = self.store.known(target.id).await?;
-		let bill = self.store.bill(target.id, job.is_some() || source.ad_hoc(), (self.now)(), self.tokens).await?;
+		let bill = self.store.bill(target.id, job, source.ad_hoc(), (self.now)(), self.tokens).await?;
 		let mut meter = Meter::new(bill.allowance);
 		let run = self.store.start_run(target.id, source.ad_hoc(), (self.now)()).await?;
 		let mut summary = RunSummary {

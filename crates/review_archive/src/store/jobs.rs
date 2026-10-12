@@ -4,7 +4,7 @@
 use eyre::WrapErr;
 use jiff::Timestamp;
 use review_archive_core::{
-	Rejected, ReviewId, TargetId,
+	PersonId, Rejected, ReviewId, TargetId,
 	dto::{CaptureLimits, JobDto, JobKind, JobStatus},
 	fmt_ts,
 };
@@ -55,8 +55,8 @@ impl JobRow {
 impl Store {
 	/// Queues a job; the worker takes queued jobs oldest first, ahead of scheduled scans. The
 	/// same job already queued is not queued twice: its id comes back. With `max_queued`
-	/// jobs waiting, [`Rejected::Busy`].
-	pub async fn enqueue_job(&self, kind: JobKind, target: TargetId, limits: Option<&CaptureLimits>, max_queued: usize, now: Timestamp) -> eyre::Result<i64> {
+	/// jobs waiting, [`Rejected::Busy`]. `requested_by`: the member who pays for it; none for the operator's.
+	pub async fn enqueue_job(&self, kind: JobKind, target: TargetId, limits: Option<&CaptureLimits>, requested_by: Option<PersonId>, max_queued: usize, now: Timestamp) -> eyre::Result<i64> {
 		let params = limits.map(serde_json::to_string).transpose()?;
 		let mut tx = self.write().await?;
 		let same: Option<i64> = sqlx::query_scalar("SELECT id FROM jobs WHERE status = 'queued' AND kind = ? AND target_id = ? AND params IS ? ORDER BY id LIMIT 1")
@@ -76,10 +76,11 @@ impl Store {
 		if usize::try_from(queued).is_ok_and(|q| q >= max_queued) {
 			return Err(Rejected::Busy(format!("{queued} jobs are already waiting for the browser; try again later")).into());
 		}
-		let id = sqlx::query_scalar("INSERT INTO jobs (kind, target_id, params, status, created_at) VALUES (?, ?, ?, 'queued', ?) RETURNING id")
+		let id = sqlx::query_scalar("INSERT INTO jobs (kind, target_id, params, requested_by, status, created_at) VALUES (?, ?, ?, ?, 'queued', ?) RETURNING id")
 			.bind(kind.as_ref())
 			.bind(target.0)
 			.bind(params)
+			.bind(requested_by.map(|p| p.0))
 			.bind(fmt_ts(now))
 			.fetch_one(&mut *tx)
 			.await

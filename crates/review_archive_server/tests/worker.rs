@@ -70,9 +70,9 @@ async fn a_restart_fails_the_interrupted_job_and_queued_jobs_go_before_due_targe
 	let queued_for = gbp_target(&archive, true).await;
 
 	// a previous process took this job and died
-	let interrupted = store.enqueue_job(JobKind::Scan, queued_for, None, 20, Timestamp::now()).await.unwrap();
+	let interrupted = store.enqueue_job(JobKind::Scan, queued_for, None, None, 20, Timestamp::now()).await.unwrap();
 	assert_eq!(store.claim_job(Timestamp::now()).await.unwrap().unwrap().id, interrupted);
-	let queued = store.enqueue_job(JobKind::Scan, queued_for, None, 20, Timestamp::now()).await.unwrap();
+	let queued = store.enqueue_job(JobKind::Scan, queued_for, None, None, 20, Timestamp::now()).await.unwrap();
 
 	let signals = Signals::default();
 	let (stop, stopped) = watch::channel(false);

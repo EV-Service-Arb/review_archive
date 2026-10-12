@@ -406,8 +406,13 @@ impl Archive {
 		if let Some(why) = self.closed(target.kind, Timestamp::now()).await? {
 			return Err(Rejected::Busy(why).into());
 		}
-		if target.kind == TargetKind::Maps && job.is_none() && self.store()?.held(target.id, Timestamp::now(), &self.inner.tokens).await? {
-			return Err(Rejected::Busy(format!("target {} is held: the members tracking it are out of tokens", target.id)).into());
+		if target.kind == TargetKind::Maps {
+			let store = self.store()?;
+			let now = Timestamp::now();
+			let payers = store.bill(target.id, job, false, now, &self.inner.tokens).await?.payers;
+			if !payers.is_empty() && store.held_together(&payers, now, &self.inner.tokens).await? < review_archive_core::maps::cost::FIRST_SCREEN {
+				return Err(Rejected::Busy(format!("target {} is held: the members paying for it are out of tokens", target.id)).into());
+			}
 		}
 		self.inner.browser.claim().await?;
 		match target.kind {
@@ -551,7 +556,7 @@ impl Archive {
 		if let Some(why) = self.closed(target.kind, Timestamp::now()).await? {
 			return Err(Rejected::Busy(why).into());
 		}
-		store.enqueue_job(JobKind::Scan, id, None, self.inner.defaults.max_queued_jobs, Timestamp::now()).await
+		store.enqueue_job(JobKind::Scan, id, None, None, self.inner.defaults.max_queued_jobs, Timestamp::now()).await
 	}
 
 	/// Queues an ad-hoc capture of a place. Nothing is registered: the results are kept
@@ -583,7 +588,7 @@ impl Archive {
 			}
 		};
 		store
-			.enqueue_job(JobKind::Capture, target.id, Some(&req.limits), self.inner.defaults.max_queued_jobs, Timestamp::now())
+			.enqueue_job(JobKind::Capture, target.id, Some(&req.limits), None, self.inner.defaults.max_queued_jobs, Timestamp::now())
 			.await
 	}
 

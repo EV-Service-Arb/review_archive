@@ -455,14 +455,14 @@ async fn the_job_queue_is_bounded_and_deduplicated() {
 
 	let e = env().await;
 	let at = now();
-	let scan = e.store.enqueue_job(JobKind::Scan, e.target.id, None, 2, at).await.unwrap();
-	assert_eq!(e.store.enqueue_job(JobKind::Scan, e.target.id, None, 2, at).await.unwrap(), scan);
+	let scan = e.store.enqueue_job(JobKind::Scan, e.target.id, None, None, 2, at).await.unwrap();
+	assert_eq!(e.store.enqueue_job(JobKind::Scan, e.target.id, None, None, 2, at).await.unwrap(), scan);
 	let five = CaptureLimits {
 		max_reviews: Some(5),
 		..Default::default()
 	};
-	e.store.enqueue_job(JobKind::Capture, e.target.id, Some(&five), 2, at).await.unwrap();
-	let busy = e.store.enqueue_job(JobKind::Capture, e.target.id, None, 2, at).await.unwrap_err();
+	e.store.enqueue_job(JobKind::Capture, e.target.id, Some(&five), None, 2, at).await.unwrap();
+	let busy = e.store.enqueue_job(JobKind::Capture, e.target.id, None, None, 2, at).await.unwrap_err();
 	assert!(matches!(busy.downcast_ref::<Rejected>(), Some(Rejected::Busy(_))), "{busy:#}");
 }
 
@@ -476,7 +476,7 @@ async fn a_capture_of_named_reviews_returns_those() {
 		review_ids: Some(vec!["b".into()]),
 		..Default::default()
 	};
-	let id = e.store.enqueue_job(JobKind::Capture, e.target.id, Some(&only_b), 20, now()).await.unwrap();
+	let id = e.store.enqueue_job(JobKind::Capture, e.target.id, Some(&only_b), None, 20, now()).await.unwrap();
 	e.store.claim_job(now()).await.unwrap();
 	let src = Scripted(Mutex::new(scan(vec![review("a", 5, "x", None, false), review("b", 4, "y", None, false)], Coverage::DownTo(None))));
 	e.archive().record(&AdHoc(&src), &e.target, Some(id)).await.unwrap();

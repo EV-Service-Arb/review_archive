@@ -142,7 +142,8 @@ with its own platform implements `sources::ReviewSource` and records through
   queued twice. Jobs live in SQLite; a restart keeps the queued ones and fails the job and the runs that were running — a
   hand-run `scan` still going then included, until it records how it really ended. An ad-hoc capture is stored under the place's `maps` target for its
   language, or a new disabled one: nothing captured is lost, nothing extra gets scheduled, and
-  its run does not count for the target's schedule.
+  its run does not count for the target's schedule. No job's run does: a scan a member asks
+  for is extra, and never moves the schedule or adds to its backoff.
 - **Public facts are shared; per-member state only annotates.** Targets, reviews, versions,
   captures and blobs belong to no one: a place tracked by several members is one target,
   scanned once. What is a member's — gmails, tracks, reinstatements, Telegram channels —
@@ -153,7 +154,8 @@ with its own platform implements `sources::ReviewSource` and records through
   walk is metered by `maps::cost` and stops at what its payers hold and the account's hour
   (`tokens.per_hour`) leaves; it is charged in the run's end transaction, a failed walk
   included — Google saw it all the same. A tracked place whose members are out of tokens is
-  not walked.
+  not walked. A scan a member asks for is theirs alone to pay; the operator's jobs and
+  ad-hoc looks are no one's.
 - **Events are an outbox.** `review.new/changed/gone/reappeared` and `run.failed` are written
   to `webhook_deliveries` in the same transaction as what they report — a row per hook, and
   per Telegram channel of a member tracking the target — and delivered from there, retried

@@ -529,13 +529,17 @@ impl Store {
 	}
 
 	/// The last finished scheduled run and how many failed in a row up to it. Ad-hoc
-	/// captures are not the target's schedule and do not count.
+	/// captures and the runs of jobs are not the target's schedule and do not count.
 	pub async fn last_run(&self, target: TargetId) -> eyre::Result<Option<LastRun>> {
-		let rows: Vec<(String, String)> = sqlx::query_as("SELECT finished_at, status FROM runs WHERE target_id = ? AND ad_hoc = 0 AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 64")
-			.bind(target.0)
-			.fetch_all(&self.pool)
-			.await
-			.wrap_err("loading run history")?;
+		let rows: Vec<(String, String)> = sqlx::query_as(
+			"SELECT finished_at, status FROM runs
+			 WHERE target_id = ? AND ad_hoc = 0 AND finished_at IS NOT NULL AND id NOT IN (SELECT run_id FROM jobs WHERE run_id IS NOT NULL)
+			 ORDER BY id DESC LIMIT 64",
+		)
+		.bind(target.0)
+		.fetch_all(&self.pool)
+		.await
+		.wrap_err("loading run history")?;
 		let Some((finished_at, _)) = rows.first() else {
 			return Ok(None);
 		};
@@ -699,6 +703,11 @@ impl Store {
 	pub async fn fail_interrupted(&self, now: Timestamp) -> eyre::Result<u64> {
 		const WHY: &str = "interrupted: the service stopped while it ran";
 		let mut tx = self.write().await?;
+		// the one browser runs one scan at a time, so a running job's run is its target's unfinished one; linked, it stays off the schedule
+		sqlx::query("UPDATE jobs SET run_id = (SELECT id FROM runs WHERE target_id = jobs.target_id AND finished_at IS NULL) WHERE status = 'running'")
+			.execute(&mut *tx)
+			.await
+			.wrap_err("linking interrupted jobs to their runs")?;
 		sqlx::query("UPDATE runs SET status = 'failed', finished_at = ?, error = ? WHERE finished_at IS NULL")
 			.bind(fmt_ts(now))
 			.bind(WHY)
