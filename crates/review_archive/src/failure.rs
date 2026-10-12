@@ -30,7 +30,7 @@ pub fn remedy(e: &eyre::Report) -> Remedy {
 			SessionError::Launch { .. } => Remedy::Fatal,
 			SessionError::LaunchTimeout { .. } => Remedy::Retry,
 			SessionError::Browser(e) => match &*e.kind {
-				browser_manipulation::ErrorKind::Launch(source) if launch_is_transient(&source.to_string()) => Remedy::Retry,
+				browser_manipulation::ErrorKind::Launch(source) if launch_is_transient(source) => Remedy::Retry,
 				browser_manipulation::ErrorKind::Launch(_) | browser_manipulation::ErrorKind::DriverMismatch { .. } | browser_manipulation::ErrorKind::ProfileInUse(_) => Remedy::Fatal,
 				_ => Remedy::Retry,
 			},
@@ -44,16 +44,22 @@ pub fn remedy(e: &eyre::Report) -> Remedy {
 	Remedy::Retry
 }
 
-/// Whether a failed Chromium start (the text of playwright-rs's error) says the host was too
-/// slow rather than the setup broken. `playwright_rs::Error` is `#[non_exhaustive]` and not
-/// reachable from here, so this goes by its `Display`, and by the two forms a timeout takes:
-/// the client's own `Timeout: ...` (the driver's 30 s initialization), and the driver's
-/// `Timeout <n>ms exceeded` (Chromium's launch) as a protocol error. Everything else — a
-/// missing driver or executable, a dead pipe, a version mismatch — stays fatal: restarting the
-/// process is the only thing that tells a person the setup is wrong.
+/// Whether a failed Chromium start says the host was too slow rather than the setup broken:
+/// the client's own `Timeout` (the driver's 30 s initialization), or the driver's
+/// `Timeout <n>ms exceeded` (Chromium's launch). The driver reports the second as a
+/// `ProtocolError` that is only a message, so that one is told by its text. Everything else —
+/// a missing driver or executable, a dead pipe — is fatal, as is an error kind that a later
+/// playwright-rs adds: restarting the process is the only thing that tells a person the setup
+/// is wrong.
 #[cfg(feature = "maps")]
-pub(crate) fn launch_is_transient(source: &str) -> bool {
-	source.starts_with("Timeout: ") || (source.starts_with("Protocol error: ") && source.contains("Timeout ") && source.contains("ms exceeded"))
+pub(crate) fn launch_is_transient(source: &playwright_rs::Error) -> bool {
+	use playwright_rs::Error;
+	match source {
+		Error::Timeout(_) => true,
+		Error::ProtocolError(message) => message.contains("Timeout ") && message.contains("ms exceeded"),
+		// the rest of a launch's failures are permanent; `non_exhaustive` needs the arm anyway
+		_ => false,
+	}
 }
 
 /// `e` for a text sink (the log, a run's `error`, a webhook): the chain on the first line,
@@ -270,19 +276,42 @@ mod tests {
 
 	#[test]
 	fn only_timeouts_are_transient_launch_failures() {
-		assert!(launch_is_transient("Timeout: Playwright initialization timeout after 30 seconds"));
-		assert!(launch_is_transient(
-			"Protocol error: browserType.launchPersistentContext: Timeout 30000ms exceeded.\n=========================== logs ===========================\n"
-		));
-		for permanent in [
-			"Playwright driver override is misconfigured: PLAYWRIGHT_CLI_JS /x does not exist",
-			"Failed to launch Playwright server: spawn node ENOENT. Check that Node.js is installed.",
-			"Browser 'chromium' is not installed.\n\nExecutable doesn't exist at /usr/bin/chromium",
-			"Protocol error: browserType.launchPersistentContext: Failed to launch: spawn ENOMEM",
-			"Transport error: broken pipe",
-			"Navigation timeout after 30000ms navigating to 'https://x'",
+		use playwright_rs::Error;
+
+		let driver_timeout = "browserType.launchPersistentContext: Timeout 30000ms exceeded.\n=========================== logs ===========================\n";
+		for transient in [
+			Error::Timeout("Playwright initialization timeout after 30 seconds".to_owned()),
+			Error::ProtocolError(driver_timeout.to_owned()),
 		] {
-			assert!(!launch_is_transient(permanent), "{permanent}");
+			assert!(launch_is_transient(&transient), "{transient}");
+			assert_eq!(remedy(&browser(ErrorKind::Launch(transient))), Remedy::Retry);
+		}
+
+		let io = || std::io::Error::other("gone");
+		for permanent in [
+			Error::ServerNotFound,
+			Error::LaunchFailed("spawn node ENOENT".to_owned()),
+			Error::DriverMisconfigured("PLAYWRIGHT_CLI_JS /x does not exist".to_owned()),
+			Error::BrowserNotInstalled {
+				browser_name: "chromium".to_owned(),
+				message: "Executable doesn't exist at /usr/bin/chromium".to_owned(),
+				playwright_version: "1.0.0".to_owned(),
+			},
+			Error::ProtocolError("browserType.launchPersistentContext: Failed to launch: spawn ENOMEM".to_owned()),
+			Error::ServerError("driver crashed".to_owned()),
+			Error::ConnectionFailed("refused".to_owned()),
+			Error::TransportError("broken pipe".to_owned()),
+			Error::ChannelClosed,
+			Error::Io(io()),
+			Error::NavigationTimeout {
+				url: "https://x".to_owned(),
+				duration_ms: 30_000,
+			},
+			Error::AssertionTimeout("never visible".to_owned()),
+			Error::InvalidArgument("viewport".to_owned()),
+		] {
+			assert!(!launch_is_transient(&permanent), "{permanent}");
+			assert_eq!(remedy(&browser(ErrorKind::Launch(permanent))), Remedy::Fatal);
 		}
 	}
 

@@ -96,7 +96,7 @@ async fn launch_failure(e: browser_manipulation::Error, took: Duration) -> Sessi
 	let ErrorKind::Launch(source) = &*e.kind else { return e.into() };
 	let reason = source.to_string();
 	let host = host::Snapshot::capture().await.to_string();
-	let transient = launch_is_transient(&reason);
+	let transient = launch_is_transient(source);
 	tracing::warn!(took = ?took, limit = ?LAUNCH_LIMIT, transient, error = reason, host, "Chromium did not start");
 	match transient {
 		true => SessionError::new_launch_timeout(reason, took, LAUNCH_LIMIT, host),
