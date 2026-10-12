@@ -87,7 +87,11 @@ with its own platform implements `sources::ReviewSource` and records through
   archive; Maps halts until a restart, its profile signed in. A failed walk saves the
   page as `<data_dir>/artifacts/browser_captures/<UTC time>-<step>.{png,html}` (kept `browser.artifacts_retention`),
   and its error names them as `[<path>]`s — which is what the server's alerts attach, from
-  under `<data_dir>/artifacts/` only.
+  under `<data_dir>/artifacts/` only. A Chromium start that outran Playwright's 30 s is not
+  a walk's failure but the host's: the run fails as `launch_timeout` and the target's backoff
+  retries it. Once an hour it also saves the host's pressure and memory figures next to the
+  captures as `<UTC time>-launch.txt` (the newest 10 kept) and logs an error naming it, which
+  the alerts attach.
 - **A block pauses Maps, not a target.** Google flags the address, so a `blocked` or
   `limited_view` failure trips `maps_breaker` (SQLite, so a restart keeps it): no Maps walk
   for any target until its probe time (`schedule.backoff_base`, doubling to `schedule.backoff_cap`), then one probes; a walk that
