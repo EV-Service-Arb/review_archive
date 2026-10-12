@@ -1,7 +1,11 @@
 //! Driving a plain headless Chromium. No stealth, no fingerprint masking:
 //! the scanner is what it looks like, and a block from Google fails the run.
 
-use std::{collections::HashSet, path::Path, time::Duration};
+use std::{
+	collections::HashSet,
+	path::Path,
+	time::{Duration, Instant},
+};
 
 use browser_manipulation::{Browser, ErrorKind, Launch, Robot, Shot, Tab, Viewport};
 use eyre::WrapErr;
@@ -16,7 +20,8 @@ use review_archive_core::{
 };
 use serde::Serialize;
 
-use crate::{SessionError, config::BrowserConfig};
+use super::host;
+use crate::{SessionError, config::BrowserConfig, failure::launch_is_transient};
 
 /// The review list, open and ready to walk.
 #[derive(Debug)]
@@ -59,7 +64,11 @@ impl Session {
 				device_scale_factor: 2.0, // card PNGs are archived evidence; 1x is too blurry to read
 			}),
 		};
-		let browser = Browser::launch(launch, Robot, cfg.artifacts.clone()).await?;
+		let started = Instant::now();
+		let browser = match Browser::launch(launch, Robot, cfg.artifacts.clone()).await {
+			Ok(browser) => browser,
+			Err(e) => return Err(launch_failure(e, started.elapsed()).await),
+		};
 		Ok(Self { browser, cfg: cfg.clone() })
 	}
 
@@ -74,6 +83,24 @@ impl Session {
 			tab: self.browser.tab().await?,
 			cfg: &self.cfg,
 		})
+	}
+}
+
+/// How long Playwright gives a start: the driver's initialization in playwright-rs, and
+/// Chromium's launch in the driver, are both 30 s and neither is configurable from here.
+const LAUNCH_LIMIT: Duration = Duration::from_secs(30);
+
+/// Logs a failed start with what the host looked like, and turns a slow one into
+/// [`SessionError::LaunchTimeout`], which carries the same figures to the run's `error`.
+async fn launch_failure(e: browser_manipulation::Error, took: Duration) -> SessionError {
+	let ErrorKind::Launch(source) = &*e.kind else { return e.into() };
+	let reason = source.to_string();
+	let host = host::Snapshot::capture().await.to_string();
+	let transient = launch_is_transient(&reason);
+	tracing::warn!(took = ?took, limit = ?LAUNCH_LIMIT, transient, error = reason, host, "Chromium did not start");
+	match transient {
+		true => SessionError::new_launch_timeout(reason, took, LAUNCH_LIMIT, host),
+		false => e.into(),
 	}
 }
 

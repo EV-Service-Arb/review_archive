@@ -3,6 +3,7 @@
 //! A plain browser at a polite rate: no stealth, no fingerprint masking, no proxies. When
 //! Google does not serve the full page, the walk fails and says why.
 
+mod host;
 mod profile;
 mod session;
 
