@@ -307,6 +307,12 @@ impl Client {
 		Ok(())
 	}
 
+	/// `POST /me/gmails/{gmail}/tracks/{target}/scan`: scan a tracked place now. Returns the job id.
+	pub async fn scan_tracked(&self, gmail: i64, target: i64) -> Result<i64, Error> {
+		let accepted: JobAccepted = Self::json(self.request(Method::POST, &format!("me/gmails/{gmail}/tracks/{target}/scan"))?).await?;
+		Ok(accepted.job_id)
+	}
+
 	/// `GET /me/gmails/{gmail}/locations/{target}/board`.
 	pub async fn board(&self, gmail: i64, target: i64) -> Result<Board, Error> {
 		Self::json(self.request(Method::GET, &format!("me/gmails/{gmail}/locations/{target}/board"))?).await

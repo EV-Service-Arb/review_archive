@@ -106,6 +106,12 @@ impl Archive {
 		self.store()?.overview(member, Timestamp::now(), &self.inner.tokens).await
 	}
 
+	/// Queues a scan of a place the member's gmail tracks, ahead of its schedule. Returns the job id.
+	pub async fn scan_tracked(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<i64> {
+		self.store()?.check_track(member, gmail, target).await?;
+		self.enqueue_scan(target).await
+	}
+
 	/// A tracked place's reviews: snapshotted, removed, reinstating.
 	pub async fn board(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<Board> {
 		self.store()?.board(member, gmail, target).await

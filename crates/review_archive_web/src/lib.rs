@@ -825,6 +825,15 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 			disabled: !gmail_on,
 			on_checked_change: move |on: bool| act(move |c| async move { c.set_track_enabled(gmail, target, on).await }),
 		}
+		Button {
+			class: "absolute right-2 bottom-2",
+			variant: ButtonVariant::Ghost,
+			size: Size::Sm,
+			icon: true,
+			r#type: "button",
+			onclick: move |_| act(move |c| async move { c.scan_tracked(gmail, target).await.map(drop) }),
+			span { title: "scan now, ahead of schedule", "↻" }
+		}
 		}
 	}
 }

@@ -107,6 +107,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		.route("/me/gmails/{gmail}", axum::routing::delete(delete_gmail).patch(set_gmail_enabled))
 		.route("/me/gmails/{gmail}/tracks", post(track))
 		.route("/me/gmails/{gmail}/tracks/{target}", axum::routing::delete(untrack).patch(set_track_enabled))
+		.route("/me/gmails/{gmail}/tracks/{target}/scan", post(scan_tracked))
 		.route("/me/gmails/{gmail}/locations/{target}/board", get(board))
 		.route("/me/gmails/{gmail}/reinstatements/{review}", axum::routing::put(reinstate).delete(withdraw))
 		.route("/me/tg-channels", get(tg_channels).post(add_tg_channel))
@@ -505,6 +506,15 @@ async fn untrack(State(s): State<AppState>, Member(m): Member, Path((gmail, targ
 async fn set_track_enabled(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>, JsonBody(req): JsonBody<Switch>) -> ApiResult<StatusCode> {
 	s.archive.set_track_enabled(m, gmail, TargetId(target), req.enabled).await?;
 	Ok(StatusCode::NO_CONTENT)
+}
+
+/// Scans a tracked place now, ahead of its schedule; its tracking members pay as for any scan.
+#[utoipa::path(post, path = "/me/gmails/{gmail}/tracks/{target}/scan", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)),
+	responses((status = 202, body = JobAccepted), (status = 404, body = ErrorBody), (status = 429, body = ErrorBody)))]
+async fn scan_tracked(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>) -> ApiResult<(StatusCode, Json<JobAccepted>)> {
+	let job_id = s.archive.scan_tracked(m, gmail, TargetId(target)).await?;
+	s.signals.job_queued.notify_one();
+	Ok((StatusCode::ACCEPTED, Json(JobAccepted { job_id })))
 }
 
 /// A tracked place's reviews in three columns: snapshotted, removed, reinstating.

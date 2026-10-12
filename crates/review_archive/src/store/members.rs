@@ -428,7 +428,7 @@ impl Store {
 	}
 
 	/// [`Rejected::NotFound`] unless the member's gmail tracks the target.
-	async fn check_track(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<()> {
+	pub(crate) async fn check_track(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<()> {
 		let found: bool =
 			sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM tracks k JOIN managing_gmails g ON g.id = k.managing_gmail_id WHERE g.id = ? AND g.person_id = ? AND k.target_id = ?)")
 				.bind(gmail)
