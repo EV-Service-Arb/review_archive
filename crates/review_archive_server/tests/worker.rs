@@ -98,3 +98,32 @@ async fn a_restart_fails_the_interrupted_job_and_queued_jobs_go_before_due_targe
 	assert!(job.run.is_some(), "{job:?}");
 	assert!(due_runs.is_empty(), "the due target was scanned before the queued job: {due_runs:?}");
 }
+
+/// A browser that cannot be set up (here: no executable configured) is not a passing
+/// condition: the worker ends with the error so the process exits and the alert fires. A
+/// failure that does pass — like the missing GBP credentials above — never gets this far.
+#[tokio::test]
+async fn a_browser_that_cannot_be_set_up_ends_the_worker() {
+	let dir = TempDir::new("worker-fatal");
+	let archive = Archive::open(Config {
+		data_dir: Some(dir.0.clone()),
+		..Config::default()
+	})
+	.await
+	.unwrap();
+	let maps = NewTarget {
+		place: Some(PLACE.into()),
+		..Default::default()
+	};
+	archive.add_target(&maps).await.unwrap();
+
+	let signals = Signals::default();
+	let (_stop, stopped) = watch::channel(false);
+	let (cfg, schedule) = (WorkerConfig::default(), Schedule::default());
+	let ended = tokio::time::timeout(Duration::from_secs(20), run(&archive, &signals, &cfg, &schedule, stopped))
+		.await
+		.expect("the worker ended");
+
+	let e = ended.expect_err("the worker cannot go on");
+	assert!(review_archive::describe(&e).contains("review_archive::browser::launch"), "{e:#}");
+}
