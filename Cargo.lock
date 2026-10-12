@@ -5514,6 +5514,7 @@ dependencies = [
  "jiff",
  "kamadak-exif",
  "miette",
+ "playwright-rs",
  "png",
  "ravif",
  "reqwest 0.13.5",

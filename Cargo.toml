@@ -37,6 +37,7 @@ jiff = { version = "0.2", features = ["serde"] }
 kamadak-exif = "0.6"
 libwebp = { package = "webp", version = "0.3", default-features = false } # the `image` crate encodes WebP lossless only
 miette = "7"
+playwright-rs = "=0.19.0" # the version browser_manipulation pins: its launch errors are this crate's `Error`
 rand = "0.10"
 ravif = "0.13"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }

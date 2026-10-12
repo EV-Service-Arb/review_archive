@@ -28,7 +28,9 @@ pub fn remedy(e: &eyre::Report) -> Remedy {
 			SessionError::Blocked { .. } | SessionError::LimitedView { .. } => Remedy::Pause,
 			SessionError::MarkupChanged { .. } | SessionError::Consent { .. } | SessionError::SignedOut { .. } => Remedy::Human,
 			SessionError::Launch { .. } => Remedy::Fatal,
-			SessionError::Browser(e) => match *e.kind {
+			SessionError::LaunchTimeout { .. } => Remedy::Retry,
+			SessionError::Browser(e) => match &*e.kind {
+				browser_manipulation::ErrorKind::Launch(source) if launch_is_transient(source) => Remedy::Retry,
 				browser_manipulation::ErrorKind::Launch(_) | browser_manipulation::ErrorKind::DriverMismatch { .. } | browser_manipulation::ErrorKind::ProfileInUse(_) => Remedy::Fatal,
 				_ => Remedy::Retry,
 			},
@@ -40,6 +42,24 @@ pub fn remedy(e: &eyre::Report) -> Remedy {
 		return Remedy::Human;
 	}
 	Remedy::Retry
+}
+
+/// Whether a failed Chromium start says the host was too slow rather than the setup broken:
+/// the client's own `Timeout` (the driver's 30 s initialization), or the driver's
+/// `Timeout <n>ms exceeded` (Chromium's launch). The driver reports the second as a
+/// `ProtocolError` that is only a message, so that one is told by its text. Everything else —
+/// a missing driver or executable, a dead pipe — is fatal, as is an error kind that a later
+/// playwright-rs adds: restarting the process is the only thing that tells a person the setup
+/// is wrong.
+#[cfg(feature = "maps")]
+pub(crate) fn launch_is_transient(source: &playwright_rs::Error) -> bool {
+	use playwright_rs::Error;
+	match source {
+		Error::Timeout(_) => true,
+		Error::ProtocolError(message) => message.contains("Timeout ") && message.contains("ms exceeded"),
+		// the rest of a launch's failures are permanent; `non_exhaustive` needs the arm anyway
+		_ => false,
+	}
 }
 
 /// `e` for a text sink (the log, a run's `error`, a webhook): the chain on the first line,
@@ -113,6 +133,20 @@ pub enum SessionError {
 	#[error("Chromium did not start: {reason}")]
 	#[diagnostic(code(review_archive::browser::launch), help("check `browser.executable` and the memory the process has"))]
 	Launch { reason: String },
+	#[leaf]
+	#[error("Chromium did not start in {:.1}s (limit {}s): {reason}; {host}", .took.as_secs_f64(), .limit.as_secs())]
+	#[diagnostic(
+		code(review_archive::browser::launch_timeout),
+		help(
+			"the host was too slow to start Chromium (see its pressure and memory figures); the target retries on its backoff and nothing needs restarting. If it keeps happening, look at what else hit the node's disk or memory then (backups, image pulls, the converter), or raise the node's memory"
+		)
+	)]
+	LaunchTimeout {
+		reason: String,
+		took: std::time::Duration,
+		limit: std::time::Duration,
+		host: String,
+	},
 	#[error(transparent)]
 	#[diagnostic(transparent)]
 	Browser(#[from] browser_manipulation::Error),
@@ -190,4 +224,108 @@ pub enum PlacesError {
 	#[foreign]
 	#[diagnostic(code(review_archive::places::http))]
 	Http(reqwest::Error),
+}
+
+#[cfg(all(test, feature = "maps"))]
+mod tests {
+	use std::time::Duration;
+
+	use browser_manipulation::ErrorKind;
+
+	use super::*;
+
+	fn report(e: SessionError) -> eyre::Report {
+		eyre::Report::new(e).wrap_err("scan of target 95 (somewhere)")
+	}
+
+	fn browser(kind: ErrorKind) -> eyre::Report {
+		report(SessionError::Browser(kind.into()))
+	}
+
+	#[test]
+	fn a_start_that_ran_out_of_time_is_retried_by_the_target_backoff() {
+		let e = report(SessionError::new_launch_timeout(
+			"Timeout: Playwright initialization timeout after 30 seconds".to_owned(),
+			Duration::from_secs(31),
+			Duration::from_secs(30),
+			"host: io pressure some avg10=40.00 avg60=35.00".to_owned(),
+		));
+		assert_eq!(remedy(&e), Remedy::Retry);
+	}
+
+	#[test]
+	fn a_setup_that_is_broken_still_stops_the_process() {
+		assert_eq!(remedy(&report(SessionError::new_launch("`browser.executable` is not set".to_owned()))), Remedy::Fatal);
+		assert_eq!(remedy(&browser(ErrorKind::ProfileInUse("/data/chromium-profile".into()))), Remedy::Fatal);
+		let mismatch = ErrorKind::DriverMismatch {
+			cli_js: "/nix/store/x/cli.js".to_owned(),
+			found: "1.0.0".to_owned(),
+		};
+		assert_eq!(remedy(&browser(mismatch)), Remedy::Fatal);
+	}
+
+	#[test]
+	fn other_browser_errors_are_retried() {
+		let io = ErrorKind::Io {
+			what: "reading",
+			path: "/tmp/x".into(),
+			source: std::io::Error::other("gone"),
+		};
+		assert_eq!(remedy(&browser(io)), Remedy::Retry);
+	}
+
+	#[test]
+	fn only_timeouts_are_transient_launch_failures() {
+		use playwright_rs::Error;
+
+		let driver_timeout = "browserType.launchPersistentContext: Timeout 30000ms exceeded.\n=========================== logs ===========================\n";
+		for transient in [
+			Error::Timeout("Playwright initialization timeout after 30 seconds".to_owned()),
+			Error::ProtocolError(driver_timeout.to_owned()),
+		] {
+			assert!(launch_is_transient(&transient), "{transient}");
+			assert_eq!(remedy(&browser(ErrorKind::Launch(transient))), Remedy::Retry);
+		}
+
+		let io = || std::io::Error::other("gone");
+		for permanent in [
+			Error::ServerNotFound,
+			Error::LaunchFailed("spawn node ENOENT".to_owned()),
+			Error::DriverMisconfigured("PLAYWRIGHT_CLI_JS /x does not exist".to_owned()),
+			Error::BrowserNotInstalled {
+				browser_name: "chromium".to_owned(),
+				message: "Executable doesn't exist at /usr/bin/chromium".to_owned(),
+				playwright_version: "1.0.0".to_owned(),
+			},
+			Error::ProtocolError("browserType.launchPersistentContext: Failed to launch: spawn ENOMEM".to_owned()),
+			Error::ServerError("driver crashed".to_owned()),
+			Error::ConnectionFailed("refused".to_owned()),
+			Error::TransportError("broken pipe".to_owned()),
+			Error::ChannelClosed,
+			Error::Io(io()),
+			Error::NavigationTimeout {
+				url: "https://x".to_owned(),
+				duration_ms: 30_000,
+			},
+			Error::AssertionTimeout("never visible".to_owned()),
+			Error::InvalidArgument("viewport".to_owned()),
+		] {
+			assert!(!launch_is_transient(&permanent), "{permanent}");
+			assert_eq!(remedy(&browser(ErrorKind::Launch(permanent))), Remedy::Fatal);
+		}
+	}
+
+	#[test]
+	fn a_slow_start_describes_its_host_and_what_to_do() {
+		let e = report(SessionError::new_launch_timeout(
+			"Timeout: Playwright initialization timeout after 30 seconds".to_owned(),
+			Duration::from_millis(30_400),
+			Duration::from_secs(30),
+			"host: io pressure some avg10=40.00 avg60=35.00".to_owned(),
+		));
+		let text = describe(&e);
+		let first = text.lines().next().unwrap();
+		assert!(first.contains("did not start in 30.4s (limit 30s)") && first.contains("avg10=40.00"), "{text}");
+		assert!(text.contains("\nhelp: ") && text.ends_with("code: review_archive::browser::launch_timeout"), "{text}");
+	}
 }

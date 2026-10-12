@@ -3,6 +3,8 @@
 //! A plain browser at a polite rate: no stealth, no fingerprint masking, no proxies. When
 //! Google does not serve the full page, the walk fails and says why.
 
+mod host;
+mod launch_report;
 mod profile;
 mod session;
 
@@ -30,6 +32,7 @@ pub struct Browser {
 struct Inner {
 	cfg: BrowserConfig,
 	profile_dir: PathBuf,
+	launch_reports: launch_report::Reports,
 	state: tokio::sync::Mutex<State>,
 }
 
@@ -54,6 +57,7 @@ impl Browser {
 			inner: Arc::new(Inner {
 				cfg,
 				profile_dir: std::path::absolute(&profile_dir).expect("the working directory exists"), // Chromium refuses a relative one
+				launch_reports: launch_report::Reports::default(),
 				state: tokio::sync::Mutex::default(),
 			}),
 		}
@@ -78,7 +82,7 @@ impl Browser {
 			state.lock = Some(ProfileLock::acquire(&self.inner.profile_dir)?);
 		}
 		if state.session.is_none() {
-			state.session = Some(Session::launch(&self.inner.cfg, &self.inner.profile_dir).await?);
+			state.session = Some(Session::launch(&self.inner.cfg, &self.inner.profile_dir, &self.inner.launch_reports).await?);
 		}
 		let session = state.session.as_ref().expect("launched just above");
 		let (walked, broken) = match session.page().await {
