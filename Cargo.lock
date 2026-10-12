@@ -5628,7 +5628,9 @@ dependencies = [
  "reqwest 0.13.5",
  "review_archive_client",
  "sa_auth",
+ "sa_ui",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 
@@ -5829,7 +5831,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 [[package]]
 name = "sa_auth"
 version = "0.1.0"
-source = "git+https://github.com/Service-Arb/panel?rev=08ef71573c1c3eddaece8f5327cb3e76cbe7b761#08ef71573c1c3eddaece8f5327cb3e76cbe7b761"
+source = "git+https://github.com/Service-Arb/panel?rev=003926e852549637be3d2f34a0322f1d72494dc9#003926e852549637be3d2f34a0322f1d72494dc9"
 dependencies = [
  "base64 0.22.1",
  "concierge_iam",
@@ -5837,6 +5839,15 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sa_ui"
+version = "0.1.0"
+source = "git+https://github.com/Service-Arb/panel?rev=003926e852549637be3d2f34a0322f1d72494dc9#003926e852549637be3d2f34a0322f1d72494dc9"
+dependencies = [
+ "dioxus",
+ "ev_lib",
 ]
 
 [[package]]
