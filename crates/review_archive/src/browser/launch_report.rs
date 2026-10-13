@@ -120,7 +120,7 @@ mod tests {
 		reason: "Timeout: Playwright initialization timeout after 30 seconds",
 		took: Duration::from_millis(30_400),
 		limit: Duration::from_secs(30),
-		host: "host: io pressure some avg10=40.00 avg60=35.00",
+		host: "host: node io pressure some avg10=40.00 avg60=35.00",
 	};
 
 	fn at(s: &str) -> Timestamp {
@@ -145,7 +145,7 @@ mod tests {
 		let text = std::fs::read_to_string(&path).unwrap();
 		assert_eq!(
 			text,
-			"Chromium did not start in time\nat: 2026-10-12T14:00:00Z\ntook: 30.4s (limit 30s)\nreason: Timeout: Playwright initialization timeout after 30 seconds\nhost: io pressure some avg10=40.00 avg60=35.00\n"
+			"Chromium did not start in time\nat: 2026-10-12T14:00:00Z\ntook: 30.4s (limit 30s)\nreason: Timeout: Playwright initialization timeout after 30 seconds\nhost: node io pressure some avg10=40.00 avg60=35.00\n"
 		);
 	}
 

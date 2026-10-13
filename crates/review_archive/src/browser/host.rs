@@ -1,12 +1,26 @@
 //! What the host looked like when Chromium failed to start: kernel pressure, free memory and
-//! the cgroup's ceiling. A start that takes longer than its limit is almost always the host
-//! starved of IO or memory, and by the time anyone looks the starvation is over; the
+//! the container's own cgroup. A start that takes longer than its limit is almost always the
+//! host starved of IO or memory, and by the time anyone looks the starvation is over; the
 //! figures are what says so.
+//!
+//! Which figures to trust:
+//! - `/proc/pressure/*` is the whole node's. The node's IO pressure is inflated wherever tasks
+//!   wait on `io_uring` (TigerBeetle does): the kernel counts that wait as iowait, so it can sit
+//!   at tens of percent beside an idle disk. It says little there; the cgroup's memory pressure
+//!   is the container's own.
+//! - `memory.current` counts page cache, which the kernel keeps until it needs the room, so it
+//!   sits near the limit on any pod that has read files. Anonymous memory (`anon`) is what
+//!   the container cannot give back, and the `max` and `oom_kill` counters of `memory.events`
+//!   say whether the limit was actually hit and whether anything was killed for it.
 //!
 //! Linux only, best effort: a file that is missing (another OS, no PSI, cgroup v1) leaves its
 //! part out, and a stalled read is given up on rather than waited for.
 
-use std::{fmt, path::Path, time::Duration};
+use std::{
+	fmt,
+	path::{Component, Path, PathBuf},
+	time::Duration,
+};
 
 /// Longer than any read of `/proc` or `/sys` takes on a healthy host; a read still pending
 /// by then is what a starved host looks like, and the error must not wait on it.
@@ -15,8 +29,8 @@ const READ_LIMIT: Duration = Duration::from_secs(2);
 const PSI_IO: &str = "/proc/pressure/io";
 const PSI_MEMORY: &str = "/proc/pressure/memory";
 const MEMINFO: &str = "/proc/meminfo";
-const CGROUP_MEMORY_CURRENT: &str = "/sys/fs/cgroup/memory.current";
-const CGROUP_MEMORY_MAX: &str = "/sys/fs/cgroup/memory.max";
+const PROC_SELF_CGROUP: &str = "/proc/self/cgroup";
+const CGROUP_ROOT: &str = "/sys/fs/cgroup";
 
 /// The share of the last 10 and 60 seconds some task (or all of them) waited, in percent.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -47,32 +61,82 @@ enum Ceiling {
 	Bytes(u64),
 }
 
+/// The contents of the container's cgroup files; `None` for one that was not there.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct CgroupFiles {
+	current: Option<String>,
+	max: Option<String>,
+	stat: Option<String>,
+	events: Option<String>,
+	pressure: Option<String>,
+}
+
+impl CgroupFiles {
+	fn is_empty(&self) -> bool {
+		*self == Self::default()
+	}
+}
+
+/// The container's cgroup: its memory in bytes, and what the limit did.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Cgroup {
+	/// `memory.current`, page cache included.
+	current: Option<u64>,
+	max: Option<Ceiling>,
+	/// `memory.stat`'s `anon`: what the container holds that is not a file, so cannot be dropped for room.
+	anon: Option<u64>,
+	/// `memory.stat`'s `file`: the page cache.
+	file: Option<u64>,
+	/// `memory.events`' `max`: how often the usage hit the limit and reclaim had to run.
+	hit_max: Option<u64>,
+	/// `memory.events`' `oom_kill`: processes killed for the limit.
+	oom_kill: Option<u64>,
+	pressure: Option<Pressure>,
+}
+
 /// The host's state at one moment. Renders as one line.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Snapshot {
+	/// The node's, not the container's.
 	io: Option<Pressure>,
+	/// The node's, not the container's.
 	memory: Option<Pressure>,
 	meminfo: MemInfo,
-	cgroup_current: Option<u64>,
-	cgroup_max: Option<Ceiling>,
+	cgroup: Cgroup,
 }
 
 impl Snapshot {
 	/// Reads the host as it is now. Never fails and never waits for long: what could not be
 	/// read is left out.
 	pub(crate) async fn capture() -> Self {
-		let (io, memory, meminfo, current, max) = tokio::join!(read(PSI_IO), read(PSI_MEMORY), read(MEMINFO), read(CGROUP_MEMORY_CURRENT), read(CGROUP_MEMORY_MAX));
-		Self::from_files(io.as_deref(), memory.as_deref(), meminfo.as_deref(), current.as_deref(), max.as_deref())
+		let (io, memory, meminfo, own) = tokio::join!(read(PSI_IO), read(PSI_MEMORY), read(MEMINFO), read(PROC_SELF_CGROUP));
+		let root = Path::new(CGROUP_ROOT);
+		let dir = cgroup_dir(own.as_deref().unwrap_or_default(), root);
+		let mut files = read_cgroup(&dir).await;
+		// The path is the one the host sees; a container with its own cgroup namespace has its cgroup mounted as the root.
+		if files.is_empty() && dir != root {
+			files = read_cgroup(root).await;
+		}
+		Self::from_files(io.as_deref(), memory.as_deref(), meminfo.as_deref(), &files)
 	}
 
 	/// The snapshot of these file contents; `None` for a file that was not there.
-	fn from_files(io: Option<&str>, memory: Option<&str>, meminfo: Option<&str>, cgroup_current: Option<&str>, cgroup_max: Option<&str>) -> Self {
+	fn from_files(io: Option<&str>, memory: Option<&str>, meminfo: Option<&str>, cgroup: &CgroupFiles) -> Self {
+		let stat = cgroup.stat.as_deref();
+		let events = cgroup.events.as_deref();
 		Self {
 			io: io.map(parse_pressure),
 			memory: memory.map(parse_pressure),
 			meminfo: meminfo.map(parse_meminfo).unwrap_or_default(),
-			cgroup_current: cgroup_current.and_then(|s| s.trim().parse().ok()),
-			cgroup_max: cgroup_max.and_then(parse_ceiling),
+			cgroup: Cgroup {
+				current: cgroup.current.as_deref().and_then(|s| s.trim().parse().ok()),
+				max: cgroup.max.as_deref().and_then(parse_ceiling),
+				anon: stat.and_then(|s| counter(s, "anon")),
+				file: stat.and_then(|s| counter(s, "file")),
+				hit_max: events.and_then(|s| counter(s, "max")),
+				oom_kill: events.and_then(|s| counter(s, "oom_kill")),
+				pressure: cgroup.pressure.as_deref().map(parse_pressure),
+			},
 		}
 	}
 }
@@ -80,7 +144,7 @@ impl Snapshot {
 impl fmt::Display for Snapshot {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		let mut parts = Vec::new();
-		for (name, pressure) in [("io", &self.io), ("memory", &self.memory)] {
+		for (name, pressure) in [("node io", &self.io), ("node memory", &self.memory)] {
 			if let Some(p) = pressure {
 				parts.push(format!("{name} pressure {p}"));
 			}
@@ -91,10 +155,27 @@ impl fmt::Display for Snapshot {
 		if let (Some(total), Some(free)) = (self.meminfo.swap_total, self.meminfo.swap_free) {
 			parts.push(format!("swap used {} of {} MiB", total.saturating_sub(free) / 1024, total / 1024));
 		}
-		match (self.cgroup_current, self.cgroup_max) {
-			(Some(now), Some(Ceiling::Bytes(max))) => parts.push(format!("cgroup memory {} of {} MiB", now >> 20, max >> 20)),
-			(Some(now), _) => parts.push(format!("cgroup memory {} MiB, no limit", now >> 20)),
+		let c = &self.cgroup;
+		match (c.current, c.max) {
+			(Some(now), Some(Ceiling::Bytes(max))) => parts.push(format!("cgroup memory {} of {} MiB incl. page cache", now >> 20, max >> 20)),
+			(Some(now), _) => parts.push(format!("cgroup memory {} MiB incl. page cache, no limit", now >> 20)),
 			(None, _) => {}
+		}
+		match (c.anon, c.file) {
+			(Some(anon), Some(file)) => parts.push(format!("cgroup anon {} MiB, file {} MiB", anon >> 20, file >> 20)),
+			(Some(anon), None) => parts.push(format!("cgroup anon {} MiB", anon >> 20)),
+			(None, Some(file)) => parts.push(format!("cgroup file {} MiB", file >> 20)),
+			(None, None) => {}
+		}
+		let events: Vec<String> = [("max", c.hit_max), ("oom_kill", c.oom_kill)]
+			.into_iter()
+			.filter_map(|(name, n)| Some(format!("{name}={}", n?)))
+			.collect();
+		if !events.is_empty() {
+			parts.push(format!("cgroup memory events {}", events.join(" ")));
+		}
+		if let Some(p) = &c.pressure {
+			parts.push(format!("cgroup memory pressure {p}"));
 		}
 		match parts.is_empty() {
 			true => f.write_str("host stats unavailable"),
@@ -123,6 +204,43 @@ impl fmt::Display for Pressure {
 /// must not do is turn a failed start into a second failure or a longer wait.
 async fn read(path: impl AsRef<Path>) -> Option<String> {
 	tokio::time::timeout(READ_LIMIT, tokio::fs::read_to_string(path)).await.ok()?.ok()
+}
+
+async fn read_cgroup(dir: &Path) -> CgroupFiles {
+	let (current, max, stat, events, pressure) = tokio::join!(
+		read(dir.join("memory.current")),
+		read(dir.join("memory.max")),
+		read(dir.join("memory.stat")),
+		read(dir.join("memory.events")),
+		read(dir.join("memory.pressure"))
+	);
+	CgroupFiles {
+		current,
+		max,
+		stat,
+		events,
+		pressure,
+	}
+}
+
+/// Where the process's own cgroup is under `root` (cgroup v2: the `0::<path>` line of
+/// `/proc/self/cgroup`). `root` itself when there is no such line or the path leaves the
+/// namespace (`/../..`), which is also what a container with its own cgroup namespace sees
+/// for its own cgroup.
+fn cgroup_dir(proc_self_cgroup: &str, root: &Path) -> PathBuf {
+	let Some(path) = proc_self_cgroup.lines().find_map(|l| l.strip_prefix("0::")) else {
+		return root.to_owned();
+	};
+	let relative = Path::new(path.trim()).strip_prefix("/").unwrap_or(Path::new(""));
+	match relative.components().all(|c| matches!(c, Component::Normal(_))) {
+		true => root.join(relative),
+		false => root.to_owned(),
+	}
+}
+
+/// The value of `key` in a flat-keyed file (`memory.stat`, `memory.events`: `anon 123456`).
+fn counter(text: &str, key: &str) -> Option<u64> {
+	text.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix(' ')?.trim().parse().ok())
 }
 
 /// `some avg10=0.00 avg60=0.00 avg300=0.00 total=0` lines of a `/proc/pressure/*` file.
@@ -215,20 +333,82 @@ mod tests {
 		assert_eq!(parse_ceiling("-"), None);
 	}
 
+	const STAT: &str = "anon 20971520\nfile 41943040\nkernel 1048576\nfile_mapped 4096\nanon_thp 0\n";
+	const EVENTS: &str = "low 0\nhigh 0\nmax 12\noom 3\noom_kill 2\noom_group_kill 0\n";
+
+	fn cgroup() -> CgroupFiles {
+		CgroupFiles {
+			current: Some("66060288\n".to_owned()), // 63 MiB
+			max: Some("67108864\n".to_owned()),     // 64 MiB
+			stat: Some(STAT.to_owned()),
+			events: Some(EVENTS.to_owned()),
+			pressure: Some("some avg10=2.50 avg60=1.00 avg300=0.00 total=9\nfull avg10=0.50 avg60=0.25 avg300=0.00 total=3\n".to_owned()),
+		}
+	}
+
+	#[test]
+	fn a_counter_is_matched_by_its_whole_name() {
+		assert_eq!(counter(STAT, "anon"), Some(20 << 20));
+		assert_eq!(counter(STAT, "file"), Some(40 << 20), "not file_mapped");
+		assert_eq!(counter(EVENTS, "max"), Some(12));
+		assert_eq!(counter(EVENTS, "oom"), Some(3), "not oom_kill");
+		assert_eq!(counter(EVENTS, "oom_kill"), Some(2));
+		assert_eq!(counter(EVENTS, "swap"), None);
+		assert_eq!(counter("anon lots\n", "anon"), None);
+	}
+
+	#[test]
+	fn the_cgroup_is_the_one_proc_names_under_the_root() {
+		let root = Path::new("/sys/fs/cgroup");
+		let pod = "0::/kubepods.slice/kubepods-burstable.slice/cri-containerd-abc.scope\n";
+		assert_eq!(cgroup_dir(pod, root), root.join("kubepods.slice/kubepods-burstable.slice/cri-containerd-abc.scope"));
+		// hybrid hosts list v1 controllers too; only the unified line counts
+		assert_eq!(cgroup_dir("12:memory:/old\n0::/user.slice\n", root), root.join("user.slice"));
+	}
+
+	#[test]
+	fn a_cgroup_that_is_the_namespace_root_is_the_mount_itself() {
+		let root = Path::new("/sys/fs/cgroup");
+		assert_eq!(cgroup_dir("0::/\n", root), root);
+		assert_eq!(cgroup_dir("0::/../../kubepods.slice\n", root), root, "outside the namespace is not under the mount");
+		assert_eq!(cgroup_dir("", root), root);
+		assert_eq!(cgroup_dir("4:memory:/x\n", root), root, "cgroup v1");
+	}
+
 	#[test]
 	fn the_snapshot_renders_on_one_line() {
-		let s = Snapshot::from_files(Some(IO), Some(SOME_ONLY), Some(MEMINFO_TEXT), Some("314572800\n"), Some("1073741824\n"));
+		let s = Snapshot::from_files(Some(IO), Some(SOME_ONLY), Some(MEMINFO_TEXT), &cgroup());
 		assert_eq!(
 			s.to_string(),
-			"host: io pressure some avg10=1.50 avg60=12.25 full avg10=0.75 avg60=8.00; \
-			 memory pressure some avg10=0.00 avg60=0.10; MemAvailable 2048 MiB; swap used 512 of 1024 MiB; cgroup memory 300 of 1024 MiB"
+			"host: node io pressure some avg10=1.50 avg60=12.25 full avg10=0.75 avg60=8.00; \
+			 node memory pressure some avg10=0.00 avg60=0.10; MemAvailable 2048 MiB; swap used 512 of 1024 MiB; \
+			 cgroup memory 63 of 64 MiB incl. page cache; cgroup anon 20 MiB, file 40 MiB; cgroup memory events max=12 oom_kill=2; \
+			 cgroup memory pressure some avg10=2.50 avg60=1.00 full avg10=0.50 avg60=0.25"
 		);
 	}
 
 	#[test]
 	fn what_is_missing_is_left_out() {
-		let s = Snapshot::from_files(None, None, None, Some("1048576"), Some("max"));
-		assert_eq!(s.to_string(), "host: cgroup memory 1 MiB, no limit");
-		assert_eq!(Snapshot::from_files(None, None, None, None, None).to_string(), "host stats unavailable");
+		let only_current = CgroupFiles {
+			current: Some("1048576".to_owned()),
+			max: Some("max".to_owned()),
+			..CgroupFiles::default()
+		};
+		let s = Snapshot::from_files(None, None, None, &only_current);
+		assert_eq!(s.to_string(), "host: cgroup memory 1 MiB incl. page cache, no limit");
+		assert_eq!(Snapshot::from_files(None, None, None, &CgroupFiles::default()).to_string(), "host stats unavailable");
+	}
+
+	#[test]
+	fn a_cgroup_without_some_files_shows_the_rest() {
+		let files = CgroupFiles {
+			stat: Some("anon 1048576\n".to_owned()),
+			events: Some("oom_kill 0\n".to_owned()),
+			..CgroupFiles::default()
+		};
+		assert_eq!(
+			Snapshot::from_files(None, None, None, &files).to_string(),
+			"host: cgroup anon 1 MiB; cgroup memory events oom_kill=0"
+		);
 	}
 }

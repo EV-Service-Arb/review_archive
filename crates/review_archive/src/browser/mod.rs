@@ -5,6 +5,7 @@
 
 mod host;
 mod launch_report;
+mod lease;
 mod profile;
 mod session;
 

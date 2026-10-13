@@ -20,7 +20,7 @@ impl ReviewSource for SlowStart {
 			"Timeout: Playwright initialization timeout after 30 seconds".to_owned(),
 			Duration::from_secs(31),
 			Duration::from_secs(30),
-			"host: io pressure some avg10=41.20 avg60=30.00".to_owned(),
+			"host: node io pressure some avg10=41.20 avg60=30.00".to_owned(),
 		)
 		.into())
 	}

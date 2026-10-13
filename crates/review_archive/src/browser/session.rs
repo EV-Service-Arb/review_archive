@@ -1,11 +1,7 @@
 //! Driving a plain headless Chromium. No stealth, no fingerprint masking:
 //! the scanner is what it looks like, and a block from Google fails the run.
 
-use std::{
-	collections::HashSet,
-	path::Path,
-	time::{Duration, Instant},
-};
+use std::{collections::HashSet, path::Path, time::Duration};
 
 use browser_manipulation::{Browser, ErrorKind, Launch, Robot, Shot, Tab, Viewport};
 use eyre::WrapErr;
@@ -19,10 +15,12 @@ use review_archive_core::{
 	tokens::Meter,
 };
 use serde::Serialize;
+use v_utils::memory_lease::Lease;
 
 use super::{
 	host,
 	launch_report::{Report, Reports},
+	lease,
 };
 use crate::{SessionError, config::BrowserConfig, failure::launch_is_transient};
 
@@ -45,6 +43,9 @@ enum SortMenu {
 pub(crate) struct Session {
 	browser: Browser<Robot>,
 	cfg: BrowserConfig,
+	/// Last, so the burst ends only after Chromium has: the field drops in declaration order, and a
+	/// pod shrunk under a live Chromium is killed for its memory.
+	_lease: Option<Lease>,
 }
 
 /// One walk's tab.
@@ -67,12 +68,18 @@ impl Session {
 				device_scale_factor: 2.0, // card PNGs are archived evidence; 1x is too blurry to read
 			}),
 		};
-		let started = Instant::now();
-		let browser = match Browser::launch(launch, Robot, cfg.artifacts.clone()).await {
+		// The burst is taken before Chromium and lives as long as it does: Chromium's start and
+		// work need more than the pod's base memory, and the pod is only resized up while a lease lives.
+		let (lease, browser, took) = lease::around(Lease::acquire(), lease::WAIT, Browser::launch(launch, Robot, cfg.artifacts.clone())).await;
+		let browser = match browser {
 			Ok(browser) => browser,
-			Err(e) => return Err(launch_failure(e, started.elapsed(), cfg, reports).await),
+			Err(e) => return Err(launch_failure(e, took, cfg, reports).await),
 		};
-		Ok(Self { browser, cfg: cfg.clone() })
+		Ok(Self {
+			browser,
+			cfg: cfg.clone(),
+			_lease: lease,
+		})
 	}
 
 	pub(crate) async fn close(self) {

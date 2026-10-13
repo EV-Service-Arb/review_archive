@@ -91,7 +91,11 @@ with its own platform implements `sources::ReviewSource` and records through
   a walk's failure but the host's: the run fails as `launch_timeout` and the target's backoff
   retries it. Once an hour it also saves the host's pressure and memory figures next to the
   captures as `<UTC time>-launch.txt` (the newest 10 kept) and logs an error naming it, which
-  the alerts attach.
+  the alerts attach. Read the figures as `browser/host.rs` documents them: the container's
+  `memory.current` includes page cache and sits near its limit regardless, so look at its
+  `anon`, at the `max` and `oom_kill` counters (since the container started) and at the cgroup's
+  own memory pressure; the node's IO pressure is inflated wherever tasks wait on `io_uring`
+  (TigerBeetle), and says little there.
 - **A block pauses Maps, not a target.** Google flags the address, so a `blocked` or
   `limited_view` failure trips `maps_breaker` (SQLite, so a restart keeps it): no Maps walk
   for any target until its probe time (`schedule.backoff_base`, doubling to `schedule.backoff_cap`), then one probes; a walk that
@@ -144,6 +148,13 @@ with its own platform implements `sources::ReviewSource` and records through
   language, or a new disabled one: nothing captured is lost, nothing extra gets scheduled, and
   its run does not count for the target's schedule. No job's run does: a scan a member asks
   for is extra, and never moves the schedule or adds to its backoff.
+- **Chromium runs under a memory lease.** The pod's base memory is far below what Chromium
+  needs; devops' broker raises the limit to its burst while a `v_utils::memory_lease::Lease` lives
+  (`MEMORY_LEASE_URL`). The browser takes one before it starts Chromium and keeps it until that
+  Chromium is closed or dies, so a started browser is never shrunk under; WebP encodes take their own
+  short ones on top. Waiting for the burst is not part of the 30 s start limit. A broker that is
+  not configured, refuses or is silent for 60 s costs a warning, not the scan: Chromium then starts
+  in the base memory.
 - **Public facts are shared; per-member state only annotates.** Targets, reviews, versions,
   captures and blobs belong to no one: a place tracked by several members is one target,
   scanned once. What is a member's — gmails, tracks, reinstatements, Telegram channels —

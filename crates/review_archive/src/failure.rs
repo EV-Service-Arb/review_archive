@@ -248,7 +248,7 @@ mod tests {
 			"Timeout: Playwright initialization timeout after 30 seconds".to_owned(),
 			Duration::from_secs(31),
 			Duration::from_secs(30),
-			"host: io pressure some avg10=40.00 avg60=35.00".to_owned(),
+			"host: node io pressure some avg10=40.00 avg60=35.00".to_owned(),
 		));
 		assert_eq!(remedy(&e), Remedy::Retry);
 	}
@@ -321,7 +321,7 @@ mod tests {
 			"Timeout: Playwright initialization timeout after 30 seconds".to_owned(),
 			Duration::from_millis(30_400),
 			Duration::from_secs(30),
-			"host: io pressure some avg10=40.00 avg60=35.00".to_owned(),
+			"host: node io pressure some avg10=40.00 avg60=35.00".to_owned(),
 		));
 		let text = describe(&e);
 		let first = text.lines().next().unwrap();
