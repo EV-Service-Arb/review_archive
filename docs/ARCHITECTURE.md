@@ -91,7 +91,11 @@ with its own platform implements `sources::ReviewSource` and records through
   a walk's failure but the host's: the run fails as `launch_timeout` and the target's backoff
   retries it. Once an hour it also saves the host's pressure and memory figures next to the
   captures as `<UTC time>-launch.txt` (the newest 10 kept) and logs an error naming it, which
-  the alerts attach.
+  the alerts attach. Read the figures as `browser/host.rs` documents them: the container's
+  `memory.current` includes page cache and sits near its limit regardless, so look at its
+  `anon`, at the `max` and `oom_kill` counters (since the container started) and at the cgroup's
+  own memory pressure; the node's IO pressure is inflated wherever tasks wait on `io_uring`
+  (TigerBeetle), and says little there.
 - **A block pauses Maps, not a target.** Google flags the address, so a `blocked` or
   `limited_view` failure trips `maps_breaker` (SQLite, so a restart keeps it): no Maps walk
   for any target until its probe time (`schedule.backoff_base`, doubling to `schedule.backoff_cap`), then one probes; a walk that
