@@ -22,6 +22,13 @@ pub const CONSENT_HOST: &str = "consent.google.com";
 /// Google's "unusual traffic" page. Hitting it fails the run; nothing tries to get past it.
 pub const BLOCKED_PATH: &str = "/sorry/";
 
+/// What the walk never looks at, refused by Chromium before it is fetched (URL parts): the map's
+/// vector and raster tiles, satellite imagery, Street View, and 3D/terrain imagery. Never fonts,
+/// scripts, styles, avatars or review photos: cards are screenshotted as evidence.
+pub const BLOCKED: &[&str] = &[
+	"/maps/vt", "google.com/vt", "googleapis.com/vt", "khms", "google.com/kh/", "streetviewpixels", "ggpht.com/cbk", "/maps/rt/", "kh.google.com/rt",
+];
+
 /// The notice of Google's "limited view" of Maps, which has no reviews at all. Seen 2026-09
 /// for headless Chrome, and for a windowed Chrome on a fresh profile; a windowed Chrome on a
 /// profile that had been served the full page before kept getting it. Nothing here tries to
@@ -225,6 +232,28 @@ pub mod js {
 			return true;
 		}
 		return false;
+	}"#;
+
+	/// `([cardSel, idAttr, ids]) => void`: frees what the outermost cards with these ids paint — their
+	/// images, and their rendering, behind `content-visibility: hidden`. Each keeps its box, so the
+	/// feed's height and the cards' order (what `CARDS_HTML` skips by) stay as they were.
+	pub const RELEASE: &str = r#"([cardSel, idAttr, ids]) => {
+		const want = new Set(ids);
+		for (const el of document.querySelectorAll(cardSel)) {
+			if (!want.has(el.getAttribute(idAttr))) continue;
+			if (el.parentElement && el.parentElement.closest(cardSel)) continue;
+			const box = el.getBoundingClientRect();
+			for (const img of el.querySelectorAll("img")) {
+				const r = img.getBoundingClientRect();
+				img.style.width = r.width + "px";
+				img.style.height = r.height + "px";
+				img.removeAttribute("srcset");
+				img.src = "";
+			}
+			for (const b of el.querySelectorAll('[style*="background-image"]')) b.style.backgroundImage = "none";
+			el.style.containIntrinsicSize = `${box.width}px ${box.height}px`;
+			el.style.contentVisibility = "hidden";
+		}
 	}"#;
 
 	/// The card `MARK_CARD` tagged.

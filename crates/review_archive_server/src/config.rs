@@ -75,6 +75,7 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
+	use review_archive::config::Lean;
 	use v_utils::TF_12H;
 
 	use super::*;
@@ -87,6 +88,7 @@ mod tests {
 			bind = "0.0.0.0:59110"
 			[browser]
 			executable = "/bin/chromium"
+			lean = [{ js_heap_mib = 512 }, "js_lite_mode"]
 			[defaults]
 			lang = "fr"
 			interval = "12h"
@@ -95,6 +97,7 @@ mod tests {
 			"#,
 		)
 		.unwrap();
+		assert_eq!(cfg.browser.lean, Some(vec![Lean::JsHeapMib(512), Lean::JsLiteMode]));
 		assert_eq!(cfg.defaults.interval, TF_12H);
 		assert_eq!(cfg.defaults.max_reviews_per_scan, 200);
 		assert_eq!(cfg.webhooks.allowed_hosts, ["concierge"]);

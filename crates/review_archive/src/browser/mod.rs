@@ -122,10 +122,8 @@ impl Browser {
 		};
 		// A browser that failed under a walk may be dead (a crashed tab, a lost driver):
 		// the next walk starts a fresh one rather than fail on it forever.
-		if walked.is_ok() {
-			let host = host::Snapshot::capture(session.leased).await.to_string();
-			tracing::info!(host, place_id, "the walk's memory, to size the lease by");
-		}
+		let host = host::Snapshot::capture(session.leased).await.to_string();
+		tracing::info!(host, place_id, failed = walked.is_err(), "the walk's memory, to size the lease by");
 		if (broken || matches!(walked, Err(_) | Ok(Walked { end: WalkEnd::Interrupted, .. })))
 			&& let Some(s) = state.session.take()
 		{

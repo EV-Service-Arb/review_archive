@@ -62,6 +62,9 @@ pub struct BrowserConfig {
 	pub headful: bool,
 	/// Browser profile; `<data_dir>/chromium-profile` when unset.
 	pub profile_dir: Option<PathBuf>,
+	/// The memory-for-speed trades Chromium runs with; a walk fails without the list (`[]`: none).
+	/// Switch them off one at a time where the host has room (ARCHITECTURE.md § Memory).
+	pub lean: Option<Vec<Lean>>,
 	/// Between two scrolls of the review feed.
 	#[default(Timeframe::from("1500ms"))]
 	pub step_wait: Timeframe,
@@ -90,6 +93,23 @@ pub struct BrowserConfig {
 	#[serde(skip)]
 	#[cfg_attr(feature = "settings", settings(skip))]
 	pub artifacts: Option<browser_manipulation::Artifacts>,
+}
+
+/// One trade of speed for Chromium's memory.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "settings", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum Lean {
+	/// V8's old generation capped at this many MiB, tuned for size: more GC, slower JS.
+	JsHeapMib(u32),
+	/// A 1 MiB young generation: more frequent minor GC.
+	SmallYoungGeneration,
+	/// No optimizing JIT, nor its code and type feedback: much slower JS.
+	JsLiteMode,
+	/// One raster thread, and its buffers: slower paint.
+	OneRasterThread,
+	/// Chromium's low-RAM profile: fewer caches, lower-quality tiles.
+	LowEndDevice,
 }
 
 /// Scan limits and what a new target defaults to.

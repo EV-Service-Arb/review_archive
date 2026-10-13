@@ -15,6 +15,7 @@ async fn main() {
 			..Config::default()
 		};
 		config.browser.executable = std::env::var_os("REVIEW_ARCHIVE_CHROME").map(Into::into);
+		config.browser.lean = Some(vec![]);
 		config.defaults.max_reviews_initial = 12;
 		config.defaults.max_reviews_per_scan = 12;
 		config.defaults.lang = "fr".into();
