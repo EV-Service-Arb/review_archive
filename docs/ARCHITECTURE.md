@@ -87,21 +87,28 @@ with its own platform implements `sources::ReviewSource` and records through
   archive; Maps halts until a restart, its profile signed in. A failed walk saves the
   page as `<data_dir>/artifacts/browser_captures/<UTC time>-<step>.{png,html}` (kept `browser.artifacts_retention`),
   and its error names them as `[<path>]`s — which is what the server's alerts attach, from
-  under `<data_dir>/artifacts/` only. A Chromium start that outran Playwright's 30 s is not
-  a walk's failure but the host's: the run fails as `launch_timeout` and the target's backoff
-  retries it. Once an hour it also saves the host's pressure and memory figures next to the
-  captures as `<UTC time>-launch.txt` (the newest 10 kept) and logs an error naming it, which
-  the alerts attach. Read the figures as `browser/host.rs` documents them: the container's
-  `memory.current` includes page cache and sits near its limit regardless, so look at its
-  `anon`, at the `max` and `oom_kill` counters (since the container started) and at the cgroup's
-  own memory pressure; the node's IO pressure is inflated wherever tasks wait on `io_uring`
+  under `<data_dir>/artifacts/` only. A Chromium start that outran Playwright's 30 s fails
+  the run as `launch_timeout`: with the memory it needs Chromium starts in 4–6 s, so the limit
+  detects a pod short of memory, and is not raised. Each saves the host's figures next to the
+  captures as `<UTC time>-launch.txt` (the newest 10 kept), named in its error as a `[<path>]`.
+  Read them as `browser/host.rs` documents them, the pod's first: the lease (`leased`) against
+  `memory.peak`, the `max` and `oom_kill` counters (since the container started) and the
+  cgroup's own memory pressure; `memory.current` includes page cache and sits near its limit
+  regardless. The node's IO pressure is inflated wherever tasks wait on `io_uring`
   (TigerBeetle), and says little there.
-- **A block pauses Maps, not a target.** Google flags the address, so a `blocked` or
-  `limited_view` failure trips `maps_breaker` (SQLite, so a restart keeps it): no Maps walk
+- **What stops Maps pauses Maps, not a target.** Google flags the address (`blocked`,
+  `limited_view`), and Chromium that cannot run (`launch_timeout`, `no_memory`) cannot run for
+  any target, so each trips `maps_breaker` (SQLite, so a restart keeps it), logged at error
+  level with the error's `[<path>]`s: no Maps walk
   for any target until its probe time (`schedule.backoff_base`, doubling to `schedule.backoff_cap`), then one probes; a walk that
   gets through clears it. `gbp` lists go on, their screenshots wait. What retrying cannot
   fix — changed markup or consent page, a refused GBP grant — halts that source until a
-  restart; Chromium that will not start ends `serve`.
+  restart; a Chromium setup that is broken ends `serve`.
+- **A failure is known, or a bug.** `failure::remedy` says who each waits for; one no arm
+  knows is `Unknown`: retried on the backoff, and reported by the server at error level with
+  its chain and backtrace (`RUST_LIB_BACKTRACE=1`), which is one Sentry event and a Discord
+  line. Known failures, and jobs refused as `Rejected`, are warnings. A queued job's failure
+  reaches that report as typed as a scheduled scan's.
 - **History is append-only.** Reviews and captures are never deleted; `review_versions` gets a
   row per distinct content, the first sighting included. `gone_at` is set and cleared, never a
   deletion.
@@ -152,9 +159,9 @@ with its own platform implements `sources::ReviewSource` and records through
   needs; devops' broker raises the limit to its burst while a `v_utils::memory_lease::Lease` lives
   (`MEMORY_LEASE_URL`). The browser takes one before it starts Chromium and keeps it until that
   Chromium is closed or dies, so a started browser is never shrunk under; WebP encodes take their own
-  short ones on top. Waiting for the burst is not part of the 30 s start limit. A broker that is
-  not configured, refuses or is silent for 60 s costs a warning, not the scan: Chromium then starts
-  in the base memory.
+  short ones on top. Waiting for the burst is not part of the 30 s start limit. No lease, no
+  Chromium: a broker that refuses, cannot fit the burst or is silent for 60 s fails the run as
+  `no_memory`, which pauses Maps. Without `MEMORY_LEASE_URL` the lease is inert (a local run).
 - **Public facts are shared; per-member state only annotates.** Targets, reviews, versions,
   captures and blobs belong to no one: a place tracked by several members is one target,
   scanned once. What is a member's — gmails, tracks, reinstatements, Telegram channels —

@@ -12,6 +12,8 @@
 //!   sits near the limit on any pod that has read files. Anonymous memory (`anon`) is what
 //!   the container cannot give back, and the `max` and `oom_kill` counters of `memory.events`
 //!   say whether the limit was actually hit and whether anything was killed for it.
+//! - `memory.peak` is the most the container has held since it started: what to size its
+//!   memory lease by. `leased` is `memory.max` when the lease was granted.
 //!
 //! Linux only, best effort: a file that is missing (another OS, no PSI, cgroup v1) leaves its
 //! part out, and a stalled read is given up on rather than waited for.
@@ -56,7 +58,7 @@ struct MemInfo {
 
 /// A memory cgroup's ceiling: `memory.max` is the literal `max` when there is none.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Ceiling {
+pub(crate) enum Ceiling {
 	Unlimited,
 	Bytes(u64),
 }
@@ -65,6 +67,7 @@ enum Ceiling {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct CgroupFiles {
 	current: Option<String>,
+	peak: Option<String>,
 	max: Option<String>,
 	stat: Option<String>,
 	events: Option<String>,
@@ -82,6 +85,8 @@ impl CgroupFiles {
 struct Cgroup {
 	/// `memory.current`, page cache included.
 	current: Option<u64>,
+	/// `memory.peak`: the most since the cgroup was made, page cache included.
+	peak: Option<u64>,
 	max: Option<Ceiling>,
 	/// `memory.stat`'s `anon`: what the container holds that is not a file, so cannot be dropped for room.
 	anon: Option<u64>,
@@ -103,21 +108,18 @@ pub(crate) struct Snapshot {
 	memory: Option<Pressure>,
 	meminfo: MemInfo,
 	cgroup: Cgroup,
+	leased: Option<Ceiling>,
 }
 
 impl Snapshot {
-	/// Reads the host as it is now. Never fails and never waits for long: what could not be
-	/// read is left out.
-	pub(crate) async fn capture() -> Self {
-		let (io, memory, meminfo, own) = tokio::join!(read(PSI_IO), read(PSI_MEMORY), read(MEMINFO), read(PROC_SELF_CGROUP));
-		let root = Path::new(CGROUP_ROOT);
-		let dir = cgroup_dir(own.as_deref().unwrap_or_default(), root);
-		let mut files = read_cgroup(&dir).await;
-		// The path is the one the host sees; a container with its own cgroup namespace has its cgroup mounted as the root.
-		if files.is_empty() && dir != root {
-			files = read_cgroup(root).await;
+	/// Reads the host as it is now, beside what the lease was granted ([`limit`] then). Never
+	/// fails and never waits for long: what could not be read is left out.
+	pub(crate) async fn capture(leased: Option<Ceiling>) -> Self {
+		let (io, memory, meminfo, files) = tokio::join!(read(PSI_IO), read(PSI_MEMORY), read(MEMINFO), own_cgroup());
+		Self {
+			leased,
+			..Self::from_files(io.as_deref(), memory.as_deref(), meminfo.as_deref(), &files)
 		}
-		Self::from_files(io.as_deref(), memory.as_deref(), meminfo.as_deref(), &files)
 	}
 
 	/// The snapshot of these file contents; `None` for a file that was not there.
@@ -130,6 +132,7 @@ impl Snapshot {
 			meminfo: meminfo.map(parse_meminfo).unwrap_or_default(),
 			cgroup: Cgroup {
 				current: cgroup.current.as_deref().and_then(|s| s.trim().parse().ok()),
+				peak: cgroup.peak.as_deref().and_then(|s| s.trim().parse().ok()),
 				max: cgroup.max.as_deref().and_then(parse_ceiling),
 				anon: stat.and_then(|s| counter(s, "anon")),
 				file: stat.and_then(|s| counter(s, "file")),
@@ -137,6 +140,7 @@ impl Snapshot {
 				oom_kill: events.and_then(|s| counter(s, "oom_kill")),
 				pressure: cgroup.pressure.as_deref().map(parse_pressure),
 			},
+			leased: None,
 		}
 	}
 }
@@ -160,6 +164,14 @@ impl fmt::Display for Snapshot {
 			(Some(now), Some(Ceiling::Bytes(max))) => parts.push(format!("cgroup memory {} of {} MiB incl. page cache", now >> 20, max >> 20)),
 			(Some(now), _) => parts.push(format!("cgroup memory {} MiB incl. page cache, no limit", now >> 20)),
 			(None, _) => {}
+		}
+		if let Some(peak) = c.peak {
+			parts.push(format!("cgroup peak {} MiB", peak >> 20));
+		}
+		match self.leased {
+			Some(Ceiling::Bytes(max)) => parts.push(format!("leased {} MiB", max >> 20)),
+			Some(Ceiling::Unlimited) => parts.push("leased without a limit".to_owned()),
+			None => {}
 		}
 		match (c.anon, c.file) {
 			(Some(anon), Some(file)) => parts.push(format!("cgroup anon {} MiB, file {} MiB", anon >> 20, file >> 20)),
@@ -206,9 +218,27 @@ async fn read(path: impl AsRef<Path>) -> Option<String> {
 	tokio::time::timeout(READ_LIMIT, tokio::fs::read_to_string(path)).await.ok()?.ok()
 }
 
+/// The container's `memory.max` now; `None` when it cannot be read.
+pub(crate) async fn limit() -> Option<Ceiling> {
+	own_cgroup().await.max.as_deref().and_then(parse_ceiling)
+}
+
+async fn own_cgroup() -> CgroupFiles {
+	let own = read(PROC_SELF_CGROUP).await;
+	let root = Path::new(CGROUP_ROOT);
+	let dir = cgroup_dir(own.as_deref().unwrap_or_default(), root);
+	let files = read_cgroup(&dir).await;
+	// The path is the one the host sees; a container with its own cgroup namespace has its cgroup mounted as the root.
+	match files.is_empty() && dir != root {
+		true => read_cgroup(root).await,
+		false => files,
+	}
+}
+
 async fn read_cgroup(dir: &Path) -> CgroupFiles {
-	let (current, max, stat, events, pressure) = tokio::join!(
+	let (current, peak, max, stat, events, pressure) = tokio::join!(
 		read(dir.join("memory.current")),
+		read(dir.join("memory.peak")),
 		read(dir.join("memory.max")),
 		read(dir.join("memory.stat")),
 		read(dir.join("memory.events")),
@@ -216,6 +246,7 @@ async fn read_cgroup(dir: &Path) -> CgroupFiles {
 	);
 	CgroupFiles {
 		current,
+		peak,
 		max,
 		stat,
 		events,
@@ -339,6 +370,7 @@ mod tests {
 	fn cgroup() -> CgroupFiles {
 		CgroupFiles {
 			current: Some("66060288\n".to_owned()), // 63 MiB
+			peak: Some("547356672\n".to_owned()),   // 522 MiB
 			max: Some("67108864\n".to_owned()),     // 64 MiB
 			stat: Some(STAT.to_owned()),
 			events: Some(EVENTS.to_owned()),
@@ -377,12 +409,15 @@ mod tests {
 
 	#[test]
 	fn the_snapshot_renders_on_one_line() {
-		let s = Snapshot::from_files(Some(IO), Some(SOME_ONLY), Some(MEMINFO_TEXT), &cgroup());
+		let s = Snapshot {
+			leased: Some(Ceiling::Bytes(1 << 30)),
+			..Snapshot::from_files(Some(IO), Some(SOME_ONLY), Some(MEMINFO_TEXT), &cgroup())
+		};
 		assert_eq!(
 			s.to_string(),
 			"host: node io pressure some avg10=1.50 avg60=12.25 full avg10=0.75 avg60=8.00; \
 			 node memory pressure some avg10=0.00 avg60=0.10; MemAvailable 2048 MiB; swap used 512 of 1024 MiB; \
-			 cgroup memory 63 of 64 MiB incl. page cache; cgroup anon 20 MiB, file 40 MiB; cgroup memory events max=12 oom_kill=2; \
+			 cgroup memory 63 of 64 MiB incl. page cache; cgroup peak 522 MiB; leased 1024 MiB; cgroup anon 20 MiB, file 40 MiB; cgroup memory events max=12 oom_kill=2; \
 			 cgroup memory pressure some avg10=2.50 avg60=1.00 full avg10=0.50 avg60=0.25"
 		);
 	}

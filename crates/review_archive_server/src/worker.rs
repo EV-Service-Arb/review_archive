@@ -6,7 +6,7 @@ use std::time::Duration;
 use jiff::Timestamp;
 use rand::RngExt;
 use review_archive::{Archive, Remedy, describe, remedy};
-use review_archive_core::{dto::JobStatus, schedule::Schedule};
+use review_archive_core::schedule::Schedule;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use tokio::{
@@ -112,27 +112,24 @@ enum Step {
 }
 
 async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, jobs_in_a_row: &mut u32) -> eyre::Result<Step> {
-	if *jobs_in_a_row < cfg.jobs_in_a_row && run_job(archive, signals).await? {
+	if *jobs_in_a_row < cfg.jobs_in_a_row
+		&& let Some(step) = run_job(archive, signals).await?
+	{
 		*jobs_in_a_row += 1;
-		return Ok(Step::Scanned);
+		return Ok(step);
 	}
 	*jobs_in_a_row = 0;
 	if let Some(target) = archive.due(Timestamp::now()).await?.into_iter().next() {
 		let recorded = archive.scan(&target).await?;
 		tracing::info!("{}", recorded.summary);
-		if let Some(e) = recorded.failure {
-			let e = e.wrap_err(format!("scan of target {} ({})", target.id, target.label));
-			if remedy(&e) == Remedy::Fatal {
-				tracing::error!(error = describe(&e), "the worker cannot go on");
-				return Ok(Step::Fatal(e));
-			}
-			report(&e, "scan failed");
-		}
-		return Ok(Step::Scanned);
+		return Ok(match recorded.failure {
+			Some(e) => failed(e.wrap_err(format!("scan of target {} ({})", target.id, target.label)), "scan failed"),
+			None => Step::Scanned,
+		});
 	}
-	if run_job(archive, signals).await? {
+	if let Some(step) = run_job(archive, signals).await? {
 		*jobs_in_a_row = 1;
-		return Ok(Step::Scanned);
+		return Ok(step);
 	}
 	let now = Timestamp::now();
 	let max_idle = cfg.max_idle.duration();
@@ -143,19 +140,28 @@ async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, jobs_in_
 	}))
 }
 
-/// Runs the oldest queued job, if any; whether there was one.
-async fn run_job(archive: &Archive, signals: &Signals) -> eyre::Result<bool> {
+/// Runs the oldest queued job, if any.
+async fn run_job(archive: &Archive, signals: &Signals) -> eyre::Result<Option<Step>> {
 	let job = archive.run_next_job().await;
 	if !matches!(job, Ok(None)) {
 		signals.job_finished.send_modify(|n| *n += 1);
 	}
-	let Some(job) = job? else { return Ok(false) };
+	let Some((job, failure)) = job? else { return Ok(None) };
 	tracing::info!(job = job.id, kind = %job.kind, status = %job.status, "job finished");
-	if job.status == JobStatus::Failed {
-		let why = job.error.as_deref().unwrap_or("no reason given");
-		report(&eyre::eyre!("job {} ({}) failed: {why}", job.id, job.kind), "job failed");
+	Ok(Some(match failure {
+		Some(e) => failed(e.wrap_err(format!("job {} ({})", job.id, job.kind)), "job failed"),
+		None => Step::Scanned,
+	}))
+}
+
+/// A failed scan or job: the end of the worker when it cannot go on, else reported.
+fn failed(e: eyre::Report, what: &str) -> Step {
+	if remedy(&e) == Remedy::Fatal {
+		tracing::error!(error = describe(&e), "the worker cannot go on");
+		return Step::Fatal(e);
 	}
-	Ok(true)
+	report(&e, what);
+	Step::Scanned
 }
 
 /// Delivers the webhook outbox every few seconds, until `shutdown`.

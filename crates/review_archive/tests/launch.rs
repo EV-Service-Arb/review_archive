@@ -1,13 +1,14 @@
-//! A Chromium that was too slow to start fails the scan, not the service: the run says why,
-//! the target backs off, and no other target is held up by it.
+//! A Chromium that cannot run — too slow to start, or no memory to start in — is Maps unable to
+//! work, as a block is: the run says why, every Maps walk pauses through a restart, and one probe
+//! ends it.
 
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 use jiff::{SignedDuration, Timestamp};
 use review_archive::{
-	Archive, Remedy, SessionError,
+	Archive, Rejected, Remedy, SessionError,
 	config::Config,
-	core::{Known, Scan, Target, TargetId, dto::NewTarget, tokens::Meter},
+	core::{Coverage, Known, Scan, Target, TargetId, dto::NewTarget, tokens::Meter},
 	describe, remedy,
 	sources::ReviewSource,
 };
@@ -17,50 +18,98 @@ struct SlowStart;
 impl ReviewSource for SlowStart {
 	async fn scan(&self, _: &Target, _: &Known, _: &mut Meter) -> eyre::Result<Scan> {
 		Err(SessionError::new_launch_timeout(
-			"Timeout: Playwright initialization timeout after 30 seconds".to_owned(),
+			"Timeout 30000ms exceeded.".to_owned(),
 			Duration::from_secs(31),
 			Duration::from_secs(30),
-			"host: node io pressure some avg10=41.20 avg60=30.00".to_owned(),
+			"host: cgroup memory 214 of 214 MiB incl. page cache".to_owned(),
 		)
 		.into())
 	}
 }
 
-async fn add(archive: &Archive, place: &str) -> Target {
-	let t = NewTarget {
-		place: Some(place.to_owned()),
-		..Default::default()
-	};
-	archive.add_target(&t).await.unwrap().target
+struct NoMemory;
+
+impl ReviewSource for NoMemory {
+	async fn scan(&self, _: &Target, _: &Known, _: &mut Meter) -> eyre::Result<Scan> {
+		Err(SessionError::new_no_memory("http://memory-lease/lease: HTTP/1.0 403 Forbidden".to_owned()).into())
+	}
 }
 
-async fn due(archive: &Archive, at: Timestamp) -> Vec<TargetId> {
-	archive.due(at).await.unwrap().iter().map(|t| t.id).collect()
+struct Served;
+
+impl ReviewSource for Served {
+	async fn scan(&self, _: &Target, _: &Known, _: &mut Meter) -> eyre::Result<Scan> {
+		Ok(Scan {
+			reviews: vec![],
+			coverage: Coverage::Complete,
+			warnings: vec![],
+			cut_after: None,
+			listed: None,
+			post: None,
+		})
+	}
 }
 
-#[tokio::test]
-async fn a_slow_start_is_a_failed_run_with_its_host_and_the_target_backs_off() {
-	let dir = tempfile::tempdir().unwrap();
-	let archive = Archive::open(Config {
-		data_dir: Some(dir.path().to_owned()),
+async fn open(dir: &Path) -> Archive {
+	Archive::open(Config {
+		data_dir: Some(dir.to_owned()),
 		..Config::default()
 	})
 	.await
-	.unwrap();
-	let slow = add(&archive, "ChIJlaunchtimeout000001").await;
-	let other = add(&archive, "ChIJlaunchtimeout000002").await;
+	.unwrap()
+}
 
-	let recorded = archive.record(&SlowStart, &slow).await.unwrap();
+async fn due(archive: &Archive, at: Timestamp) -> Vec<TargetId> {
+	let mut due: Vec<TargetId> = archive.due(at).await.unwrap().iter().map(|t| t.id).collect();
+	due.sort();
+	due
+}
+
+async fn pauses_maps_until_a_probe(failing: impl ReviewSource, said: &str) {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let mut targets = Vec::new();
+	for i in 0..3 {
+		let t = NewTarget {
+			place: Some(format!("ChIJlaunchtest{i:0>12}")),
+			..Default::default()
+		};
+		targets.push(archive.add_target(&t).await.unwrap().target);
+	}
+
+	let recorded = archive.record(&failing, &targets[0]).await.unwrap();
 	let failure = recorded.failure.expect("the scan failed");
-	assert_eq!(remedy(&failure), Remedy::Retry);
-
+	assert_eq!(remedy(&failure), Remedy::Pause);
 	let error = recorded.summary.error.expect("the run says why");
-	assert!(error.contains("avg10=41.20") && error.contains("code: review_archive::browser::launch_timeout"), "{error}");
+	assert!(error.contains(said), "{error}");
 	assert_eq!(error, describe(&failure));
 
-	// no breaker: Google did not flag us, so the other target is still scanned
 	let now = Timestamp::now();
-	assert_eq!(due(&archive, now).await, [other.id]);
-	// the failed target comes back on its own backoff (an hour, with jitter)
-	assert!(due(&archive, now + SignedDuration::from_mins(90)).await.contains(&slow.id));
+	assert_eq!(due(&archive, now).await, [], "no Maps target is walked while Chromium cannot run");
+	let refused = archive.enqueue_scan(targets[1].id).await.unwrap_err();
+	let Some(Rejected::Busy(why)) = refused.downcast_ref::<Rejected>() else {
+		panic!("{refused:#}")
+	};
+	assert!(why.contains(said) && !why.contains("Google"), "the pause names its reason: {why}");
+
+	let archive = open(dir.path()).await;
+	assert_eq!(due(&archive, now).await, []);
+
+	let at_probe = due(&archive, now + SignedDuration::from_mins(61)).await;
+	let [probe] = at_probe[..] else { panic!("one probe: {at_probe:?}") };
+	let probe = targets.iter().find(|t| t.id == probe).unwrap();
+	archive.record(&Served, probe).await.unwrap();
+	let mut open_again: Vec<TargetId> = targets.iter().map(|t| t.id).filter(|id| ![targets[0].id, probe.id].contains(id)).collect();
+	open_again.sort();
+	assert_eq!(due(&archive, now).await, open_again);
+}
+
+#[tokio::test]
+async fn a_slow_start_pauses_maps_until_a_probe() {
+	pauses_maps_until_a_probe(SlowStart, "launch_timeout").await;
+}
+
+#[tokio::test]
+async fn no_memory_for_chromium_pauses_maps_until_a_probe() {
+	pauses_maps_until_a_probe(NoMemory, "no_memory").await;
 }

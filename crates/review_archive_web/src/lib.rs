@@ -842,7 +842,11 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 				}
 				div { class: "flex items-center gap-2 border-t border-border pt-3 text-[11px] text-ink-soft",
 					span { class: "size-1.5 rounded-full {dot}" }
-					"{scan}{last}{status}"
+					"{scan}{last}"
+					match (&loc.last_run_status, &loc.last_run_error) {
+						(Some(RunStatus::Failed | RunStatus::Partial), Some(why)) => rsx! { span { title: "{why}", "{status}" } },
+						_ => rsx! { "{status}" },
+					}
 				}
 			}
 		}

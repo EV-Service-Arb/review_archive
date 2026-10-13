@@ -424,7 +424,7 @@ impl Archive {
 				self.record_job(&source, target, job).await
 			}
 			TargetKind::Gbp => match self.gbp_client() {
-				Ok(client) => {
+				Some(client) => {
 					let source = crate::sources::gbp::GbpSource {
 						client,
 						browser: match self.closed(TargetKind::Maps, Timestamp::now()).await? {
@@ -437,7 +437,7 @@ impl Archive {
 				}
 				// Missing credentials fail the run like any source error, so the target
 				// backs off instead of spinning.
-				Err(e) => self.record_job(&Unavailable(e), target, job).await,
+				None => self.record_job(&NoGbpCredentials, target, job).await,
 			},
 		}
 	}
@@ -477,7 +477,7 @@ impl Archive {
 		Ok(recorded)
 	}
 
-	/// Why scans of this kind cannot run at `now`: Maps paused after a block, or a source
+	/// Why scans of this kind cannot run at `now`: Maps paused while it cannot work, or a source
 	/// halted until a restart. A pause ends at its probe time.
 	#[cfg(feature = "maps")]
 	async fn closed(&self, kind: TargetKind, now: Timestamp) -> eyre::Result<Option<String>> {
@@ -486,7 +486,7 @@ impl Archive {
 			TargetKind::Gbp => halted.gbp.map(|why| format!("gbp is halted until a restart: {why}")),
 			TargetKind::Maps => match (halted.maps, self.store()?.breaker().await?, self.store()?.rail(now, &self.inner.tokens).await?.reopens_at) {
 				(Some(why), ..) => Some(format!("Maps is halted until a restart: {why}")),
-				(None, Some(b), _) if now < b.probe_after => Some(format!("Maps is paused after {} until {}; nothing goes to Google before then", b.reason, b.probe_after)),
+				(None, Some(b), _) if now < b.probe_after => Some(format!("Maps is paused after {} until {}, when one walk probes", b.reason, b.probe_after)),
 				(None, _, Some(at)) => Some(format!("Maps has spent its hour's tokens; it reopens at {at}")),
 				(None, ..) => None,
 			},
@@ -494,17 +494,12 @@ impl Archive {
 	}
 
 	#[cfg(feature = "maps")]
-	fn gbp_client(&self) -> eyre::Result<&crate::sources::gbp::Client> {
+	fn gbp_client(&self) -> Option<&crate::sources::gbp::Client> {
 		if let Some(c) = self.inner.gbp.get() {
-			return Ok(c);
+			return Some(c);
 		}
-		let creds = self
-			.inner
-			.secrets
-			.gbp
-			.clone()
-			.ok_or_else(|| eyre::eyre!("GBP_CLIENT_ID, GBP_CLIENT_SECRET and GBP_REFRESH_TOKEN are not all set (needed for gbp targets)"))?;
-		Ok(self.inner.gbp.get_or_init(|| crate::sources::gbp::Client::new(self.inner.http.clone(), creds)))
+		let creds = self.inner.secrets.gbp.clone()?;
+		Some(self.inner.gbp.get_or_init(|| crate::sources::gbp::Client::new(self.inner.http.clone(), creds)))
 	}
 
 	/// A target with its latest run, what is archived, and when it is scanned next.
@@ -603,10 +598,11 @@ impl Archive {
 		self.store()?.fail_interrupted(Timestamp::now()).await
 	}
 
-	/// Runs the oldest queued job to its end, if there is one, and returns it as it ended.
-	/// A failing scan is a `failed` job; `Err` is the archive itself failing.
+	/// Runs the oldest queued job to its end, if there is one, and returns it as it ended, with
+	/// why it failed: its run's failure, as [`Recorded::failure`], or what refused it ([`Rejected`]).
+	/// `Err` is the archive itself failing.
 	#[cfg(feature = "maps")]
-	pub async fn run_next_job(&self) -> eyre::Result<Option<JobDto>> {
+	pub async fn run_next_job(&self) -> eyre::Result<Option<(JobDto, Option<eyre::Report>)>> {
 		let store = self.store()?;
 		let Some(job) = store.claim_job(Timestamp::now()).await? else {
 			return Ok(None);
@@ -631,14 +627,21 @@ impl Archive {
 			}
 		}
 		.await;
-		if let Err(e) = outcome {
-			// what the caller did wrong (the target is gone) is theirs to read; the rest stays in the log
-			let error = e.downcast_ref::<Rejected>().map_or_else(|| "internal error".to_owned(), ToString::to_string);
-			tracing::warn!(job = job.id, error = %format!("{e:#}"), "job failed");
-			store.finish_job(job.id, dto::JobStatus::Failed, None, Some(&error), &[], Timestamp::now()).await?;
-			return Err(e);
-		}
-		store.job(job.id).await
+		let failure = match outcome {
+			Ok(recorded) => recorded.failure,
+			Err(e) => {
+				// what the caller did wrong (the target is gone) is theirs to read; the rest stays in the log
+				let rejected = e.downcast_ref::<Rejected>().map(ToString::to_string);
+				let error = rejected.as_deref().unwrap_or("internal error");
+				store.finish_job(job.id, dto::JobStatus::Failed, None, Some(error), &[], Timestamp::now()).await?;
+				if rejected.is_none() {
+					return Err(e);
+				}
+				Some(e)
+			}
+		};
+		let ended = store.job(job.id).await?.expect("claimed above, and jobs are not deleted");
+		Ok(Some((ended, failure)))
 	}
 
 	/// Adds a webhook: its URL http(s) to a host webhooks may go to, its secret 16+
@@ -769,13 +772,13 @@ struct Halted {
 	gbp: Option<String>,
 }
 
-/// A source that could not be set up; scanning it fails with why.
+/// The gbp source without its credentials; scanning it fails with that.
 #[cfg(all(feature = "store", feature = "maps"))]
-struct Unavailable(eyre::Report);
+struct NoGbpCredentials;
 
 #[cfg(all(feature = "store", feature = "maps"))]
-impl ReviewSource for Unavailable {
+impl ReviewSource for NoGbpCredentials {
 	async fn scan(&self, _: &Target, _: &review_archive_core::Known, _: &mut review_archive_core::tokens::Meter) -> eyre::Result<review_archive_core::Scan> {
-		Err(eyre::eyre!("{:#}", self.0))
+		Err(crate::GbpError::new_no_credentials().into())
 	}
 }

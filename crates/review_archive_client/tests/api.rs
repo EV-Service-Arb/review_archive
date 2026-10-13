@@ -202,6 +202,15 @@ impl ReviewSource for Listed {
 }
 
 /// Lists nothing it could judge by, and shows an owner's post.
+/// A source that fails with a two-line reason.
+struct Fails;
+
+impl ReviewSource for Fails {
+	async fn scan(&self, _: &Target, _: &Known, _: &mut Meter) -> eyre::Result<Scan> {
+		Err(eyre::eyre!("the page did not load\nsecond line"))
+	}
+}
+
 struct Posted(OwnerPost);
 
 impl ReviewSource for Posted {
@@ -1145,7 +1154,14 @@ async fn members_share_places_but_see_only_their_own() {
 	let loc = alice.overview().await.unwrap()[0].locations[0].clone();
 	assert_eq!(loc.posts_7d, 1, "one post, seen twice, in the last week");
 	assert_eq!(loc.latest_post.map(|p| p.text).as_deref(), Some("Open on Sunday"));
-	assert_eq!(loc.last_run_status, Some(review_archive::core::dto::RunStatus::Ok));
+	assert_eq!((loc.last_run_status, loc.last_run_error), (Some(review_archive::core::dto::RunStatus::Ok), None));
+	e.archive.record(&Fails, &target).await.unwrap();
+	let loc = alice.overview().await.unwrap()[0].locations[0].clone();
+	assert_eq!(
+		(loc.last_run_status, loc.last_run_error.as_deref()),
+		(Some(review_archive::core::dto::RunStatus::Failed), Some("the page did not load")),
+		"the card says why"
+	);
 
 	let board = alice.board(a.id, t.id).await.unwrap();
 	let url = board.snapshotted.iter().find_map(|c| c.review.capture_url.clone()).expect("r1 was captured");

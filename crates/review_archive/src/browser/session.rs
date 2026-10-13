@@ -18,8 +18,8 @@ use serde::Serialize;
 use v_utils::memory_lease::Lease;
 
 use super::{
-	host,
-	launch_report::{Report, Reports},
+	host::{self, Ceiling},
+	launch_report::{self, Report},
 	lease,
 };
 use crate::{SessionError, config::BrowserConfig, failure::launch_is_transient};
@@ -43,9 +43,11 @@ enum SortMenu {
 pub(crate) struct Session {
 	browser: Browser<Robot>,
 	cfg: BrowserConfig,
+	/// `memory.max` when the lease was granted.
+	pub(super) leased: Option<Ceiling>,
 	/// Last, so the burst ends only after Chromium has: the field drops in declaration order, and a
 	/// pod shrunk under a live Chromium is killed for its memory.
-	_lease: Option<Lease>,
+	_lease: Lease,
 }
 
 /// One walk's tab.
@@ -55,7 +57,7 @@ pub(crate) struct Page<'s> {
 }
 
 impl Session {
-	pub(crate) async fn launch(cfg: &BrowserConfig, profile_dir: &Path, reports: &Reports) -> Result<Self, SessionError> {
+	pub(crate) async fn launch(cfg: &BrowserConfig, profile_dir: &Path) -> eyre::Result<Self> {
 		let executable = cfg.executable.clone().ok_or_else(|| SessionError::new_launch("`browser.executable` is not set".to_owned()))?;
 		let launch = Launch::Owned {
 			profile: profile_dir.to_owned(),
@@ -70,14 +72,16 @@ impl Session {
 		};
 		// The burst is taken before Chromium and lives as long as it does: Chromium's start and
 		// work need more than the pod's base memory, and the pod is only resized up while a lease lives.
-		let (lease, browser, took) = lease::around(Lease::acquire(), lease::WAIT, Browser::launch(launch, Robot, cfg.artifacts.clone())).await;
+		let acquire = async { Ok((Lease::acquire().await?, host::limit().await)) };
+		let ((lease, leased), browser, took) = lease::around(acquire, lease::WAIT, Browser::launch(launch, Robot, cfg.artifacts.clone())).await?;
 		let browser = match browser {
 			Ok(browser) => browser,
-			Err(e) => return Err(launch_failure(e, took, cfg, reports).await),
+			Err(e) => return Err(launch_failure(e, took, leased, cfg).await),
 		};
 		Ok(Self {
 			browser,
 			cfg: cfg.clone(),
+			leased,
 			_lease: lease,
 		})
 	}
@@ -100,32 +104,31 @@ impl Session {
 /// Chromium's launch in the driver, are both 30 s and neither is configurable from here.
 const LAUNCH_LIMIT: Duration = Duration::from_secs(30);
 
-/// Logs a failed start with what the host looked like, and turns a slow one into
-/// [`SessionError::LaunchTimeout`], which carries the same figures to the run's `error`.
-/// A slow start is also saved as a file and logged as an error pointing at it, which is what
-/// sends it to Discord; at most once per window, the rest stay warnings.
-async fn launch_failure(e: browser_manipulation::Error, took: Duration, cfg: &BrowserConfig, reports: &Reports) -> SessionError {
-	let ErrorKind::Launch(source) = &*e.kind else { return e.into() };
-	let reason = source.to_string();
-	let host = host::Snapshot::capture().await.to_string();
-	let transient = launch_is_transient(source);
+/// A slow start becomes [`SessionError::LaunchTimeout`] with what the host looked like, its
+/// figures saved as a file the error names as `[<path>]` for the alerts to attach; any other
+/// failure is the setup's, as it came.
+async fn launch_failure(e: browser_manipulation::Error, took: Duration, leased: Option<Ceiling>, cfg: &BrowserConfig) -> eyre::Report {
+	let ErrorKind::Launch(source) = &*e.kind else { return SessionError::from(e).into() };
+	if !launch_is_transient(source) {
+		return SessionError::from(e).into();
+	}
+	let reason = source.to_string().split('\n').next().expect("split yields at least one piece").trim_end().to_owned(); // the rest is the driver's JS stack
+	let host = host::Snapshot::capture(leased).await.to_string();
 	let report = Report {
 		reason: &reason,
 		took,
 		limit: LAUNCH_LIMIT,
 		host: &host,
 	};
-	let saved = match transient {
-		true => reports.save(cfg.artifacts.as_ref().map(|a| a.dir.as_path()), &report, Timestamp::now()).await,
-		false => None,
+	let saved = match &cfg.artifacts {
+		Some(a) => Some(launch_report::save(&a.dir, &report, Timestamp::now()).await),
+		None => None,
 	};
+	let timeout = eyre::Report::new(SessionError::new_launch_timeout(reason, took, LAUNCH_LIMIT, host));
 	match saved {
-		Some(path) => tracing::error!(took = ?took, limit = ?LAUNCH_LIMIT, error = reason, host, "Chromium did not start in time [{}]", path.display()),
-		None => tracing::warn!(took = ?took, limit = ?LAUNCH_LIMIT, transient, error = reason, host, "Chromium did not start"),
-	}
-	match transient {
-		true => SessionError::new_launch_timeout(reason, took, LAUNCH_LIMIT, host),
-		false => e.into(),
+		Some(Ok(path)) => timeout.wrap_err(format!("figures [{}]", path.display())),
+		Some(Err(e)) => timeout.wrap_err(format!("figures not saved: {e}")),
+		None => timeout,
 	}
 }
 
@@ -447,51 +450,12 @@ async fn dump(dir: &Path, html: &str) -> eyre::Result<()> {
 
 #[cfg(test)]
 mod tests {
-	use std::sync::{Arc, Mutex};
-
-	use tracing::{Level, field::Field, span};
-
 	use super::*;
-	use crate::remedy;
-
-	/// Every event as its level and message: what the alert layer reads off the real subscriber.
-	#[derive(Clone, Default)]
-	struct Events(Arc<Mutex<Vec<(Level, String)>>>);
-
-	impl tracing::Subscriber for Events {
-		fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
-			true
-		}
-
-		fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
-			span::Id::from_u64(1)
-		}
-
-		fn record(&self, _: &span::Id, _: &span::Record<'_>) {}
-
-		fn record_follows_from(&self, _: &span::Id, _: &span::Id) {}
-
-		fn event(&self, event: &tracing::Event<'_>) {
-			struct Message(String);
-			impl tracing::field::Visit for Message {
-				fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-					if field.name() == "message" {
-						self.0 = format!("{value:?}");
-					}
-				}
-			}
-			let mut message = Message(String::new());
-			event.record(&mut message);
-			self.0.lock().unwrap().push((*event.metadata().level(), message.0));
-		}
-
-		fn enter(&self, _: &span::Id) {}
-
-		fn exit(&self, _: &span::Id) {}
-	}
+	use crate::{Remedy, remedy};
 
 	fn slow_start() -> browser_manipulation::Error {
-		ErrorKind::Launch(playwright_rs::Error::Timeout("Playwright initialization timeout after 30 seconds".to_owned())).into()
+		let driver = "browserType.launchPersistentContext: Timeout 30000ms exceeded.\n=========================== logs ===========================\n<launching> /nix/store/x/chromium\n    at Object.launch (/nix/store/y/patchright-core/lib/server/browserType.js:1:1)";
+		ErrorKind::Launch(playwright_rs::Error::ProtocolError(driver.to_owned())).into()
 	}
 
 	fn config(dir: &Path) -> BrowserConfig {
@@ -510,61 +474,46 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn a_slow_start_is_logged_as_an_error_pointing_at_its_report_once_per_window() {
+	async fn a_slow_start_names_its_saved_figures_and_only_the_driver_s_first_line() {
 		let dir = tempfile::tempdir().unwrap();
 		let cfg = config(&dir.path().join("browser_captures"));
-		let reports = Reports::default();
-		let events = Events::default();
-		let _logs = tracing::subscriber::set_default(events.clone());
 
-		let first = launch_failure(slow_start(), Duration::from_secs(31), &cfg, &reports).await;
-		let second = launch_failure(slow_start(), Duration::from_secs(31), &cfg, &reports).await;
-
-		for e in [first, second] {
-			assert!(matches!(e, SessionError::LaunchTimeout { .. }), "{e:?}");
-			assert_eq!(remedy(&eyre::Report::new(e)), crate::Remedy::Retry);
+		for _ in 0..2 {
+			let e = launch_failure(slow_start(), Duration::from_secs(31), None, &cfg).await;
+			assert_eq!(remedy(&e), Remedy::Pause);
+			let text = crate::describe(&e);
+			let first = text.lines().next().unwrap();
+			assert!(first.contains("Timeout 30000ms exceeded.") && !text.contains("browserType.js"), "{text}");
+			let report = bracketed(first).unwrap_or_else(|| panic!("no [path] in {first:?}"));
+			let figures = std::fs::read_to_string(report).unwrap();
+			assert!(figures.contains("limit 30s") && figures.contains("Timeout 30000ms exceeded."), "{figures}");
 		}
-		let events = events.0.lock().unwrap();
-		let [(first_level, first_message), (second_level, second_message)] = &events[..] else {
-			panic!("{events:?}")
-		};
-		assert_eq!(*first_level, Level::ERROR);
-		let report = bracketed(first_message).unwrap_or_else(|| panic!("no [path] in {first_message:?}"));
-		let text = std::fs::read_to_string(report).unwrap();
-		assert!(text.contains("limit 30s") && text.contains("Playwright initialization timeout"), "{text}");
-		assert_eq!(*second_level, Level::WARN);
-		assert_eq!(bracketed(second_message), None, "{second_message}");
-		assert_eq!(std::fs::read_dir(dir.path().join("browser_captures")).unwrap().count(), 1);
+		assert_eq!(std::fs::read_dir(dir.path().join("browser_captures")).unwrap().count(), 2, "every slow start saves its figures");
 	}
 
 	#[tokio::test]
-	async fn a_report_that_cannot_be_written_leaves_the_failure_as_it_was() {
+	async fn figures_that_cannot_be_written_say_so_and_the_failure_stays() {
 		let dir = tempfile::tempdir().unwrap();
 		let blocker = dir.path().join("not-a-dir");
 		std::fs::write(&blocker, "").unwrap();
 		let cfg = config(&blocker.join("browser_captures"));
-		let events = Events::default();
-		let _logs = tracing::subscriber::set_default(events.clone());
 
-		let e = launch_failure(slow_start(), Duration::from_secs(31), &cfg, &Reports::default()).await;
+		let e = launch_failure(slow_start(), Duration::from_secs(31), None, &cfg).await;
 
-		let SessionError::LaunchTimeout { reason, .. } = &e else { panic!("{e:?}") };
-		assert!(reason.contains("Playwright initialization timeout"), "{reason}");
-		assert_eq!(remedy(&eyre::Report::new(e)), crate::Remedy::Retry);
-		let events = events.0.lock().unwrap();
-		assert!(events.iter().all(|(level, message)| *level == Level::WARN && bracketed(message).is_none()), "{events:?}");
-		assert!(events.iter().any(|(_, m)| m == "Chromium did not start"), "{events:?}");
+		assert_eq!(remedy(&e), Remedy::Pause);
+		let text = format!("{e:#}");
+		assert!(text.starts_with("figures not saved: ") && bracketed(&text).is_none(), "{text}");
 	}
 
 	#[tokio::test]
-	async fn a_permanent_failure_is_not_reported() {
+	async fn a_permanent_failure_saves_no_figures() {
 		let dir = tempfile::tempdir().unwrap();
 		let cfg = config(dir.path());
 		let missing: browser_manipulation::Error = ErrorKind::Launch(playwright_rs::Error::ServerNotFound).into();
 
-		let e = launch_failure(missing, Duration::from_secs(1), &cfg, &Reports::default()).await;
+		let e = launch_failure(missing, Duration::from_secs(1), None, &cfg).await;
 
-		assert_eq!(remedy(&eyre::Report::new(e)), crate::Remedy::Fatal);
+		assert_eq!(remedy(&e), Remedy::Fatal);
 		assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 	}
 }
