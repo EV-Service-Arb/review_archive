@@ -7,7 +7,7 @@
   inputs = {
     v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
     browser_manipulation = {
-      url = "github:valeratrades/browser_manipulation?ref=v0.2.1";
+      url = "github:valeratrades/browser_manipulation?ref=v0.4.1";
       inputs.v_flakes.follows = "v_flakes";
     };
   };
@@ -87,7 +87,7 @@
 
         cargoLock = {
           lockFile = ./Cargo.lock;
-          outputHashes."browser_manipulation-0.2.1" = "sha256-3Je1LiU6dYg0+Vpw2N+rHN/K47oKMfEf12JAncHc5eM=";
+          outputHashes."browser_manipulation-0.4.1" = "sha256-+KhVxi+1YNBNjLleF6FSvld/5qE7DNOVZe2gnPH9/R0=";
           outputHashes."sa_auth-0.1.0" = "sha256-xFZDo9WlM5unGX6cXisnve5odDKHWukfkFPyQ/AltiM=";
           outputHashes."sa_ui-0.1.0" = "sha256-xFZDo9WlM5unGX6cXisnve5odDKHWukfkFPyQ/AltiM=";
         };
@@ -171,6 +171,7 @@
             [browser]
             executable = "${pkgs.chromium}/bin/chromium"
             headful = true
+            lean = []
             EOF
             exec nix develop "$repo" --command cargo r -p review_archive_server -- --config "$out/config.toml" serve --dev-member "$member"
           '';
@@ -211,6 +212,8 @@
               "FONTCONFIG_FILE=${fontsConf}"
               # fixed, so freed image buffers return to the OS and the pod can shrink back to its base after a memory lease (examples/memory_footprint.rs)
               "MALLOC_MMAP_THRESHOLD_=131072"
+              # the driver carries every screenshot as base64 through its heap; capped, it collects sooner (ARCHITECTURE.md § Memory)
+              "NODE_OPTIONS=--max-old-space-size=128"
               # an error no code knows is reported with its trace, which errors only capture with this set
               "RUST_LIB_BACKTRACE=1"
             ];

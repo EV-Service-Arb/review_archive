@@ -14,6 +14,8 @@
 //!   say whether the limit was actually hit and whether anything was killed for it.
 //! - `memory.peak` is the most the container has held since it started: what to size its
 //!   memory lease by. `leased` is `memory.max` when the lease was granted.
+//! - `pss` splits the cgroup's processes by kind (Chromium's `--type=`, else the executable's
+//!   name): which of browser, renderer, GPU process and driver holds the memory.
 //!
 //! Linux only, best effort: a file that is missing (another OS, no PSI, cgroup v1) leaves its
 //! part out, and a stalled read is given up on rather than waited for.
@@ -72,6 +74,7 @@ struct CgroupFiles {
 	stat: Option<String>,
 	events: Option<String>,
 	pressure: Option<String>,
+	procs: Option<String>,
 }
 
 impl CgroupFiles {
@@ -109,6 +112,17 @@ pub(crate) struct Snapshot {
 	meminfo: MemInfo,
 	cgroup: Cgroup,
 	leased: Option<Ceiling>,
+	/// By PSS, most first.
+	processes: Vec<Processes>,
+}
+
+/// The cgroup's processes of one kind.
+#[derive(Clone, Debug, PartialEq)]
+struct Processes {
+	kind: String,
+	count: usize,
+	/// Bytes.
+	pss: u64,
 }
 
 impl Snapshot {
@@ -116,8 +130,10 @@ impl Snapshot {
 	/// fails and never waits for long: what could not be read is left out.
 	pub(crate) async fn capture(leased: Option<Ceiling>) -> Self {
 		let (io, memory, meminfo, files) = tokio::join!(read(PSI_IO), read(PSI_MEMORY), read(MEMINFO), own_cgroup());
+		let processes = processes(files.procs.as_deref().unwrap_or_default()).await;
 		Self {
 			leased,
+			processes,
 			..Self::from_files(io.as_deref(), memory.as_deref(), meminfo.as_deref(), &files)
 		}
 	}
@@ -141,6 +157,7 @@ impl Snapshot {
 				pressure: cgroup.pressure.as_deref().map(parse_pressure),
 			},
 			leased: None,
+			processes: vec![],
 		}
 	}
 }
@@ -189,6 +206,17 @@ impl fmt::Display for Snapshot {
 		if let Some(p) = &c.pressure {
 			parts.push(format!("cgroup memory pressure {p}"));
 		}
+		if !self.processes.is_empty() {
+			let each: Vec<String> = self
+				.processes
+				.iter()
+				.map(|p| match p.count {
+					1 => format!("{} {} MiB", p.kind, p.pss >> 20),
+					n => format!("{}×{n} {} MiB", p.kind, p.pss >> 20),
+				})
+				.collect();
+			parts.push(format!("pss {}", each.join(", ")));
+		}
 		match parts.is_empty() {
 			true => f.write_str("host stats unavailable"),
 			false => write!(f, "host: {}", parts.join("; ")),
@@ -236,13 +264,14 @@ async fn own_cgroup() -> CgroupFiles {
 }
 
 async fn read_cgroup(dir: &Path) -> CgroupFiles {
-	let (current, peak, max, stat, events, pressure) = tokio::join!(
+	let (current, peak, max, stat, events, pressure, procs) = tokio::join!(
 		read(dir.join("memory.current")),
 		read(dir.join("memory.peak")),
 		read(dir.join("memory.max")),
 		read(dir.join("memory.stat")),
 		read(dir.join("memory.events")),
-		read(dir.join("memory.pressure"))
+		read(dir.join("memory.pressure")),
+		read(dir.join("cgroup.procs"))
 	);
 	CgroupFiles {
 		current,
@@ -251,6 +280,38 @@ async fn read_cgroup(dir: &Path) -> CgroupFiles {
 		stat,
 		events,
 		pressure,
+		procs,
+	}
+}
+
+/// `cgroup.procs`' processes by kind; one that exits or hides its files meanwhile is left out.
+async fn processes(procs: &str) -> Vec<Processes> {
+	let each = procs.split_whitespace().map(|pid| async move {
+		let (cmdline, rollup) = tokio::join!(read(format!("/proc/{pid}/cmdline")), read(format!("/proc/{pid}/smaps_rollup")));
+		Some((process_kind(&cmdline?), counter(&rollup?, "Pss:")? << 10))
+	});
+	let mut out: Vec<Processes> = Vec::new();
+	for (kind, pss) in futures::future::join_all(each).await.into_iter().flatten() {
+		match out.iter_mut().find(|p| p.kind == kind) {
+			Some(p) => {
+				p.count += 1;
+				p.pss += pss;
+			}
+			None => out.push(Processes { kind, count: 1, pss }),
+		}
+	}
+	out.sort_by_key(|p| std::cmp::Reverse(p.pss));
+	out
+}
+
+/// Chromium's `--type=` (`renderer`, `gpu-process`, …), else the executable's name: the browser
+/// process, the node driver, this server.
+fn process_kind(cmdline: &str) -> String {
+	let mut args = cmdline.split('\0');
+	let exe = args.next().unwrap_or_default();
+	match args.find_map(|a| a.strip_prefix("--type=")) {
+		Some(t) => t.to_owned(),
+		None => Path::new(exe).file_name().map_or_else(|| exe.to_owned(), |n| n.to_string_lossy().into_owned()),
 	}
 }
 
@@ -375,6 +436,7 @@ mod tests {
 			stat: Some(STAT.to_owned()),
 			events: Some(EVENTS.to_owned()),
 			pressure: Some("some avg10=2.50 avg60=1.00 avg300=0.00 total=9\nfull avg10=0.50 avg60=0.25 avg300=0.00 total=3\n".to_owned()),
+			procs: None,
 		}
 	}
 
@@ -420,6 +482,29 @@ mod tests {
 			 cgroup memory 63 of 64 MiB incl. page cache; cgroup peak 522 MiB; leased 1024 MiB; cgroup anon 20 MiB, file 40 MiB; cgroup memory events max=12 oom_kill=2; \
 			 cgroup memory pressure some avg10=2.50 avg60=1.00 full avg10=0.50 avg60=0.25"
 		);
+	}
+
+	#[test]
+	fn a_process_is_its_chromium_type_or_its_executable() {
+		assert_eq!(process_kind("/nix/store/x-chromium/libexec/chromium/chromium\0--type=renderer\0--lang=en\0"), "renderer");
+		assert_eq!(process_kind("/nix/store/x-chromium/libexec/chromium/chromium\0--headless\0"), "chromium");
+		assert_eq!(process_kind("/nix/store/y-nodejs/bin/node\0/z/cli.js\0run-driver\0"), "node");
+		let s = Snapshot {
+			processes: vec![
+				Processes {
+					kind: "renderer".to_owned(),
+					count: 2,
+					pss: 300 << 20,
+				},
+				Processes {
+					kind: "node".to_owned(),
+					count: 1,
+					pss: 60 << 20,
+				},
+			],
+			..Snapshot::default()
+		};
+		assert_eq!(s.to_string(), "host: pss renderer×2 300 MiB, node 60 MiB");
 	}
 
 	#[test]

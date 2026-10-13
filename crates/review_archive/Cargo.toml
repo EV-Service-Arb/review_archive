@@ -15,7 +15,7 @@ ignored = ["tracing-error"]
 default = ["maps", "store"]
 # Google in a headless Chromium: the `Browser` handle, the `maps` source, and the `gbp`
 # source (Business Profiles through the official API, screenshots from the Maps page).
-maps = ["dep:browser_manipulation", "dep:playwright-rs"]
+maps = ["dep:browser_manipulation", "dep:futures", "dep:playwright-rs"]
 # the config sections as v_utils `Settings` sections
 settings = ["dep:clap", "dep:schemars", "v_utils/cli", "review_archive_core/settings"]
 # SQLite + content-addressed AVIFs under a data dir, runs, stats, export, webhooks.

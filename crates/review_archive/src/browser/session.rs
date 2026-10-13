@@ -22,7 +22,29 @@ use super::{
 	launch_report::{self, Report},
 	lease,
 };
-use crate::{SessionError, config::BrowserConfig, failure::launch_is_transient};
+use crate::{
+	SessionError,
+	config::{BrowserConfig, Lean},
+	failure::launch_is_transient,
+};
+
+/// Archived evidence: a card at 1x is too blurry to read. Only the card is rasterized at it.
+const CARD_SCALE: f64 = 2.0;
+
+/// How long a page has to answer a script; one that does not is stalled, whatever it shows.
+const ANSWER: Duration = Duration::from_secs(20);
+
+/// For a browser that only ever visits Google, and walks one page there: one renderer, a small
+/// disk cache, and none of the features it would run beside the page.
+const ARGS: &[&str] = &[
+	"--renderer-process-limit=1",
+	"--disable-site-isolation-trials",
+	"--disable-features=SitePerProcess,IsolateOrigins,AutofillServerCommunication,BackForwardCache",
+	"--disk-cache-size=33554432",
+	"--disable-notifications",
+	"--disable-speech-api",
+	"--disable-print-preview",
+];
 
 /// The review list, open and ready to walk.
 #[derive(Debug)]
@@ -59,16 +81,21 @@ pub(crate) struct Page<'s> {
 impl Session {
 	pub(crate) async fn launch(cfg: &BrowserConfig, profile_dir: &Path) -> eyre::Result<Self> {
 		let executable = cfg.executable.clone().ok_or_else(|| SessionError::new_launch("`browser.executable` is not set".to_owned()))?;
+		let lean = cfg
+			.lean
+			.as_deref()
+			.ok_or_else(|| SessionError::new_launch("`browser.lean` is not set (`[]` for none)".to_owned()))?;
 		let launch = Launch::Owned {
 			profile: profile_dir.to_owned(),
 			executable,
 			headless: !cfg.headful,
-			// wide enough for the desktop layout, tall enough that a long review fits one screenshot
+			// wide enough for the desktop layout the selectors know; cards are shot at `CARD_SCALE`, beyond it
 			viewport: Some(Viewport {
 				width: 1280,
-				height: 2000,
-				device_scale_factor: 2.0, // card PNGs are archived evidence; 1x is too blurry to read
+				height: 900,
+				device_scale_factor: 1.0,
 			}),
+			args: args(lean),
 		};
 		// The burst is taken before Chromium and lives as long as it does: Chromium's start and
 		// work need more than the pod's base memory, and the pod is only resized up while a lease lives.
@@ -93,11 +120,28 @@ impl Session {
 	}
 
 	pub(crate) async fn page(&self) -> Result<Page<'_>, SessionError> {
-		Ok(Page {
-			tab: self.browser.tab().await?,
-			cfg: &self.cfg,
-		})
+		let mut tab = self.browser.tab().await?;
+		tab.block(sel::BLOCKED).await?;
+		Ok(Page { tab, cfg: &self.cfg })
 	}
+}
+
+fn args(lean: &[Lean]) -> Vec<String> {
+	let mut args: Vec<String> = ARGS.iter().map(|a| (*a).to_owned()).collect();
+	let mut js = Vec::new();
+	for l in lean {
+		match *l {
+			Lean::JsHeapMib(mib) => js.extend([format!("--max-old-space-size={mib}"), "--optimize-for-size".to_owned()]),
+			Lean::SmallYoungGeneration => js.push("--max-semi-space-size=1".to_owned()),
+			Lean::JsLiteMode => js.push("--lite-mode".to_owned()),
+			Lean::OneRasterThread => args.push("--num-raster-threads=1".to_owned()),
+			Lean::LowEndDevice => args.push("--enable-low-end-device-mode".to_owned()),
+		}
+	}
+	if !js.is_empty() {
+		args.push(format!("--js-flags={}", js.join(" "))); // Chromium keeps only the last `--js-flags`
+	}
+	args
 }
 
 /// How long Playwright gives a start: the driver's initialization in playwright-rs, and
@@ -290,7 +334,7 @@ impl Page<'_> {
 				if let Some(dir) = self.cfg.dump_html.as_deref() {
 					dump(dir, &html).await?;
 				}
-				let mut grew = false;
+				let mut read = Vec::new();
 				for card in parse::cards(&html) {
 					if cards.len() >= max {
 						break;
@@ -298,7 +342,7 @@ impl Page<'_> {
 					if !seen.insert(card.id.clone()) {
 						continue;
 					}
-					grew = true;
+					read.push(card.id.clone());
 					let capture = if policy.wants_capture(&card) {
 						self.capture(&card.id, page_url)
 							.await
@@ -310,13 +354,16 @@ impl Page<'_> {
 					policy.observe(&card);
 					cards.push((card, capture));
 				}
+				if !read.is_empty() {
+					self.eval::<()>(js::RELEASE, (sel::CARD, sel::CARD_ID_ATTR, &read)).await?;
+				}
 				if cards.len() >= max {
 					return Ok(Some(WalkEnd::Cap));
 				}
 				if policy.satisfied() {
 					return Ok(Some(WalkEnd::Satisfied));
 				}
-				idle = if grew { 0 } else { idle + 1 };
+				idle = if read.is_empty() { idle + 1 } else { 0 };
 				if idle >= self.cfg.idle_steps_to_end {
 					return Ok(Some(WalkEnd::ReachedEnd));
 				}
@@ -359,7 +406,13 @@ impl Page<'_> {
 		}
 		// let lazy avatars and photo thumbnails paint after the scroll
 		tokio::time::sleep(Duration::from_millis(400)).await;
-		let png = self.tab.screenshot(Shot::Element(js::MARKED_CARD)).await?;
+		let png = self
+			.tab
+			.screenshot(Shot::Element {
+				selector: js::MARKED_CARD,
+				scale: CARD_SCALE,
+			})
+			.await?;
 		Ok(Capture {
 			png,
 			captured_at: Timestamp::now(),
@@ -422,9 +475,11 @@ impl Page<'_> {
 		self.tab.set_timeout(self.cfg.ui_timeout.duration()).await;
 		match shown {
 			Ok(_) => Ok(true),
-			// what a timed-out page showed was captured and is dropped here: the caller decides whether not showing up is a failure
+			// what a timed-out page showed was captured and is dropped here: the caller decides whether not showing up is a failure,
+			// and only on a page that still answers
 			Err(e) if matches!(*e.kind, ErrorKind::Timeout { .. }) => {
 				self.check_not_blocked()?;
+				self.eval_while::<bool>("waiting for a control", "true", ()).await?;
 				Ok(false)
 			}
 			Err(e) => Err(e.into()),
@@ -432,7 +487,14 @@ impl Page<'_> {
 	}
 
 	async fn eval<T: serde::de::DeserializeOwned>(&mut self, func: &str, arg: impl Serialize) -> Result<T, SessionError> {
-		Ok(self.tab.eval(func, arg).await?)
+		self.eval_while("running a script", func, arg).await
+	}
+
+	async fn eval_while<T: serde::de::DeserializeOwned>(&mut self, step: &'static str, func: &str, arg: impl Serialize) -> Result<T, SessionError> {
+		match tokio::time::timeout(ANSWER, self.tab.eval(func, arg)).await {
+			Ok(r) => Ok(r?),
+			Err(_) => Err(SessionError::new_unresponsive(step, ANSWER)),
+		}
 	}
 }
 

@@ -29,7 +29,8 @@ pub fn remedy(e: &eyre::Report) -> Remedy {
 	if let Some(e) = e.downcast_ref::<SessionError>() {
 		use browser_manipulation::ErrorKind;
 		return match e {
-			SessionError::Blocked { .. } | SessionError::LimitedView { .. } | SessionError::LaunchTimeout { .. } | SessionError::NoMemory { .. } => Remedy::Pause,
+			SessionError::Blocked { .. } | SessionError::LimitedView { .. } | SessionError::LaunchTimeout { .. } | SessionError::NoMemory { .. } | SessionError::Unresponsive { .. } =>
+				Remedy::Pause,
 			SessionError::MarkupChanged { .. } | SessionError::Consent { .. } | SessionError::SignedOut { .. } => Remedy::Human,
 			// a person fixes the target and its card says why, but one target's place must not halt
 			// every Maps walk; a place panel missing is also what a page that did not finish looks like
@@ -168,6 +169,15 @@ pub enum SessionError {
 		)
 	)]
 	NoMemory { why: String },
+	#[leaf]
+	#[error("the page did not answer in {}s while {step}", .waited.as_secs())]
+	#[diagnostic(
+		code(review_archive::browser::unresponsive),
+		help(
+			"Chromium is starved, most often of memory: see the walk's host figures in the log (`peak` against `leased`, the `max` counter, per-process PSS). Nothing on the page was judged. Every Maps walk pauses, and one probes later"
+		)
+	)]
+	Unresponsive { step: &'static str, waited: std::time::Duration },
 	#[foreign]
 	#[error("driving Chromium")]
 	#[diagnostic(forward(source))]

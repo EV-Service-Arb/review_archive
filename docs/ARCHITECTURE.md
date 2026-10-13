@@ -59,6 +59,7 @@ use review_archive::{Archive, CaptureRequest, config::Config};
 let mut config = Config::default();
 config.browser.profile_dir = Some("/var/lib/my-service/chromium".into());
 config.browser.executable = Some("/usr/bin/chromium".into());
+config.browser.lean = Some(vec![]); // memory-for-speed trades: § Memory
 let archive = Archive::open(config).await?;
 let got = archive.capture_place(&CaptureRequest::new("ChIJLU7jZClu5kcR4PcOOO6p3I0").lang("fr").max_reviews(20)).await?;
 for r in &got.scan.reviews {
@@ -97,8 +98,8 @@ with its own platform implements `sources::ReviewSource` and records through
   regardless. The node's IO pressure is inflated wherever tasks wait on `io_uring`
   (TigerBeetle), and says little there.
 - **What stops Maps pauses Maps, not a target.** Google flags the address (`blocked`,
-  `limited_view`), and Chromium that cannot run (`launch_timeout`, `no_memory`) cannot run for
-  any target, so each trips `maps_breaker` (SQLite, so a restart keeps it), logged at error
+  `limited_view`), and Chromium that cannot run (`launch_timeout`, `no_memory`, and a page that
+  stopped answering, `unresponsive`) cannot run for any target, so each trips `maps_breaker` (SQLite, so a restart keeps it), logged at error
   level with the error's `[<path>]`s: no Maps walk
   for any target until its probe time (`schedule.backoff_base`, doubling to `schedule.backoff_cap`), then one probes; a walk that
   gets through clears it. `gbp` lists go on, their screenshots wait. What retrying cannot
@@ -162,6 +163,10 @@ with its own platform implements `sources::ReviewSource` and records through
   short ones on top. Waiting for the burst is not part of the 30 s start limit. No lease, no
   Chromium: a broker that refuses, cannot fit the burst or is silent for 60 s fails the run as
   `no_memory`, which pauses Maps. Without `MEMORY_LEASE_URL` the lease is inert (a local run).
+- **A stall is not markup.** A page that does not answer a script in 20 s is `unresponsive`,
+  and nothing it shows is judged: the selector-miss checks (`markup_changed`, `limited_view`,
+  a missing place) only run on a page that answered. Every walk logs the host's figures
+  (`browser/host.rs`, per-process PSS included), failed or not.
 - **Public facts are shared; per-member state only annotates.** Targets, reviews, versions,
   captures and blobs belong to no one: a place tracked by several members is one target,
   scanned once. What is a member's — gmails, tracks, reinstatements, Telegram channels —
@@ -193,3 +198,35 @@ with its own platform implements `sources::ReviewSource` and records through
 - **A capture is the review as it first appeared.** Cards are screenshotted when new (or while
   `capture_pending`), after "More" is expanded. It is kept as WebP, its provenance in Exif,
   under its SHA-256.
+
+## Memory
+
+The Pi gives Chromium a 1Gi burst. The walk needs one Maps page, scrolled and screenshotted card
+by card, so each layer is cut to that (`browser/session.rs`, `selectors.rs`):
+
+```text
+cgroup (burst)
+├─ server + encodes
+├─ node driver        NODE_OPTIONS heap cap (image env): it carries every screenshot as base64
+├─ browser process    one launch: the headed UA is cached in the profile, no probe Chromium
+├─ GPU process        no map to draw: tiles, satellite, Street View, 3D blocked (`sel::BLOCKED`)
+├─ renderer           one (`--renderer-process-limit=1`, no site isolation); cards already read
+│                     are released (`js::RELEASE`: images emptied, `content-visibility: hidden`)
+│  └─ frame buffers   1280×900 at 1x; a card alone is rasterized at 2x (`Shot::Element`)
+└─ page cache         32 MiB disk cache
+```
+
+Always on, as they cost the walk nothing it uses. What costs speed is `browser.lean`, which every
+config states (`[]` for none) and the Pi's sets in full. Switch the trades off one at a time when the
+host has room:
+
+| `browser.lean` | Costs | Saves |
+|---|---|---|
+| `{ js_heap_mib = n }` | more GC, slower JS | caps the Maps JS heap (`--max-old-space-size`, `--optimize-for-size`) |
+| `small_young_generation` | more frequent minor GC | a 1 MiB young generation |
+| `js_lite_mode` | no optimizing JIT, much slower JS | JIT code and type feedback |
+| `one_raster_thread` | slower paint | raster buffers per thread |
+| `low_end_device` | Chromium's low-RAM mode: fewer caches, lower-quality tiles | broad |
+
+Beside it, and of the same kind: `NODE_OPTIONS=--max-old-space-size` in the image (`flake.nix`),
+and a longer `browser.step_wait` in the Pi's config, so V8 collects between scrolls.

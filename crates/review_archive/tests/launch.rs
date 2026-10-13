@@ -1,5 +1,5 @@
-//! A Chromium that cannot run — too slow to start, or no memory to start in — is Maps unable to
-//! work, as a block is: the run says why, every Maps walk pauses through a restart, and one probe
+//! A Chromium that cannot run — too slow to start, no memory to start in, or a page that stopped
+//! answering — is Maps unable to work, as a block is: the run says why, every Maps walk pauses through a restart, and one probe
 //! ends it.
 
 use std::{path::Path, time::Duration};
@@ -32,6 +32,14 @@ struct NoMemory;
 impl ReviewSource for NoMemory {
 	async fn scan(&self, _: &Target, _: &Known, _: &mut Meter) -> eyre::Result<Scan> {
 		Err(SessionError::new_no_memory("http://memory-lease/lease: HTTP/1.0 403 Forbidden".to_owned()).into())
+	}
+}
+
+struct Stalled;
+
+impl ReviewSource for Stalled {
+	async fn scan(&self, _: &Target, _: &Known, _: &mut Meter) -> eyre::Result<Scan> {
+		Err(SessionError::new_unresponsive("waiting for a control", Duration::from_secs(20)).into())
 	}
 }
 
@@ -112,4 +120,9 @@ async fn a_slow_start_pauses_maps_until_a_probe() {
 #[tokio::test]
 async fn no_memory_for_chromium_pauses_maps_until_a_probe() {
 	pauses_maps_until_a_probe(NoMemory, "no_memory").await;
+}
+
+#[tokio::test]
+async fn a_page_that_stopped_answering_pauses_maps_until_a_probe() {
+	pauses_maps_until_a_probe(Stalled, "unresponsive").await;
 }

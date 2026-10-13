@@ -22,6 +22,7 @@ fn config(dir: &std::path::Path) -> Config {
 		..Config::default()
 	};
 	config.browser.executable = std::env::var_os("REVIEW_ARCHIVE_CHROME").map(Into::into);
+	config.browser.lean = Some(vec![]);
 	config.browser.headful = std::env::var("REVIEW_ARCHIVE_HEADFUL").is_ok_and(|v| v == "1");
 	config.browser.profile_dir = std::env::var_os("REVIEW_ARCHIVE_PROFILE").map(Into::into);
 	config.defaults.max_reviews_initial = 12;

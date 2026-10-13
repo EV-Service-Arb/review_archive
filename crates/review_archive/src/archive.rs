@@ -57,6 +57,7 @@ use crate::{
 /// let mut config = Config::default();
 /// config.browser.profile_dir = Some("/tmp/review-archive-profile".into());
 /// config.browser.executable = Some("/usr/bin/chromium".into());
+/// config.browser.lean = Some(vec![]);
 /// let archive = Archive::open(config).await?;
 /// let got = archive.capture_place(&CaptureRequest::new("ChIJLU7jZClu5kcR4PcOOO6p3I0").max_reviews(5)).await?;
 /// for review in &got.scan.reviews {
