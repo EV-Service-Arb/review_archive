@@ -12,36 +12,48 @@ use crate::Rejected;
 pub enum Remedy {
 	/// Passes by itself; the target's backoff retries it.
 	Retry,
-	/// Google flagged us: every Maps walk pauses, and one probes later.
+	/// Maps cannot work now (Google flagged us, or Chromium cannot run): every Maps walk
+	/// pauses, and one probes later.
 	Pause,
 	/// Retrying cannot fix it; a person has to.
 	Human,
 	/// The process cannot do its work.
 	Fatal,
+	/// Not a failure this code knows: retried on the backoff like [`Self::Retry`], and a bug.
+	Unknown,
 }
 
 /// Who `e` waits for.
 pub fn remedy(e: &eyre::Report) -> Remedy {
 	#[cfg(feature = "maps")]
 	if let Some(e) = e.downcast_ref::<SessionError>() {
+		use browser_manipulation::ErrorKind;
 		return match e {
-			SessionError::Blocked { .. } | SessionError::LimitedView { .. } => Remedy::Pause,
+			SessionError::Blocked { .. } | SessionError::LimitedView { .. } | SessionError::LaunchTimeout { .. } | SessionError::NoMemory { .. } => Remedy::Pause,
 			SessionError::MarkupChanged { .. } | SessionError::Consent { .. } | SessionError::SignedOut { .. } => Remedy::Human,
+			// a person fixes the target and its card says why, but one target's place must not halt
+			// every Maps walk; a place panel missing is also what a page that did not finish looks like
+			SessionError::PlaceNotFound { .. } => Remedy::Retry,
 			SessionError::Launch { .. } => Remedy::Fatal,
-			SessionError::LaunchTimeout { .. } => Remedy::Retry,
-			SessionError::Browser(e) => match &*e.kind {
-				browser_manipulation::ErrorKind::Launch(source) if launch_is_transient(source) => Remedy::Retry,
-				browser_manipulation::ErrorKind::Launch(_) | browser_manipulation::ErrorKind::DriverMismatch { .. } | browser_manipulation::ErrorKind::ProfileInUse(_) => Remedy::Fatal,
-				_ => Remedy::Retry,
+			SessionError::Browser { source, .. } => match &*source.kind {
+				// a slow start is `LaunchTimeout` by then: what is left is the setup
+				ErrorKind::Launch(_) | ErrorKind::DriverMismatch { .. } | ErrorKind::ProfileInUse(_) => Remedy::Fatal,
+				ErrorKind::Navigation { .. } | ErrorKind::Timeout { .. } => Remedy::Retry,
+				ErrorKind::Io { .. } | ErrorKind::Selector { .. } | ErrorKind::Eval { .. } | ErrorKind::Driver { .. } => Remedy::Unknown,
 			},
-			SessionError::PlaceNotFound { .. } | SessionError::Other(_) => Remedy::Retry,
+			SessionError::Other(_) => Remedy::Unknown,
 		};
 	}
 	#[cfg(feature = "maps")]
-	if let Some(GbpError::InvalidGrant { .. } | GbpError::Unauthorized { .. }) = e.downcast_ref::<GbpError>() {
-		return Remedy::Human;
+	if let Some(e) = e.downcast_ref::<GbpError>() {
+		return match e {
+			GbpError::InvalidGrant { .. } | GbpError::Unauthorized { .. } | GbpError::NoCredentials { .. } => Remedy::Human,
+			GbpError::Api { status, .. } if *status == 429 || *status >= 500 => Remedy::Retry,
+			GbpError::Http { source, .. } if source.is_timeout() || source.is_connect() || source.is_request() => Remedy::Retry,
+			GbpError::Api { .. } | GbpError::Http { .. } | GbpError::Other(_) => Remedy::Unknown,
+		};
 	}
-	Remedy::Retry
+	Remedy::Unknown
 }
 
 /// Whether a failed Chromium start says the host was too slow rather than the setup broken:
@@ -138,7 +150,7 @@ pub enum SessionError {
 	#[diagnostic(
 		code(review_archive::browser::launch_timeout),
 		help(
-			"the host was too slow to start Chromium (see its pressure and memory figures); the target retries on its backoff and nothing needs restarting. If it keeps happening, look at what else hit the node's disk or memory then (backups, image pulls, the converter), or raise the node's memory"
+			"with the memory it needs Chromium starts in 4-6 s, so look at the pod's first: the lease's size against what a walk peaks at, the cgroup's `max` and `oom_kill` counters and its memory pressure; only then the node's. Every Maps walk pauses, and one probes later"
 		)
 	)]
 	LaunchTimeout {
@@ -147,9 +159,19 @@ pub enum SessionError {
 		limit: std::time::Duration,
 		host: String,
 	},
-	#[error(transparent)]
-	#[diagnostic(transparent)]
-	Browser(#[from] browser_manipulation::Error),
+	#[leaf]
+	#[error("no memory for Chromium: {why}")]
+	#[diagnostic(
+		code(review_archive::browser::no_memory),
+		help(
+			"Chromium is not started without its memory lease: see the memory-lease broker's log (devops crates/memory-lease, `MEMORY_LEASE_URL`) and review-archive's `memoryBudgets` entry in devops' flake.nix. Every Maps walk pauses, and one probes later"
+		)
+	)]
+	NoMemory { why: String },
+	#[foreign]
+	#[error("driving Chromium")]
+	#[diagnostic(forward(source))]
+	Browser(browser_manipulation::Error),
 	#[error(transparent)]
 	Other(#[from] eyre::Report),
 }
@@ -183,6 +205,11 @@ pub enum GbpError {
 		/// What was asked for.
 		url: String,
 	},
+	/// The credentials are not configured.
+	#[leaf]
+	#[error("GBP_CLIENT_ID, GBP_CLIENT_SECRET and GBP_REFRESH_TOKEN are not all set, and gbp targets need them")]
+	#[diagnostic(code(review_archive::gbp::no_credentials), help("set them; gbp scans stay halted until a restart"))]
+	NoCredentials,
 	/// Any other refusal.
 	#[leaf]
 	#[error("{what}: {status}: {body}")]
@@ -239,18 +266,19 @@ mod tests {
 	}
 
 	fn browser(kind: ErrorKind) -> eyre::Report {
-		report(SessionError::Browser(kind.into()))
+		report(SessionError::from(browser_manipulation::Error::from(kind)))
 	}
 
 	#[test]
-	fn a_start_that_ran_out_of_time_is_retried_by_the_target_backoff() {
+	fn chromium_that_cannot_run_pauses_maps() {
 		let e = report(SessionError::new_launch_timeout(
 			"Timeout: Playwright initialization timeout after 30 seconds".to_owned(),
 			Duration::from_secs(31),
 			Duration::from_secs(30),
 			"host: node io pressure some avg10=40.00 avg60=35.00".to_owned(),
 		));
-		assert_eq!(remedy(&e), Remedy::Retry);
+		assert_eq!(remedy(&e), Remedy::Pause);
+		assert_eq!(remedy(&report(SessionError::new_no_memory("403".to_owned()))), Remedy::Pause);
 	}
 
 	#[test]
@@ -265,13 +293,20 @@ mod tests {
 	}
 
 	#[test]
-	fn other_browser_errors_are_retried() {
+	fn the_network_is_retried_and_what_is_not_known_is_a_bug() {
+		let navigation = ErrorKind::Navigation {
+			url: "https://x".to_owned(),
+			source: playwright_rs::Error::ProtocolError("net::ERR_NAME_NOT_RESOLVED".to_owned()),
+		};
+		assert_eq!(remedy(&browser(navigation)), Remedy::Retry);
 		let io = ErrorKind::Io {
 			what: "reading",
 			path: "/tmp/x".into(),
 			source: std::io::Error::other("gone"),
 		};
-		assert_eq!(remedy(&browser(io)), Remedy::Retry);
+		assert_eq!(remedy(&browser(io)), Remedy::Unknown);
+		assert_eq!(remedy(&report(SessionError::Other(eyre::eyre!("?")))), Remedy::Unknown);
+		assert_eq!(remedy(&eyre::eyre!("an error no one typed")), Remedy::Unknown);
 	}
 
 	#[test]
@@ -284,7 +319,6 @@ mod tests {
 			Error::ProtocolError(driver_timeout.to_owned()),
 		] {
 			assert!(launch_is_transient(&transient), "{transient}");
-			assert_eq!(remedy(&browser(ErrorKind::Launch(transient))), Remedy::Retry);
 		}
 
 		let io = || std::io::Error::other("gone");

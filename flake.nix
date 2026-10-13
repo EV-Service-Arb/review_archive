@@ -211,6 +211,8 @@
               "FONTCONFIG_FILE=${fontsConf}"
               # fixed, so freed image buffers return to the OS and the pod can shrink back to its base after a memory lease (examples/memory_footprint.rs)
               "MALLOC_MMAP_THRESHOLD_=131072"
+              # an error no code knows is reported with its trace, which errors only capture with this set
+              "RUST_LIB_BACKTRACE=1"
             ];
           };
         };

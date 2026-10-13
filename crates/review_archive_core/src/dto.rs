@@ -634,6 +634,8 @@ pub struct LocationSummary {
 	pub last_run_at: Option<String>,
 	/// How it went.
 	pub last_run_status: Option<RunStatus>,
+	/// Why it failed, or what it warned of: the first line of its `error`.
+	pub last_run_error: Option<String>,
 	/// Not scanned: every member tracking it is out of tokens.
 	pub held: bool,
 	/// A scan of it under way or waiting.

@@ -33,7 +33,6 @@ pub struct Browser {
 struct Inner {
 	cfg: BrowserConfig,
 	profile_dir: PathBuf,
-	launch_reports: launch_report::Reports,
 	state: tokio::sync::Mutex<State>,
 }
 
@@ -58,7 +57,6 @@ impl Browser {
 			inner: Arc::new(Inner {
 				cfg,
 				profile_dir: std::path::absolute(&profile_dir).expect("the working directory exists"), // Chromium refuses a relative one
-				launch_reports: launch_report::Reports::default(),
 				state: tokio::sync::Mutex::default(),
 			}),
 		}
@@ -83,7 +81,7 @@ impl Browser {
 			state.lock = Some(ProfileLock::acquire(&self.inner.profile_dir)?);
 		}
 		if state.session.is_none() {
-			state.session = Some(Session::launch(&self.inner.cfg, &self.inner.profile_dir, &self.inner.launch_reports).await?);
+			state.session = Some(Session::launch(&self.inner.cfg, &self.inner.profile_dir).await?);
 		}
 		let session = state.session.as_ref().expect("launched just above");
 		let (walked, broken) = match session.page().await {
@@ -96,7 +94,7 @@ impl Browser {
 				let walked = match walked {
 					Err(e) => {
 						let saved = match &e {
-							SessionError::Browser(b) => b.capture.as_deref().cloned(),
+							SessionError::Browser { source, .. } => source.capture.as_deref().cloned(),
 							_ => page.save("walk-failed").await,
 						};
 						match saved {
@@ -124,6 +122,10 @@ impl Browser {
 		};
 		// A browser that failed under a walk may be dead (a crashed tab, a lost driver):
 		// the next walk starts a fresh one rather than fail on it forever.
+		if walked.is_ok() {
+			let host = host::Snapshot::capture(session.leased).await.to_string();
+			tracing::info!(host, place_id, "the walk's memory, to size the lease by");
+		}
 		if (broken || matches!(walked, Err(_) | Ok(Walked { end: WalkEnd::Interrupted, .. })))
 			&& let Some(s) = state.session.take()
 		{

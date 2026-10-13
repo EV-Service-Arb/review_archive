@@ -119,7 +119,12 @@ deleted.
   (1 h), ±`schedule.jitter` (10 %).
 - One scan at a time; a random pause between targets, `schedule.pause_{min,max}` (5–15 s).
 - Failure → `runs.status=failed` with the error, exponential backoff for that
-  target (`schedule.backoff_base` doubling to `schedule.backoff_cap`: 1 h → 24 h), other targets continue.
+  target (`schedule.backoff_base` doubling to `schedule.backoff_cap`: 1 h → 24 h), other targets continue —
+  unless Maps cannot work (Google's block or limited view, a Chromium that cannot start or has
+  no memory lease): then every Maps walk waits, and one probes on the same backoff.
+- A failure the code knows is a warning; one it does not is a bug, reported with its trace to
+  Sentry and Discord. A place's card on the dashboard shows why its last run failed (or what
+  it warned of) on hover.
 - A tracked target whose members hold fewer tokens together than a walk's first screen
   costs is held, not scanned, until a balance renews or is topped up. All walks together
   spend `tokens.per_hour` at most in any hour; past it Maps closes until older runs leave

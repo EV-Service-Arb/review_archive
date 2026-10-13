@@ -91,7 +91,7 @@ impl Recorder<'_> {
 						.and_then(miette::Diagnostic::code)
 						.expect("a pause is a SessionError, which has codes");
 					let b = self.store.trip_breaker(&reason.to_string(), (self.now)(), self.schedule).await?;
-					tracing::error!(error, trips = b.trips, probe_after = %b.probe_after, "Google flagged us: every Maps walk pauses until the probe");
+					tracing::error!(error, trips = b.trips, probe_after = %b.probe_after, "Maps cannot work now ({reason}): every Maps walk pauses until the probe");
 				}
 				summary.error = Some(error);
 				failure = Some(e);

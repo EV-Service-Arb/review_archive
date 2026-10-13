@@ -54,6 +54,7 @@ struct LocationRow {
 	reinstating: i64,
 	last_run_at: Option<String>,
 	last_run_status: Option<String>,
+	last_run_error: Option<String>,
 	running_since: Option<String>,
 	queued_since: Option<String>,
 	queued_ahead: i64,
@@ -221,6 +222,7 @@ impl Store {
 			            AND x.withdrawn_at IS NULL AND x.reinstated_at IS NULL) AS reinstating,
 			        (SELECT finished_at FROM runs WHERE target_id = t.id AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS last_run_at,
 			        (SELECT status FROM runs WHERE target_id = t.id AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS last_run_status,
+			        (SELECT error FROM runs WHERE target_id = t.id AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS last_run_error,
 			        COALESCE((SELECT started_at FROM runs WHERE target_id = t.id AND finished_at IS NULL ORDER BY id DESC LIMIT 1),
 			                 (SELECT started_at FROM jobs WHERE target_id = t.id AND status = 'running' ORDER BY id DESC LIMIT 1)) AS running_since,
 			        (SELECT created_at FROM jobs WHERE target_id = t.id AND status = 'queued' AND kind = 'scan' ORDER BY id LIMIT 1) AS queued_since,
@@ -274,6 +276,7 @@ impl Store {
 				reinstating: r.reinstating,
 				last_run_at: r.last_run_at,
 				last_run_status: status,
+				last_run_error: r.last_run_error.as_deref().and_then(|e| e.lines().next()).map(str::to_owned),
 				held,
 				scan: match (r.running_since, r.queued_since) {
 					(Some(since), _) => Some(ScanState::Running { since }),

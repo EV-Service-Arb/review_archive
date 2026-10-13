@@ -86,9 +86,9 @@ fn span(t: Timeframe) -> SignedDuration {
 	SignedDuration::try_from(t.duration()).expect("a Timeframe is at most u64::MAX ms, well within SignedDuration")
 }
 
-/// Google flagged the address we scan from: every Maps walk pauses, whatever the
-/// target, until `probe_after`, when one scan probes. Per-target backoff can't express
-/// this — the block is not the target's.
+/// Maps cannot work now (Google flagged the address we scan from, or Chromium cannot run):
+/// every Maps walk pauses, whatever the target, until `probe_after`, when one scan probes.
+/// Per-target backoff can't express this — the cause is not the target's.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Breaker {
 	/// The first trip of this streak.

@@ -549,7 +549,7 @@ impl Store {
 		}))
 	}
 
-	/// The pause on Maps Google's block put in force, if one is.
+	/// The pause on Maps, if one is in force.
 	pub async fn breaker(&self) -> eyre::Result<Option<Breaker>> {
 		let row: Option<(String, String, i64, String)> = sqlx::query_as("SELECT tripped_at, reason_code, trips, probe_after FROM maps_breaker")
 			.fetch_optional(&self.pool)
