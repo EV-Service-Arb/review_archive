@@ -190,11 +190,17 @@
           fontDirectories = with pkgs; [ dejavu_fonts liberation_ttf noto-fonts-color-emoji ];
         };
 
+        # The image's Chromium: the shell has no browser UI layer to hold in memory (ARCHITECTURE.md § Memory).
+        # Its zip lays out differently per platform.
+        headlessShell =
+          let shell = pkgs.playwright-driver.components.chromium-headless-shell;
+          in if pkgs.stdenv.hostPlatform.isAarch64 then "${shell}/chrome-linux/headless_shell" else "${shell}/chrome-headless-shell-linux64/chrome-headless-shell";
+
         # Secret-free prod config baked into the image; the container has no `nix`,
         # so it is evaluated to TOML here. Secrets arrive from the k8s Secret.
         prodConfig = (pkgs.formats.toml { }).generate "config.toml" (import ./deploy/config.nix {
           inherit port;
-          chromium = "${pkgs.chromium}/bin/chromium";
+          chromium = headlessShell;
           mfe = "${mfe}";
         });
 
@@ -209,7 +215,7 @@
             criticality = "normal";
             entrypoint = [ "${bin}/bin/${pname}" "--config" "${prodConfig}" "serve" ];
             workingDir = "/data";
-            contents = [ pkgs.chromium pkgs.nodejs ];
+            contents = [ pkgs.nodejs ];
             imageEnv = lib.mapAttrsToList (k: v: "${k}=${v}") (playwrightEnv // { PLAYWRIGHT_NODE_EXE = leanNode; }) ++ [
               "HOME=/data"
               # the image has no /tmp, and Chromium's shared memory goes to TMPDIR
@@ -231,7 +237,7 @@
             cat <<'EOF'
             nix develop                       toolchain, sqlite, cargo-insta (and chromium on Linux)
             nix build                         the review_archive binary
-            nix build .#${pname}-container    OCI image with chromium (Linux only)
+            nix build .#${pname}-container    OCI image with chromium-headless-shell (Linux only)
             nix build .#mfe                   the dashboard bundle (served under /mfe/)
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
             nix run .#publish -- major|minor|patch [note]
