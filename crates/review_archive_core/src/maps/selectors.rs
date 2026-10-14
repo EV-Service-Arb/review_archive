@@ -256,6 +256,9 @@ pub mod js {
 		}
 	}"#;
 
+	/// `() => [used, limit]`: the page's JS heap in bytes (Chromium's `performance.memory`).
+	pub const JS_HEAP: &str = "() => [performance.memory.usedJSHeapSize, performance.memory.jsHeapSizeLimit]";
+
 	/// The card `MARK_CARD` tagged.
 	pub const MARKED_CARD: &str = r#"[data-ra-capture="1"]"#;
 }

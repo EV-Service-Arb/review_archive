@@ -8,6 +8,7 @@ use review_archive::{
 
 #[tokio::main]
 async fn main() {
+	tracing_subscriber::fmt().with_env_filter("review_archive=info").init();
 	let mut args = std::env::args().skip(1);
 	let profile: std::path::PathBuf = args.next().expect("profile dir").into();
 	let out: std::path::PathBuf = args.next().expect("out dir").into();

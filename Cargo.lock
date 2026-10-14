@@ -5532,6 +5532,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-error",
+ "tracing-subscriber",
  "v_utils",
  "webp",
  "zip",

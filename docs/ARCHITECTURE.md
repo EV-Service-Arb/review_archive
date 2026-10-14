@@ -207,14 +207,22 @@ by card, so each layer is cut to that (`browser/session.rs`, `selectors.rs`):
 ```text
 cgroup (burst)
 ├─ server + encodes
-├─ node driver        NODE_OPTIONS heap cap (image env): it carries every screenshot as base64
-├─ browser process    one launch: the headed UA is cached in the profile, no probe Chromium
-├─ GPU process        no map to draw: tiles, satellite, Street View, 3D blocked (`sel::BLOCKED`)
+├─ node driver        a capped heap, no optimizing JIT (`leanNode`, the image's `PLAYWRIGHT_NODE_EXE`): it
+│                     carries every screenshot as base64
+├─ browser process    one launch: the headed UA is cached in the profile, no probe Chromium; the network
+│                     service, audio and GPU run in it, no zygote; no extensions, component updates or
+│                     optimization-guide models
+│  └─ GPU             no map to draw: tiles, satellite, Street View, 3D blocked (`sel::BLOCKED`)
 ├─ renderer           one (`--renderer-process-limit=1`, no site isolation); cards already read
 │                     are released (`js::RELEASE`: images emptied, `content-visibility: hidden`)
 │  └─ frame buffers   1280×900 at 1x; a card alone is rasterized at 2x (`Shot::Element`)
+├─ storage service    the one utility process left
 └─ page cache         32 MiB disk cache
 ```
+
+A GPU crash now takes the browser down with it: the walk fails and the next one starts a new
+browser. Every walk logs the page's JS heap (`js_heap`, used of limit) beside the host's figures, to
+size `js_heap_mib` by.
 
 Always on, as they cost the walk nothing it uses. What costs speed is `browser.lean`, which every
 config states (`[]` for none) and the Pi's sets in full. Switch the trades off one at a time when the
@@ -228,5 +236,5 @@ host has room:
 | `one_raster_thread` | slower paint | raster buffers per thread |
 | `low_end_device` | Chromium's low-RAM mode: fewer caches, lower-quality tiles | broad |
 
-Beside it, and of the same kind: `NODE_OPTIONS=--max-old-space-size` in the image (`flake.nix`),
-and a longer `browser.step_wait` in the Pi's config, so V8 collects between scrolls.
+Beside it, and of the same kind: the driver's flags in the image (`flake.nix`), and a longer
+`browser.step_wait` in the Pi's config, so V8 collects between scrolls.
