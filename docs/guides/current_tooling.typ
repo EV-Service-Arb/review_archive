@@ -1,3 +1,4 @@
+#show raw.where(block: true): block.with(fill: luma(240), inset: 6pt, radius: 3pt, width: 100%)
 #show link: it => underline(text(fill: blue, it))
 
 = stuff already nice to use
@@ -16,10 +17,14 @@ Knows to respect authority of information source (10 levels) and adjust for age 
 )
 
 *setup*: it follows the global standard, so register acc on #link("https://sav.evinvest.ltd"), then:
-- *claude*: run
-  `claude mcp add --scope user --transport http service-arb https://sa.evinvest.ltd/playbook_mcp`, or just tell your agent to do it
-- *codex*:
-  `codex mcp add service-arb --url https://sa.evinvest.ltd/playbook_mcp`, or again, - just tell it to do it
+- *claude*: run (or just tell your agent to do it)
+  ```sh
+  claude mcp add --scope user --transport http service-arb https://sa.evinvest.ltd/playbook_mcp
+  ```
+- *codex*: (or again, - just tell it to do it)
+  ```sh
+  codex mcp add service-arb --url https://sa.evinvest.ltd/playbook_mcp
+  ```
 - *ChatGPT* in browser:
   Settings → Apps & Connectors → Advanced: turn on *Developer mode*. Then *Create*: name `service-arb`, URL #link("https://sa.evinvest.ltd/playbook_mcp")[`https://sa.evinvest.ltd/playbook_mcp`], authentication OAuth. Select it in a chat under *+* → Developer mode | *Connect* on the connector
 - *anywhere* else:
