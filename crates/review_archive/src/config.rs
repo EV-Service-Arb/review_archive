@@ -12,7 +12,7 @@ use v_utils::Timeframe;
 #[derive(Clone, Debug, Default)]
 pub struct Config {
 	/// The archive's home: `review_archive.db`, `blobs/`, and the browser profile unless
-	/// [`BrowserConfig::profile_dir`] says otherwise. `None`: no store, only
+	/// [`BrowserConfig::profile_dirs`] says otherwise. `None`: no store, only
 	/// [`Archive::capture_place`](crate::Archive::capture_place) works.
 	pub data_dir: Option<PathBuf>,
 	/// How to run Chromium.
@@ -40,9 +40,13 @@ impl Config {
 		self.data_dir.as_ref().map(|d| d.join("blobs"))
 	}
 
-	/// The browser profile: it is what remembers the consent answer between runs.
-	pub fn profile_dir(&self) -> Option<PathBuf> {
-		self.browser.profile_dir.clone().or_else(|| self.data_dir.as_ref().map(|d| d.join("chromium-profile")))
+	/// The browser profiles, primary first: each is a Google account, and remembers the consent
+	/// answer between runs. Empty without either.
+	pub fn profile_dirs(&self) -> Vec<PathBuf> {
+		match &self.data_dir {
+			Some(d) if self.browser.profile_dirs.is_empty() => vec![d.join("chromium-profile")],
+			_ => self.browser.profile_dirs.clone(),
+		}
 	}
 
 	/// What alerts may attach: the page a failed walk was on, kept for a week.
@@ -60,8 +64,13 @@ pub struct BrowserConfig {
 	pub executable: Option<PathBuf>,
 	/// Shows the window, for watching a scan by hand.
 	pub headful: bool,
-	/// Browser profile; `<data_dir>/chromium-profile` when unset.
-	pub profile_dir: Option<PathBuf>,
+	/// Browser profiles, each signed in to its own Google account, in the order walks use them:
+	/// only a signed-out account moves walks to the next. `[<data_dir>/chromium-profile]` when empty.
+	pub profile_dirs: Vec<PathBuf>,
+	/// The longest a signed-in profile after the one walks are on goes without opening Maps:
+	/// an account found signed out while it waits is alerted on before it is needed.
+	#[default(Timeframe::from("1d"))]
+	pub standby_touch: Timeframe,
 	/// The memory-for-speed trades Chromium runs with; a walk fails without the list (`[]`: none).
 	/// Switch them off one at a time where the host has room (ARCHITECTURE.md § Memory).
 	pub lean: Option<Vec<Lean>>,

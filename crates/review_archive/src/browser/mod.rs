@@ -9,10 +9,14 @@ mod lease;
 mod profile;
 mod session;
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+	collections::BTreeSet,
+	path::{Path, PathBuf},
+	sync::Arc,
+};
 
 use review_archive_core::{
-	maps::{WalkEnd, WalkPolicy, Walked, selectors::js},
+	maps::{Card, WalkEnd, WalkPolicy, Walked, selectors::js},
 	tokens::Meter,
 };
 
@@ -32,56 +36,154 @@ pub struct Browser {
 
 struct Inner {
 	cfg: BrowserConfig,
-	profile_dir: PathBuf,
+	profiles: Vec<PathBuf>,
 	state: tokio::sync::Mutex<State>,
 }
 
 /// The profile, held from [`Browser::claim`] or the first walk until [`Browser::close`].
 #[derive(Default)]
 struct State {
+	signed_out: BTreeSet<PathBuf>,
+	/// On [`State::current`]'s profile.
 	lock: Option<ProfileLock>,
 	session: Option<Session>,
 }
 
+impl State {
+	fn current<'p>(&self, profiles: &'p [PathBuf]) -> Option<&'p PathBuf> {
+		profiles.iter().find(|p| !self.signed_out.contains(*p))
+	}
+
+	async fn release(&mut self) {
+		if let Some(s) = self.session.take() {
+			s.close().await;
+		}
+		self.lock = None;
+	}
+}
+
 impl std::fmt::Debug for Browser {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("Browser").field("profile_dir", &self.inner.profile_dir).finish_non_exhaustive()
+		f.debug_struct("Browser").field("profiles", &self.inner.profiles).finish_non_exhaustive()
 	}
 }
 
 impl Browser {
-	/// A browser on this profile dir, which is what remembers the consent answer between
-	/// runs. Nothing starts until the first walk.
-	pub fn new(cfg: BrowserConfig, profile_dir: PathBuf) -> Self {
+	/// A browser on these profile dirs, each signed in to its own Google account, the one walks
+	/// go to first first; a profile is what remembers the consent answer between runs. Nothing
+	/// starts until the first walk.
+	pub fn new(cfg: BrowserConfig, profiles: Vec<PathBuf>) -> Self {
+		assert!(!profiles.is_empty(), "a browser needs a profile");
 		Self {
 			inner: Arc::new(Inner {
 				cfg,
-				profile_dir: std::path::absolute(&profile_dir).expect("the working directory exists"), // Chromium refuses a relative one
+				profiles: profiles
+					.iter()
+					.map(|p| std::path::absolute(p).expect("the working directory exists")) // Chromium refuses a relative one
+					.collect(),
 				state: tokio::sync::Mutex::default(),
 			}),
 		}
 	}
 
-	/// Takes the profile for this process without starting Chromium: fails, with the
-	/// reason, while another process holds it. Held until [`Self::close`].
+	/// Takes the profile walks go to for this process without starting Chromium: fails, with
+	/// the reason, while another process holds it. Held until [`Self::close`]. With every
+	/// account signed out there is none to take, and walks fail.
 	pub async fn claim(&self) -> eyre::Result<()> {
 		let mut state = self.inner.state.lock().await;
-		if state.lock.is_none() {
-			state.lock = Some(ProfileLock::acquire(&self.inner.profile_dir)?);
+		if state.lock.is_none()
+			&& let Some(p) = state.current(&self.inner.profiles)
+		{
+			state.lock = Some(ProfileLock::acquire(p)?);
 		}
 		Ok(())
 	}
 
+	pub(crate) fn profiles(&self) -> &[PathBuf] {
+		&self.inner.profiles
+	}
+
+	/// The profile walks go to; `None` once every account is signed out.
+	pub(crate) async fn current(&self) -> Option<PathBuf> {
+		let state = self.inner.state.lock().await;
+		state.current(&self.inner.profiles).cloned()
+	}
+
+	pub(crate) async fn signed_out(&self) -> BTreeSet<PathBuf> {
+		self.inner.state.lock().await.signed_out.clone()
+	}
+
+	/// The accounts signed out are these, as the store says: one a person signed in again is walked on again.
+	pub(crate) async fn sync(&self, signed_out: BTreeSet<PathBuf>) {
+		let mut state = self.inner.state.lock().await;
+		let was = state.current(&self.inner.profiles).cloned();
+		state.signed_out = signed_out;
+		if state.current(&self.inner.profiles) != was.as_ref() {
+			state.release().await;
+		}
+	}
+
+	/// Walks no longer go to `profile`.
+	pub(crate) async fn sign_out(&self, profile: &Path) {
+		let mut state = self.inner.state.lock().await;
+		if state.current(&self.inner.profiles).is_some_and(|p| p == profile) {
+			state.release().await;
+		}
+		state.signed_out.insert(profile.to_owned());
+	}
+
+	/// Opens Maps on `profile`, which walks do not go to, and says whether it is signed in to Google.
+	pub(crate) async fn touch(&self, profile: &Path) -> eyre::Result<bool> {
+		let mut state = self.inner.state.lock().await;
+		assert!(state.current(&self.inner.profiles).is_some_and(|p| p != profile), "a standby is behind the profile walks go to");
+		// one Chromium at a time, as the memory lease is sized for one
+		if let Some(s) = state.session.take() {
+			s.close().await;
+		}
+		let _lock = ProfileLock::acquire(profile)?;
+		let session = Session::launch(&self.inner.cfg, profile).await?;
+		let signed_out = async {
+			let mut page = session.page().await?;
+			let signed_out = page.signed_out().await;
+			page.close().await?;
+			signed_out
+		}
+		.await;
+		session.close().await;
+		Ok(!signed_out?)
+	}
+
 	/// Opens the place's review list, sorted newest first, and walks it: `policy` says
 	/// which cards to screenshot and when to stop; `max` caps the cards read, `meter` what
-	/// it spends — failed or not, it holds what Google was sent.
+	/// it spends — failed or not, it holds what Google was sent. An account found signed out
+	/// hands the walk to the next profile, from the start; with none left, it fails as signed out.
 	pub async fn walk(&self, place_id: &str, lang: &str, policy: &mut dyn WalkPolicy, meter: &mut Meter, max: usize) -> eyre::Result<Walked> {
 		let mut state = self.inner.state.lock().await;
+		//LOOP: one turn per account, and they are finite
+		loop {
+			let Some(profile) = state.current(&self.inner.profiles).cloned() else {
+				return Err(SessionError::new_signed_out().into());
+			};
+			let mut counted = Counted { policy: &mut *policy, seen: 0 };
+			let walked = self.walk_on(&mut state, place_id, lang, &mut counted, meter, max).await;
+			if !walked.as_ref().is_err_and(|e| matches!(e.downcast_ref::<SessionError>(), Some(SessionError::SignedOut { .. }))) {
+				return walked;
+			}
+			// signed out shows on the overview or at the sort menu, before any card is read
+			assert_eq!(counted.seen, 0, "a walk restarted on the next account would count its cards twice");
+			tracing::warn!(profile = %profile.display(), place_id, "signed out of Google: the walk goes on the next account");
+			state.release().await;
+			state.signed_out.insert(profile);
+		}
+	}
+
+	async fn walk_on(&self, state: &mut State, place_id: &str, lang: &str, policy: &mut dyn WalkPolicy, meter: &mut Meter, max: usize) -> eyre::Result<Walked> {
+		let profile = state.current(&self.inner.profiles).expect("the caller walks on a live account");
 		if state.lock.is_none() {
-			state.lock = Some(ProfileLock::acquire(&self.inner.profile_dir)?);
+			state.lock = Some(ProfileLock::acquire(profile)?);
 		}
 		if state.session.is_none() {
-			state.session = Some(Session::launch(&self.inner.cfg, &self.inner.profile_dir).await?);
+			state.session = Some(Session::launch(&self.inner.cfg, profile).await?);
 		}
 		let session = state.session.as_ref().expect("launched just above");
 		let (walked, broken, js_heap) = match session.page().await {
@@ -141,11 +243,32 @@ impl Browser {
 	/// one; a service that scans every few hours closes it in between rather than keep it
 	/// idle.
 	pub async fn close(&self) {
-		let mut state = self.inner.state.lock().await;
-		if let Some(s) = state.session.take() {
-			s.close().await;
-		}
-		state.lock = None;
+		self.inner.state.lock().await.release().await;
+	}
+}
+
+/// The policy, and how many cards it saw.
+struct Counted<'p> {
+	policy: &'p mut dyn WalkPolicy,
+	seen: usize,
+}
+
+impl WalkPolicy for Counted<'_> {
+	fn wants_list(&self, total: Option<u64>) -> bool {
+		self.policy.wants_list(total)
+	}
+
+	fn wants_capture(&self, card: &Card) -> bool {
+		self.policy.wants_capture(card)
+	}
+
+	fn observe(&mut self, card: &Card) {
+		self.seen += 1;
+		self.policy.observe(card);
+	}
+
+	fn satisfied(&self) -> bool {
+		self.policy.satisfied()
 	}
 }
 

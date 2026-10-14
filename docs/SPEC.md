@@ -19,8 +19,8 @@ In:
 Out — do not build, even as an option:
 
 - Posting, editing or replying to anything; any write call to Google.
-- Browser fingerprint masking, "stealth" plugins, proxy or account rotation,
-  CAPTCHA solving. The scanner is a plain headless Chromium at a polite rate; if
+- Browser fingerprint masking, "stealth" plugins, proxies, account rotation (the
+  accounts are a fixed order, moved along only when one is signed out), CAPTCHA solving. The scanner is a plain headless Chromium at a polite rate; if
   Google blocks it, the run fails and is reported.
 - Automatic submission of anything to Google (appeals, reports).
 
@@ -35,9 +35,15 @@ Out — do not build, even as an option:
 - URL: `https://www.google.com/maps/place/?q=place_id:<PLACE_ID>&hl=<lang>`.
 - EU consent interstitial (`consent.google.com`): click the reject-all button;
   persist the resulting cookies in the profile dir so it is not shown again.
-- The browser profile is signed in to a Google account: signed out, Maps shows a place's
-  first few reviews only and will not sort them, so the walk fails (`signed_out`) and `serve`
-  exits 78, for the deployment to be held until the profile is signed in.
+- Each browser profile (`browser.profile_dirs`, primary first) is signed in to its own Google
+  account: signed out, Maps shows a place's first few reviews only and will not sort them. That
+  walk starts over on the next signed-in profile, and the account stays signed out
+  (`profiles(path, signed_out_at, used_at)`) and alerted on until a person signs it in again
+  (`scripts/new_google_session.py <profile dir name>`, which clears its `signed_out_at`: the
+  primary goes first again). Only `signed_out` switches accounts; `blocked` and `limited_view`
+  never do. An idle worker opens Maps on a standby profile unused for `browser.standby_touch`,
+  to find its account signed out early. With every account signed out the walk fails
+  (`signed_out`) and `serve` exits 78, for the deployment to be held until one is signed in.
 - On the place's overview, read the owner's latest post under "From the owner" (text,
   date as printed); it is kept once per distinct text (`posts`), with when it was first
   and last seen. Only the latest shows there: two posts between scans keep the newer.

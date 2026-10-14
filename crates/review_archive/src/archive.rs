@@ -55,7 +55,7 @@ use crate::{
 ///
 /// // no data dir: nothing is stored, the WebPs come back in memory
 /// let mut config = Config::default();
-/// config.browser.profile_dir = Some("/tmp/review-archive-profile".into());
+/// config.browser.profile_dirs = vec!["/tmp/review-archive-profile".into()];
 /// config.browser.executable = Some("/usr/bin/chromium".into());
 /// config.browser.lean = Some(vec![]);
 /// let archive = Archive::open(config).await?;
@@ -87,6 +87,9 @@ struct Inner {
 	webhooks: Deliverer,
 	#[cfg(feature = "maps")]
 	browser: Browser,
+	/// `browser.standby_touch`.
+	#[cfg(all(feature = "store", feature = "maps"))]
+	standby_touch: Timeframe,
 	#[cfg(all(feature = "store", feature = "maps"))]
 	gbp: OnceLock<crate::sources::gbp::Client>,
 	/// What retrying cannot fix, by source, until the process restarts.
@@ -170,9 +173,10 @@ impl Archive {
 	pub async fn open(config: Config) -> eyre::Result<Self> {
 		#[cfg(feature = "maps")]
 		let browser = {
-			let profile = config
-				.profile_dir()
-				.ok_or_else(|| eyre::eyre!("the browser needs a profile dir: set a data dir or browser.profile_dir"))?;
+			let profiles = config.profile_dirs();
+			if profiles.is_empty() {
+				eyre::bail!("the browser needs a profile dir: set a data dir or browser.profile_dirs");
+			}
 			let cfg = crate::config::BrowserConfig {
 				// inside the alerts' root, which they attach from and whose pruning leaves directories alone
 				artifacts: config.artifacts_dir().map(|dir| browser_manipulation::Artifacts {
@@ -181,7 +185,7 @@ impl Archive {
 				}),
 				..config.browser.clone()
 			};
-			Browser::new(cfg, profile)
+			Browser::new(cfg, profiles)
 		};
 		Self::open_inner(
 			config,
@@ -191,7 +195,7 @@ impl Archive {
 		.await
 	}
 
-	/// Like [`Self::open`], on a browser the caller owns and may share.
+	/// Like [`Self::open`], on a browser the caller owns and may share, with its own profiles.
 	#[cfg(feature = "maps")]
 	pub async fn open_with_browser(config: Config, browser: Browser) -> eyre::Result<Self> {
 		Self::open_inner(config, browser).await
@@ -230,6 +234,11 @@ impl Archive {
 			}),
 			_ => None,
 		};
+		// a restart does not bring back an account a person has not signed in again
+		#[cfg(all(feature = "store", feature = "maps"))]
+		if let Some(stored) = &store {
+			browser.sync(signed_out_rows(&stored.store).await?).await;
+		}
 		#[cfg(feature = "store")]
 		let http = reqwest::Client::builder().timeout(config.defaults.api_timeout.duration()).build()?;
 		Ok(Self {
@@ -247,6 +256,8 @@ impl Archive {
 				webhooks: Deliverer::new(&config.webhooks, telegram)?,
 				#[cfg(feature = "maps")]
 				browser,
+				#[cfg(all(feature = "store", feature = "maps"))]
+				standby_touch: config.browser.standby_touch,
 				#[cfg(all(feature = "store", feature = "maps"))]
 				gbp: OnceLock::new(),
 				#[cfg(all(feature = "store", feature = "maps"))]
@@ -415,6 +426,7 @@ impl Archive {
 				return Err(Rejected::Busy(format!("target {} is held: the members paying for it are out of tokens", target.id)).into());
 			}
 		}
+		self.inner.browser.sync(signed_out_rows(self.store()?).await?).await;
 		self.inner.browser.claim().await?;
 		match target.kind {
 			TargetKind::Maps => {
@@ -461,6 +473,21 @@ impl Archive {
 		.record(source, target, job)
 		.await?;
 		#[cfg(feature = "maps")]
+		{
+			let browser = &self.inner.browser;
+			// a source other than `Browser::walk`, which hands a signed-out walk on itself, saw the account signed out
+			if recorded.failure.as_ref().is_some_and(signed_out)
+				&& let Some(p) = browser.current().await
+			{
+				browser.sign_out(&p).await;
+			}
+			let now = Timestamp::now();
+			self.settle_signed_out(now).await?;
+			if let Some(p) = browser.current().await {
+				stored.store.mark_used(&p, now).await?;
+			}
+		}
+		#[cfg(feature = "maps")]
 		if let Some(e) = &recorded.failure
 			&& crate::remedy(e) == crate::Remedy::Human
 		{
@@ -476,6 +503,70 @@ impl Archive {
 			}
 		}
 		Ok(recorded)
+	}
+
+	/// Stores the accounts the browser found signed out since it last looked, each alerted on.
+	#[cfg(feature = "maps")]
+	async fn settle_signed_out(&self, now: Timestamp) -> eyre::Result<()> {
+		let store = self.store()?;
+		let known = signed_out_rows(store).await?;
+		for p in self.inner.browser.signed_out().await.difference(&known) {
+			store.mark_signed_out(p, now).await?;
+			let name = p.file_name().expect("a profile dir has a name").to_string_lossy();
+			tracing::error!(
+				profile = %p.display(),
+				next = ?self.inner.browser.current().await,
+				"the scanner's Google account is signed out: walks go on the next profile, if any is left; sign it in again with `scripts/new_google_session.py {name}`"
+			);
+		}
+		Ok(())
+	}
+
+	/// Opens Maps on the first signed-in profile after the one walks go to that has not been on
+	/// Google for `browser.standby_touch`, so an account signed out while it waits is alerted on
+	/// before a walk needs it. Whether one was opened.
+	#[cfg(feature = "maps")]
+	pub async fn touch_standby(&self, now: Timestamp) -> eyre::Result<bool> {
+		if self.closed(TargetKind::Maps, now).await?.is_some() {
+			return Ok(false);
+		}
+		let browser = &self.inner.browser;
+		let store = self.store()?;
+		browser.sync(signed_out_rows(store).await?).await;
+		let Some(current) = browser.current().await else { return Ok(false) };
+		let rows = store.profiles().await?;
+		let signed_out = browser.signed_out().await;
+		let every = jiff::SignedDuration::try_from(self.inner.standby_touch.duration()).expect("a Timeframe fits a SignedDuration");
+		let Some(standby) = browser
+			.profiles()
+			.iter()
+			.filter(|p| **p != current && !signed_out.contains(*p))
+			.find(|p| rows.iter().find(|r| r.path == **p).and_then(|r| r.used_at).is_none_or(|at| now.duration_since(at) >= every))
+			.cloned()
+		else {
+			return Ok(false);
+		};
+		// a failed touch waits its turn like a good one, rather than retry on every idle look
+		store.mark_used(&standby, now).await?;
+		match browser.touch(&standby).await {
+			Ok(true) => tracing::info!(profile = %standby.display(), "the standby account is signed in"),
+			Ok(false) => {
+				browser.sign_out(&standby).await;
+				self.settle_signed_out(now).await?;
+			}
+			Err(e) => {
+				if crate::remedy(&e) == crate::Remedy::Pause {
+					let reason = e
+						.downcast_ref::<crate::SessionError>()
+						.and_then(miette::Diagnostic::code)
+						.expect("a pause is a SessionError, which has codes");
+					let b = store.trip_breaker(&reason.to_string(), now, &self.inner.schedule).await?;
+					tracing::error!(trips = b.trips, probe_after = %b.probe_after, "Maps cannot work now ({reason}): every Maps walk pauses until the probe");
+				}
+				return Err(e.wrap_err(format!("touching the standby profile {}", standby.display())));
+			}
+		}
+		Ok(true)
 	}
 
 	/// Why scans of this kind cannot run at `now`: Maps paused while it cannot work, or a source
@@ -616,6 +707,7 @@ impl Archive {
 					if let Some(why) = self.closed(TargetKind::Maps, Timestamp::now()).await? {
 						return Err(Rejected::Busy(why).into());
 					}
+					self.inner.browser.sync(signed_out_rows(store).await?).await;
 					self.inner.browser.claim().await?;
 					let d = &self.inner.defaults;
 					let source = crate::sources::maps::RequestedSource {
@@ -763,6 +855,17 @@ impl Archive {
 		}
 		Ok(out)
 	}
+}
+
+/// The profiles whose accounts are signed out until a person clears them.
+#[cfg(all(feature = "store", feature = "maps"))]
+async fn signed_out_rows(store: &Store) -> eyre::Result<std::collections::BTreeSet<std::path::PathBuf>> {
+	Ok(store.profiles().await?.into_iter().filter(|p| p.signed_out_at.is_some()).map(|p| p.path).collect())
+}
+
+#[cfg(feature = "maps")]
+fn signed_out(e: &eyre::Report) -> bool {
+	matches!(e.downcast_ref::<crate::SessionError>(), Some(crate::SessionError::SignedOut { .. }))
 }
 
 /// Sources retrying cannot fix, and why.

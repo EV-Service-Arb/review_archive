@@ -132,6 +132,11 @@ async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, jobs_in_
 		return Ok(step);
 	}
 	let now = Timestamp::now();
+	match archive.touch_standby(now).await {
+		Ok(true) => return Ok(Step::Scanned),
+		Ok(false) => {}
+		Err(e) => return Ok(failed(e, "standby touch failed")),
+	}
 	let max_idle = cfg.max_idle.duration();
 	Ok(Step::Idle(match archive.next_due(now).await? {
 		Some(next) if next > now => Duration::try_from(next.duration_since(now)).expect("positive: next > now").min(max_idle),

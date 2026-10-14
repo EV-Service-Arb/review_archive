@@ -16,7 +16,7 @@ Two sources. `maps` reads any public place through a plain headless Chromium at 
 authoritative, and still takes its screenshots from the public Maps page.
 
 It only reads. Nothing is posted, replied to, reported or appealed, and there is no fingerprint
-masking, proxy or account rotation, or CAPTCHA solving: if Google blocks the scanner, the run fails
+masking, proxy, or CAPTCHA solving; a second Google account takes over only when the first is signed out: if Google blocks the scanner, the run fails
 and says so. See [docs/SPEC.md](docs/SPEC.md) for what it does and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for where.
 <!-- markdownlint-disable -->
 <details>

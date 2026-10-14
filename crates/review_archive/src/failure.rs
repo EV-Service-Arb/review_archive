@@ -118,7 +118,9 @@ pub enum SessionError {
 	#[error("the scanner's browser is signed out of Google, which then shows a place's first few reviews only, unsorted")]
 	#[diagnostic(
 		code(review_archive::google::signed_out),
-		help("sign the browser profile (`browser.profile_dir`, else `<data_dir>/chromium-profile`) in to a Google account; `serve` exits 78, for the deployment to be held until it is")
+		help(
+			"every profile in `browser.profile_dirs` (else `<data_dir>/chromium-profile`) is signed out of Google: sign one in again with `scripts/new_google_session.py <profile dir name>`; `serve` exits 78, for the deployment to be held until it is"
+		)
 	)]
 	SignedOut,
 	#[leaf]

@@ -1,14 +1,17 @@
 #!/usr/bin/env nix-shell
 #!nix-shell -i python3 -p "python3.withPackages (p: [p.websockets])"
-"""Signs the deployed scanner in to Google with a session no other browser ever holds.
+"""Signs one of the deployed scanner's profiles in to Google with a session no other browser ever holds.
 
-Opens Playwright's Chromium on a throwaway profile; sign in, then close the window. The session
-goes into the scanner's profile on rpi5 and the pod restarts. Every local copy is deleted on the
-way out: a session shared with another browser dies when either side rotates it.
+`new_google_session.py <profile dir name>`: `chromium-profile` (the primary) or `chromium-profile-2`, as in
+`browser.profile_dirs`. Opens Playwright's Chromium on a throwaway profile; sign in, then close the window. The
+session goes into that profile on rpi5, and the archive's mark of it as signed out is cleared: the next walk
+uses it, in its order. Every local copy is deleted on the way out: a session shared with another browser dies
+when either side rotates it.
 """
 
 import asyncio
 import json
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -19,7 +22,7 @@ from pathlib import Path
 
 import websockets
 
-HOST, NAMESPACE, PVC, APP = "rpi5", "service-arb", "review-archive-data", "review-archive"
+HOST, NAMESPACE, PVC = "rpi5", "service-arb", "review-archive-data"
 SIGN_IN = "https://accounts.google.com/ServiceLogin?continue=https://www.google.com/maps"
 GOOGLE = ("google.com", "google.fr", "youtube.com")
 FIELDS = ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "expires", "priority", "sourceScheme", "sourcePort", "partitionKey")
@@ -75,6 +78,13 @@ async def export(call) -> list:
 
 
 def main() -> None:
+	assert len(sys.argv) == 2 and re.fullmatch(r"chromium-profile(-\d+)?", sys.argv[1]), "usage: new_google_session.py <chromium-profile | chromium-profile-N>"
+	name = sys.argv[1]
+	data = "$(sudo k3s kubectl get pv $(sudo k3s kubectl -n {ns} get pvc {pvc} -o jsonpath='{{.spec.volumeName}}') -o jsonpath='{{.spec.local.path}}{{.spec.hostPath.path}}')".format(ns=NAMESPACE, pvc=PVC)
+	# a Chromium on the profile would overwrite the cookies, or be signed out under its walk
+	in_use = f"! pgrep -f -- '--user-data-dir=/data/{name}( |$)' >/dev/null || {{ echo '/data/{name} is open in a running Chromium: wait for its walk to end' >&2; exit 1; }}"
+	subprocess.run(["ssh", HOST, in_use], check=True)
+
 	print("building the image's Chromium…", file=sys.stderr)
 	browsers, shell = build("browsers"), build("components.chromium-headless-shell")
 	(chrome,) = browsers.glob("chromium-*/chrome-linux64/chrome")
@@ -100,16 +110,20 @@ def main() -> None:
 			kinds = {k for (k,) in c.execute("SELECT DISTINCT substr(CAST(encrypted_value AS TEXT), 1, 3) FROM cookies")}
 		assert kinds == {"v10"}, f"the image's Chromium reads v10 cookies only, these are {kinds}"
 
-		profile = "$(sudo k3s kubectl get pv $(sudo k3s kubectl -n {ns} get pvc {pvc} -o jsonpath='{{.spec.volumeName}}') -o jsonpath='{{.spec.local.path}}{{.spec.hostPath.path}}')/chromium-profile/Default".format(ns=NAMESPACE, pvc=PVC)
 		remote = f"""set -e
-d={profile}
+{in_use}
+data={data}
+d="$data/{name}/Default"
+sudo mkdir -p "$d"
+sudo chown nobody:nogroup "$data/{name}" "$d"
 sudo tee "$d/Cookies" >/dev/null
 sudo rm -f "$d/Cookies-journal"
 sudo chown nobody:nogroup "$d/Cookies"
 sudo chmod 600 "$d/Cookies"
-sudo k3s kubectl -n {NAMESPACE} delete pod -l app={APP} --wait=false"""
+sudo nix run nixpkgs#sqlite -- "$data/review_archive.db" "UPDATE profiles SET signed_out_at = NULL WHERE path = '/data/{name}'" """
 		subprocess.run(["ssh", HOST, remote], input=db.read_bytes(), check=True)
-	print(f"{len(cookies)} cookies are in the scanner's profile, and nowhere else; the pod restarts", file=sys.stderr)
+	print(f"{len(cookies)} cookies are in /data/{name}, and nowhere else; the next walk uses it in its order", file=sys.stderr)
+	print("a deployment held at 0 replicas (every account was signed out) needs ▶ Resume in Grafana", file=sys.stderr)
 
 
 if __name__ == "__main__":

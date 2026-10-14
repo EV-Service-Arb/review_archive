@@ -16,7 +16,11 @@ pub mod people;
 mod tokens;
 mod webhooks;
 
-use std::{collections::HashMap, path::Path, time::Duration};
+use std::{
+	collections::HashMap,
+	path::{Path, PathBuf},
+	time::Duration,
+};
 
 use eyre::WrapErr;
 use jiff::{Timestamp, civil::Date};
@@ -280,6 +284,21 @@ pub struct TargetCounts {
 	pub gone: i64,
 	/// Screenshots.
 	pub captures: i64,
+}
+
+/// A browser profile, and its Google account.
+#[derive(Clone, Debug)]
+pub struct Profile {
+	/// As in `browser.profile_dirs`, made absolute.
+	pub path: PathBuf,
+	/// Since when its account is signed out; `None`: signed in, as far as anyone saw.
+	pub signed_out_at: Option<Timestamp>,
+	/// When a walk or a touch last had it open on Google.
+	pub used_at: Option<Timestamp>,
+}
+
+fn profile_key(path: &Path) -> eyre::Result<&str> {
+	path.to_str().ok_or_else(|| eyre::eyre!("the browser profile {} is not UTF-8", path.display()))
 }
 
 #[derive(FromRow)]
@@ -600,6 +619,45 @@ impl Store {
 	pub async fn reset_breaker(&self) -> eyre::Result<bool> {
 		let done = sqlx::query("DELETE FROM maps_breaker").execute(&self.pool).await.wrap_err("resetting the maps breaker")?;
 		Ok(done.rows_affected() > 0)
+	}
+
+	/// Every browser profile a walk or a touch has been on.
+	pub async fn profiles(&self) -> eyre::Result<Vec<Profile>> {
+		let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as("SELECT path, signed_out_at, used_at FROM profiles ORDER BY path")
+			.fetch_all(&self.pool)
+			.await
+			.wrap_err("loading the browser profiles")?;
+		rows.into_iter()
+			.map(|(path, signed_out_at, used_at)| {
+				Ok(Profile {
+					path: path.into(),
+					signed_out_at: signed_out_at.as_deref().map(parse_ts).transpose()?,
+					used_at: used_at.as_deref().map(parse_ts).transpose()?,
+				})
+			})
+			.collect()
+	}
+
+	/// The profile's Google account is signed out, until a person signs it in and clears this.
+	pub async fn mark_signed_out(&self, path: &Path, now: Timestamp) -> eyre::Result<()> {
+		sqlx::query("INSERT INTO profiles (path, signed_out_at) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET signed_out_at = excluded.signed_out_at")
+			.bind(profile_key(path)?)
+			.bind(fmt_ts(now))
+			.execute(&self.pool)
+			.await
+			.wrap_err("marking a browser profile signed out")?;
+		Ok(())
+	}
+
+	/// The profile was last open on Google at `now`.
+	pub async fn mark_used(&self, path: &Path, now: Timestamp) -> eyre::Result<()> {
+		sqlx::query("INSERT INTO profiles (path, used_at) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET used_at = excluded.used_at")
+			.bind(profile_key(path)?)
+			.bind(fmt_ts(now))
+			.execute(&self.pool)
+			.await
+			.wrap_err("marking a browser profile used")?;
+		Ok(())
 	}
 
 	/// Applies a reconciled scan in one transaction: the reviews, the webhook events for

@@ -14,6 +14,8 @@
   mfe_dir = mfe;
   bind = "0.0.0.0:${toString port}";
   browser.executable = chromium;
+  # primary first; the second takes walks only while the first is signed out of Google
+  browser.profile_dirs = [ "/data/chromium-profile" "/data/chromium-profile-2" ];
   # the Pi's 1Gi burst: every memory-for-speed trade (ARCHITECTURE.md § Memory); and a longer
   # pause between scrolls, so V8 collects before the next screen loads
   browser.lean = [{ js_heap_mib = 512; } "small_young_generation" "js_lite_mode" "one_raster_thread" "low_end_device"];

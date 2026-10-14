@@ -15,7 +15,7 @@ async fn main() {
 	let cards: usize = args.next().expect("card count").parse().unwrap();
 	let mut config = Config::default();
 	config.browser.executable = std::env::var_os("REVIEW_ARCHIVE_CHROME").map(Into::into);
-	config.browser.profile_dir = Some(profile);
+	config.browser.profile_dirs = vec![profile];
 	config.browser.lean = Some(vec![
 		Lean::JsHeapMib(512),
 		Lean::SmallYoungGeneration,

@@ -24,7 +24,7 @@ fn config(dir: &std::path::Path) -> Config {
 	config.browser.executable = std::env::var_os("REVIEW_ARCHIVE_CHROME").map(Into::into);
 	config.browser.lean = Some(vec![]);
 	config.browser.headful = std::env::var("REVIEW_ARCHIVE_HEADFUL").is_ok_and(|v| v == "1");
-	config.browser.profile_dir = std::env::var_os("REVIEW_ARCHIVE_PROFILE").map(Into::into);
+	config.browser.profile_dirs = std::env::var_os("REVIEW_ARCHIVE_PROFILE").map(Into::into).into_iter().collect();
 	config.defaults.max_reviews_initial = 12;
 	config.defaults.max_reviews_per_scan = 12;
 	config.defaults.lang = "fr".into();
@@ -73,7 +73,7 @@ async fn live_scan_of_a_real_place() {
 async fn live_capture_without_a_store() {
 	let dir = tempfile::tempdir().unwrap();
 	let mut config = config(dir.path());
-	config.browser.profile_dir = config.browser.profile_dir.or_else(|| Some(dir.path().join("profile")));
+	config.browser.profile_dirs = config.profile_dirs();
 	config.data_dir = None;
 	let archive = Archive::open(config).await.unwrap();
 	let got = archive.capture_place(&CaptureRequest::new(PLACE_ID).lang("fr").max_reviews(5)).await;

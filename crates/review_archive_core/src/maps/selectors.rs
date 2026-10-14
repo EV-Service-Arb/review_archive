@@ -17,6 +17,9 @@ pub fn place_url(place_id: &str, lang: &str) -> String {
 	format!("https://www.google.com/maps/place/?q=place_id:{}&hl={}", enc(place_id), enc(lang))
 }
 
+/// Maps on no place: where a standby profile's account is checked.
+pub const MAPS_HOME: &str = "https://www.google.com/maps?hl=en";
+
 /// The EU consent interstitial is served from this host.
 pub const CONSENT_HOST: &str = "consent.google.com";
 /// Google's "unusual traffic" page. Hitting it fails the run; nothing tries to get past it.

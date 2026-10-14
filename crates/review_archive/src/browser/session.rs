@@ -190,6 +190,15 @@ impl Page<'_> {
 		Ok(self.tab.close().await?)
 	}
 
+	/// Opens Maps on no place, and says whether its account corner offers to sign in. A corner that
+	/// never shows the link reads as signed in: the next walk finds out for sure.
+	pub(crate) async fn signed_out(&mut self) -> Result<bool, SessionError> {
+		self.tab.set_timeout(self.cfg.nav_timeout.duration()).await;
+		self.tab.goto(sel::MAPS_HOME).await?;
+		self.handle_interstitials().await?;
+		self.wait_for_any(sel::SIGNED_OUT).await
+	}
+
 	/// Opens the place, reads the owner's latest post off its overview, and opens its review
 	/// list sorted newest first. `Err`: the walk is already over — the place has no reviews,
 	/// or `policy` does not want them read.

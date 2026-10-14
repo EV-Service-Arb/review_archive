@@ -57,7 +57,7 @@ use review_archive::{Archive, CaptureRequest, config::Config};
 
 // No data dir: nothing stored, the reviews and WebPs come back in memory.
 let mut config = Config::default();
-config.browser.profile_dir = Some("/var/lib/my-service/chromium".into());
+config.browser.profile_dirs = vec!["/var/lib/my-service/chromium".into()];
 config.browser.executable = Some("/usr/bin/chromium".into());
 config.browser.lean = Some(vec![]); // memory-for-speed trades: § Memory
 let archive = Archive::open(config).await?;
@@ -81,12 +81,18 @@ with its own platform implements `sources::ReviewSource` and records through
 ## Invariants
 
 - **Nothing is ever written to Google.** Sources read. There is no stealth, no fingerprint
-  masking, no proxy or account rotation, no CAPTCHA solving. When Google does not serve the
+  masking, no proxy, no CAPTCHA solving. The accounts in `browser.profile_dirs` are used in
+  their order, and only `signed_out` moves a walk to the next; a flag on the address
+  (`blocked`, `limited_view`) never does. When Google does not serve the
   full page — the "unusual traffic" page, or its "limited view" without reviews — the run
-  fails and the error says which. A browser signed out of Google fails every walk
-  (`signed_out`): Maps shows it a place's first few reviews only, unsorted, which is no
-  archive; `serve` ends with exit 78, which devops holds the deployment on until a person signs the
-  profile in and resumes it. A failed walk saves the
+  fails and the error says which. A profile signed out of Google cannot walk: Maps shows it
+  a place's first few reviews only, unsorted, which is no archive. The walk starts over on the
+  next signed-in profile (it is seen before any card is read), and the account is kept signed
+  out (`profiles`, SQLite, so a restart keeps it) and logged at error level until a person signs
+  it in again with `scripts/new_google_session.py`; the standby accounts are opened on Maps at
+  least every `browser.standby_touch`, to find one signed out before a walk needs it. With every
+  account signed out the walk fails (`signed_out`) and `serve` ends with exit 78, which devops
+  holds the deployment on until a person signs one in and resumes it. A failed walk saves the
   page as `<data_dir>/artifacts/browser_captures/<UTC time>-<step>.{png,html}` (kept `browser.artifacts_retention`),
   and its error names them as `[<path>]`s — which is what the server's alerts attach, from
   under `<data_dir>/artifacts/` only. A Chromium start that outran Playwright's 30 s fails
@@ -105,7 +111,7 @@ with its own platform implements `sources::ReviewSource` and records through
   for any target until its probe time (`schedule.backoff_base`, doubling to `schedule.backoff_cap`), then one probes; a walk that
   gets through clears it. `gbp` lists go on, their screenshots wait. What retrying cannot
   fix — changed markup or consent page, a refused GBP grant — halts that source until a
-  restart; a Chromium setup that is broken, or signed out, ends `serve` with exit 78
+  restart; a Chromium setup that is broken, or every account signed out, ends `serve` with exit 78
   (`EX_CONFIG`), which devops holds rather than restarts.
 - **A failure is known, or a bug.** `failure::remedy` says who each waits for; one no arm
   knows is `Unknown`: retried on the backoff, and reported by the server at error level with
@@ -130,8 +136,8 @@ with its own platform implements `sources::ReviewSource` and records through
   alone may be a stalled lazy load. A "complete" scan that lists nothing, against an archive
   with live reviews, is taken as a broken response: nothing is marked gone, the run is
   `partial`.
-- **One process per browser profile.** `review_archive.lock` in the profile says so, taken
-  before Chromium starts (`browser_manipulation`'s own lock, which clears stale `Singleton*`
+- **One process per browser profile.** `review_archive.lock` in each profile says so, taken
+  before Chromium starts on it (`browser_manipulation`'s own lock, which clears stale `Singleton*`
   files, is only taken at launch). The profile is claimed before a run is recorded, so a second `scan` while `serve`
   holds it fails with that reason and leaves no run behind. A browser that failed under a walk
   is closed; the next walk starts a new one.
@@ -149,7 +155,8 @@ with its own platform implements `sources::ReviewSource` and records through
 - **One `serve` per data dir does the background work.** `serve.lock` in the data dir, held
   for the process's life, gates the worker, the deliverer and the blob conversion; a second
   `serve` on the same dir (a rolling update's newcomer) answers HTTP and waits for it.
-- **One browser, one queue.** A single worker uses the browser: queued jobs first
+- **One browser, one queue.** A single worker uses the browser, on one profile at a time
+  (another only when an account is signed out, or to touch a standby while idle): queued jobs first
     (`POST /targets/{id}/scan`, `POST /captures`), oldest first — but no more than `worker.jobs_in_a_row`
   while a target is overdue — then the most overdue target, with a `schedule.pause_{min,max}` pause
   between any two. The queue is bounded (`defaults.max_queued_jobs`) and a job already queued is not
