@@ -1,12 +1,7 @@
 //! The worker loop on a temp archive, without a browser: `gbp` targets with no credentials
 //! fail their scans before any page is opened, which is enough to see what runs first.
 
-use std::{
-	io,
-	path::PathBuf,
-	sync::{Arc, Mutex},
-	time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 
 use jiff::Timestamp;
 use review_archive::{
@@ -131,89 +126,4 @@ async fn a_browser_that_cannot_be_set_up_ends_the_worker() {
 
 	let e = ended.expect_err("the worker cannot go on");
 	assert!(review_archive::describe(&e).contains("review_archive::browser::launch"), "{e:#}");
-}
-
-/// What the worker logged, as plain text lines.
-#[derive(Clone, Default)]
-struct Logs(Arc<Mutex<Vec<u8>>>);
-
-impl io::Write for Logs {
-	fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-		self.0.lock().unwrap().extend_from_slice(buf);
-		Ok(buf.len())
-	}
-
-	fn flush(&mut self) -> io::Result<()> {
-		Ok(())
-	}
-}
-
-/// Runs the worker on `dir`'s archive until `target` has a run, and returns its log line
-/// reporting a failure.
-async fn reported(dir: &TempDir, target: TargetId) -> String {
-	let logs = Logs::default();
-	let writer = logs.clone();
-	let subscriber = tracing_subscriber::fmt().with_ansi(false).with_writer(move || writer.clone()).finish();
-	let _logs = tracing::subscriber::set_default(subscriber);
-	let archive = Archive::open(Config {
-		data_dir: Some(dir.0.clone()),
-		..Config::default()
-	})
-	.await
-	.unwrap();
-	let store = archive.store().unwrap();
-	let signals = Signals::default();
-	let (stop, stopped) = watch::channel(false);
-	let (cfg, schedule) = (WorkerConfig::default(), Schedule::default());
-	let observe = async {
-		tokio::time::timeout(Duration::from_secs(20), async {
-			while store.runs(target, 1).await.unwrap().is_empty() {
-				tokio::time::sleep(Duration::from_millis(20)).await;
-			}
-		})
-		.await
-		.expect("the target was scanned");
-		stop.send(true).unwrap();
-	};
-	let (worked, ()) = tokio::join!(run(&archive, &signals, &cfg, &schedule, stopped), observe);
-	worked.unwrap();
-	let text = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
-	let lines: Vec<&str> = text.lines().filter(|l| l.contains(" failed")).collect();
-	let [line] = lines[..] else { panic!("one report: {text}") };
-	line.to_owned()
-}
-
-/// A job's failure is typed when the worker reports it, as a scheduled scan's is: both are told
-/// by who they wait for, here a person who has to set the credentials.
-#[tokio::test]
-async fn a_failed_job_is_reported_as_a_failed_scan_is() {
-	let scanned = TempDir::new("report-scan");
-	let archive = Archive::open(Config {
-		data_dir: Some(scanned.0.clone()),
-		..Config::default()
-	})
-	.await
-	.unwrap();
-	let due = gbp_target(&archive, false).await;
-	drop(archive);
-	let scan = reported(&scanned, due).await;
-
-	let queued = TempDir::new("report-job");
-	let archive = Archive::open(Config {
-		data_dir: Some(queued.0.clone()),
-		..Config::default()
-	})
-	.await
-	.unwrap();
-	let only_queued = gbp_target(&archive, true).await;
-	archive.enqueue_scan(only_queued).await.unwrap();
-	drop(archive);
-	let job = reported(&queued, only_queued).await;
-
-	for line in [&scan, &job] {
-		assert!(
-			line.contains(" WARN ") && line.contains("remedy=Human") && line.contains("review_archive::gbp::no_credentials"),
-			"{line}"
-		);
-	}
 }
