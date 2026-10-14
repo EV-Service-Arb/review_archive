@@ -5,11 +5,11 @@ Eric bot, - answers based on smart ranking of (skool, all chats, live calls, YT 
 Knows to respect authority of information source (10 levels) and adjust for age of the info.
 
 #figure(
-  image("../.assets/playbook_live_call_advice.png"),
+  image(".assets/playbook_live_call_advice.png"),
   caption: [prompt: "what I need for live call"],
 )
 #figure(
-  image("../.assets/playbook_eric_drive_link.png"),
+  image(".assets/playbook_eric_drive_link.png"),
   caption: [actioning it: following a lead from the answer],
 )
 
@@ -25,7 +25,7 @@ setup: it follows the global standard, so register acc on #link("https://sav.evi
 
 == review archive
 before evil google nukes them: #link("https://sa.evinvest.ltd/review_archive")
-#image("../.assets/review_archive_overview_snap.png")
+#image(".assets/review_archive_overview_snap.png")
 - make acc
 - dm me acc's email for test tokens // will add default starting amount bit later
 - add accs managing profiles under `managing gmails`
