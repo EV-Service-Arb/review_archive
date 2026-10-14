@@ -85,7 +85,8 @@ with its own platform implements `sources::ReviewSource` and records through
   full page — the "unusual traffic" page, or its "limited view" without reviews — the run
   fails and the error says which. A browser signed out of Google fails every walk
   (`signed_out`): Maps shows it a place's first few reviews only, unsorted, which is no
-  archive; Maps halts until a restart, its profile signed in. A failed walk saves the
+  archive; `serve` ends with exit 78, which devops holds the deployment on until a person signs the
+  profile in and resumes it. A failed walk saves the
   page as `<data_dir>/artifacts/browser_captures/<UTC time>-<step>.{png,html}` (kept `browser.artifacts_retention`),
   and its error names them as `[<path>]`s — which is what the server's alerts attach, from
   under `<data_dir>/artifacts/` only. A Chromium start that outran Playwright's 30 s fails
@@ -104,7 +105,8 @@ with its own platform implements `sources::ReviewSource` and records through
   for any target until its probe time (`schedule.backoff_base`, doubling to `schedule.backoff_cap`), then one probes; a walk that
   gets through clears it. `gbp` lists go on, their screenshots wait. What retrying cannot
   fix — changed markup or consent page, a refused GBP grant — halts that source until a
-  restart; a Chromium setup that is broken ends `serve`.
+  restart; a Chromium setup that is broken, or signed out, ends `serve` with exit 78
+  (`EX_CONFIG`), which devops holds rather than restarts.
 - **A failure is known, or a bug.** `failure::remedy` says who each waits for; one no arm
   knows is `Unknown`: retried on the backoff, and reported by the server at error level with
   its chain and backtrace (`RUST_LIB_BACKTRACE=1`), which is one Sentry event and a Discord

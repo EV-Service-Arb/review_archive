@@ -171,11 +171,20 @@ fn main() -> eyre::Result<()> {
 	let (alert_layer, deliverer) = alerts.unzip();
 	let _otel = init_tracing(&settings.app_env, alert_layer)?;
 
-	tokio::runtime::Builder::new_multi_thread()
+	let ended = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.build()
 		.wrap_err("building the tokio runtime")?
-		.block_on(with_alerts(deliverer, run(cli, config, settings)))
+		.block_on(with_alerts(deliverer, run(cli, config, settings)));
+	// devops holds a deployment whose container exits 78, instead of restarting it into the same failure
+	if let Err(e) = &ended
+		&& review_archive::remedy(e) == review_archive::Remedy::Fatal
+	{
+		eprintln!("Error: {e:?}");
+		drop((_otel, _sentry));
+		std::process::exit(78);
+	}
+	ended
 }
 
 /// Runs `work`, delivering alerts beside it and, once it ends, the ones still queued.

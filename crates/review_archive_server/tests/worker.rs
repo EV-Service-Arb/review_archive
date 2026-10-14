@@ -127,3 +127,36 @@ async fn a_browser_that_cannot_be_set_up_ends_the_worker() {
 	let e = ended.expect_err("the worker cannot go on");
 	assert!(review_archive::describe(&e).contains("review_archive::browser::launch"), "{e:#}");
 }
+
+/// What restarting cannot fix exits 78 (EX_CONFIG), which devops' observer holds the
+/// deployment on instead of restarting it into the same failure.
+#[test]
+fn serve_whose_worker_cannot_go_on_exits_78() {
+	let dir = TempDir::new("serve-fatal");
+	let config = dir.0.join("config.toml");
+	std::fs::write(
+		&config,
+		format!("data_dir = {:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\n", dir.0.join("data")),
+	)
+	.unwrap();
+	let cli = |args: &[&str]| {
+		let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_review_archive"));
+		c.arg("--config").arg(&config).args(args).env("APP_ENV", "development");
+		c
+	};
+	assert!(cli(&["target", "add", PLACE]).status().unwrap().success());
+
+	let mut serve = cli(&["serve", "--dev-member", "none"]).spawn().unwrap();
+	let deadline = std::time::Instant::now() + Duration::from_secs(60);
+	let status = loop {
+		if let Some(status) = serve.try_wait().unwrap() {
+			break status;
+		}
+		if std::time::Instant::now() > deadline {
+			serve.kill().unwrap();
+			panic!("serve went on without a browser");
+		}
+		std::thread::sleep(Duration::from_millis(100));
+	};
+	assert_eq!(status.code(), Some(78));
+}

@@ -31,11 +31,11 @@ pub fn remedy(e: &eyre::Report) -> Remedy {
 		return match e {
 			SessionError::Blocked { .. } | SessionError::LimitedView { .. } | SessionError::LaunchTimeout { .. } | SessionError::NoMemory { .. } | SessionError::Unresponsive { .. } =>
 				Remedy::Pause,
-			SessionError::MarkupChanged { .. } | SessionError::Consent { .. } | SessionError::SignedOut { .. } => Remedy::Human,
+			SessionError::MarkupChanged { .. } | SessionError::Consent { .. } => Remedy::Human,
 			// a person fixes the target and its card says why, but one target's place must not halt
 			// every Maps walk; a place panel missing is also what a page that did not finish looks like
 			SessionError::PlaceNotFound { .. } => Remedy::Retry,
-			SessionError::Launch { .. } => Remedy::Fatal,
+			SessionError::Launch { .. } | SessionError::SignedOut { .. } => Remedy::Fatal,
 			SessionError::Browser { source, .. } => match &*source.kind {
 				// a slow start is `LaunchTimeout` by then: what is left is the setup
 				ErrorKind::Launch(_) | ErrorKind::DriverMismatch { .. } | ErrorKind::ProfileInUse(_) => Remedy::Fatal,
@@ -118,7 +118,7 @@ pub enum SessionError {
 	#[error("the scanner's browser is signed out of Google, which then shows a place's first few reviews only, unsorted")]
 	#[diagnostic(
 		code(review_archive::google::signed_out),
-		help("sign the browser profile (`browser.profile_dir`, else `<data_dir>/chromium-profile`) in to a Google account, in a window; Maps stays halted until a restart")
+		help("sign the browser profile (`browser.profile_dir`, else `<data_dir>/chromium-profile`) in to a Google account; `serve` exits 78, for the deployment to be held until it is")
 	)]
 	SignedOut,
 	#[leaf]

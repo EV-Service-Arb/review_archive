@@ -36,8 +36,8 @@ Out — do not build, even as an option:
 - EU consent interstitial (`consent.google.com`): click the reject-all button;
   persist the resulting cookies in the profile dir so it is not shown again.
 - The browser profile is signed in to a Google account: signed out, Maps shows a place's
-  first few reviews only and will not sort them, so the walk fails (`signed_out`) and Maps
-  halts until a restart.
+  first few reviews only and will not sort them, so the walk fails (`signed_out`) and `serve`
+  exits 78, for the deployment to be held until the profile is signed in.
 - On the place's overview, read the owner's latest post under "From the owner" (text,
   date as printed); it is kept once per distinct text (`posts`), with when it was first
   and last seen. Only the latest shows there: two posts between scans keep the newer.
