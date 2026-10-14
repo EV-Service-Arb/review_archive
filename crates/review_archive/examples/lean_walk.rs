@@ -1,5 +1,5 @@
 //! One headless walk on a kept profile with every `browser.lean` trade, its WebPs written out, to look at
-//! what the Pi's launch does to Maps. `cargo r --example lean_walk -- <profile> <out_dir> <cards>`
+//! what the Pi's launch does to Maps. `cargo r --example lean_walk -- <profile> <out_dir> <cards> <place> <lang>`
 
 use review_archive::{
 	Archive, CaptureRequest,
@@ -13,6 +13,8 @@ async fn main() {
 	let profile: std::path::PathBuf = args.next().expect("profile dir").into();
 	let out: std::path::PathBuf = args.next().expect("out dir").into();
 	let cards: usize = args.next().expect("card count").parse().unwrap();
+	let place = args.next().expect("place id");
+	let lang = args.next().expect("lang");
 	let mut config = Config::default();
 	config.browser.executable = std::env::var_os("REVIEW_ARCHIVE_CHROME").map(Into::into);
 	config.browser.profile_dirs = vec![profile];
@@ -24,7 +26,11 @@ async fn main() {
 		Lean::LowEndDevice,
 	]);
 	let archive = Archive::open(config).await.unwrap();
-	let got = archive.capture_place(&CaptureRequest::new("ChIJLU7jZClu5kcR4PcOOO6p3I0").lang("fr").max_reviews(cards)).await;
+	let mut req = CaptureRequest::new(&place).lang(&lang).max_reviews(cards);
+	if std::env::var_os("SCROLL_ONLY").is_some() {
+		req.limits.review_ids = Some(vec!["none".to_owned()]);
+	}
+	let got = archive.capture_place(&req).await;
 	archive.close().await;
 	let got = got.unwrap_or_else(|e| panic!("{}", review_archive::describe(&e)));
 	std::fs::create_dir_all(&out).unwrap();
