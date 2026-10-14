@@ -35,15 +35,24 @@ const CARD_SCALE: f64 = 2.0;
 const ANSWER: Duration = Duration::from_secs(20);
 
 /// For a browser that only ever visits Google, and walks one page there: one renderer, a small
-/// disk cache, and none of the features it would run beside the page.
+/// disk cache, the network, audio and GPU work inside the browser process, and none of the
+/// features it would run beside the page (ARCHITECTURE.md § Memory).
 const ARGS: &[&str] = &[
 	"--renderer-process-limit=1",
 	"--disable-site-isolation-trials",
-	"--disable-features=SitePerProcess,IsolateOrigins,AutofillServerCommunication,BackForwardCache",
+	"--disable-features=SitePerProcess,IsolateOrigins,AutofillServerCommunication,BackForwardCache,AudioServiceOutOfProcess,OptimizationTargetPrediction,OptimizationGuideModelExecution,OptimizationGuideOnDeviceModel,PageContentAnnotations",
+	"--enable-features=NetworkServiceInProcess2",
+	"--no-zygote", // the driver already passes `--no-sandbox`, which it needs
+	"--in-process-gpu",
 	"--disk-cache-size=33554432",
 	"--disable-notifications",
 	"--disable-speech-api",
 	"--disable-print-preview",
+	"--disable-extensions",
+	"--disable-component-update",
+	"--disable-default-apps",
+	"--disable-domain-reliability",
+	"--enable-precise-memory-info", // `performance.memory` unrounded, for the walk's log
 ];
 
 /// The review list, open and ready to walk.
@@ -486,7 +495,7 @@ impl Page<'_> {
 		}
 	}
 
-	async fn eval<T: serde::de::DeserializeOwned>(&mut self, func: &str, arg: impl Serialize) -> Result<T, SessionError> {
+	pub(super) async fn eval<T: serde::de::DeserializeOwned>(&mut self, func: &str, arg: impl Serialize) -> Result<T, SessionError> {
 		self.eval_while("running a script", func, arg).await
 	}
 

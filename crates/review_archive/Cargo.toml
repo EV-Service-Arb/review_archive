@@ -64,6 +64,7 @@ axum.workspace = true
 png.workspace = true
 ravif.workspace = true # the AVIFs from before WebP, for the converter's test
 tempfile.workspace = true
+tracing-subscriber.workspace = true # the examples print the walk's log
 tokio = { workspace = true, features = ["full"] }
 
 [lints]

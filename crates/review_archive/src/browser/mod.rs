@@ -12,7 +12,7 @@ mod session;
 use std::{path::PathBuf, sync::Arc};
 
 use review_archive_core::{
-	maps::{WalkEnd, WalkPolicy, Walked},
+	maps::{WalkEnd, WalkPolicy, Walked, selectors::js},
 	tokens::Meter,
 };
 
@@ -84,7 +84,7 @@ impl Browser {
 			state.session = Some(Session::launch(&self.inner.cfg, &self.inner.profile_dir).await?);
 		}
 		let session = state.session.as_ref().expect("launched just above");
-		let (walked, broken) = match session.page().await {
+		let (walked, broken, js_heap) = match session.page().await {
 			Ok(mut page) => {
 				let walked = match page.open_reviews(place_id, lang, &mut *policy, meter).await {
 					Ok(Ok(opened)) => page.walk(policy, meter, max, opened).await,
@@ -108,22 +108,27 @@ impl Browser {
 					}
 					Ok(w) => Ok(w),
 				};
+				// a page that cannot say has failed the walk already, which says why
+				let js_heap = match page.eval::<(u64, u64)>(js::JS_HEAP, ()).await {
+					Ok((used, limit)) => format!("{} of {} MiB", used >> 20, limit >> 20),
+					Err(e) => format!("not read: {e}"),
+				};
 				match (page.close().await, walked) {
-					(Ok(()), walked) => (walked, false),
+					(Ok(()), walked) => (walked, false, js_heap),
 					(Err(e), Ok(mut w)) => {
 						w.warnings.push(format!("closing the tab after the walk: {e:#}"));
-						(Ok(w), true)
+						(Ok(w), true, js_heap)
 					}
 					// the walk's own failure says more than the tab that would not close after it
-					(Err(_), Err(e)) => (Err(e), true),
+					(Err(_), Err(e)) => (Err(e), true, js_heap),
 				}
 			}
-			Err(e) => (Err(e.into()), true),
+			Err(e) => (Err(e.into()), true, "no page".to_owned()),
 		};
 		// A browser that failed under a walk may be dead (a crashed tab, a lost driver):
 		// the next walk starts a fresh one rather than fail on it forever.
 		let host = host::Snapshot::capture(session.leased).await.to_string();
-		tracing::info!(host, place_id, failed = walked.is_err(), "the walk's memory, to size the lease by");
+		tracing::info!(host, js_heap, place_id, failed = walked.is_err(), "the walk's memory, to size the lease by");
 		if (broken || matches!(walked, Err(_) | Ok(Walked { end: WalkEnd::Interrupted, .. })))
 			&& let Some(s) = state.session.take()
 		{

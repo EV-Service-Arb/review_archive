@@ -177,6 +177,13 @@
           '';
         };
 
+        # The image's driver: a capped heap, no optimizing JIT, collected sooner (ARCHITECTURE.md § Memory).
+        # Flags, not NODE_OPTIONS, which refuses `--lite-mode` and `--optimize-for-size`; no `--jitless`, the
+        # driver runs `webp_codec.wasm`.
+        leanNode = pkgs.writeShellScript "lean-node" ''
+          exec ${pkgs.nodejs}/bin/node --max-old-space-size=128 --max-semi-space-size=1 --lite-mode --optimize-for-size "$@"
+        '';
+
         # A headless Chromium renders review text with whatever fonts fontconfig
         # finds; an image without any turns every screenshot into tofu boxes.
         fontsConf = pkgs.makeFontsConf {
@@ -203,7 +210,7 @@
             entrypoint = [ "${bin}/bin/${pname}" "--config" "${prodConfig}" "serve" ];
             workingDir = "/data";
             contents = [ pkgs.chromium pkgs.nodejs ];
-            imageEnv = lib.mapAttrsToList (k: v: "${k}=${v}") playwrightEnv ++ [
+            imageEnv = lib.mapAttrsToList (k: v: "${k}=${v}") (playwrightEnv // { PLAYWRIGHT_NODE_EXE = leanNode; }) ++ [
               "HOME=/data"
               # the image has no /tmp, and Chromium's shared memory goes to TMPDIR
               # (--disable-dev-shm-usage); the binary creates it on start, as the
@@ -212,8 +219,6 @@
               "FONTCONFIG_FILE=${fontsConf}"
               # fixed, so freed image buffers return to the OS and the pod can shrink back to its base after a memory lease (examples/memory_footprint.rs)
               "MALLOC_MMAP_THRESHOLD_=131072"
-              # the driver carries every screenshot as base64 through its heap; capped, it collects sooner (ARCHITECTURE.md § Memory)
-              "NODE_OPTIONS=--max-old-space-size=128"
               # an error no code knows is reported with its trace, which errors only capture with this set
               "RUST_LIB_BACKTRACE=1"
             ];
