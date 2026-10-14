@@ -197,20 +197,21 @@ pub mod js {
 		return n;
 	}"#;
 
-	/// `([cardSel, skip]) => html`: the outer HTML of the outermost cards from the `skip`th on,
-	/// in order — what the parser reads, and what `--dump-html` saves as a fixture.
-	pub const CARDS_HTML: &str = r#"([cardSel, skip]) => {
+	/// `(cardSel) => html`: the outer HTML of the outermost cards, in order — what the parser reads,
+	/// and what `--dump-html` saves as a fixture. Cards already read are spacers by now (`RELEASE`).
+	pub const CARDS_HTML: &str = r#"(cardSel) => {
 		const out = [];
 		for (const el of document.querySelectorAll(cardSel)) {
 			if (el.parentElement && el.parentElement.closest(cardSel)) continue;
-			out.push(el);
+			out.push(el.outerHTML);
 		}
-		return out.slice(skip).map(el => el.outerHTML).join("\n");
+		return out.join("\n");
 	}"#;
 
-	/// `(cardSel) => bool`: scrolls the nearest scrollable ancestor of the cards to its end.
+	/// `(cardSel) => bool`: scrolls the nearest scrollable ancestor of the cards (or of `RELEASE`'s
+	/// spacers, when every card on the page was read) to its end.
 	pub const SCROLL_FEED: &str = r#"(cardSel) => {
-		const cards = document.querySelectorAll(cardSel);
+		const cards = document.querySelectorAll(cardSel + ", [data-ra-read]");
 		if (!cards.length) return false;
 		let el = cards[cards.length - 1].parentElement;
 		while (el && !(el.scrollHeight > el.clientHeight && /(auto|scroll)/.test(getComputedStyle(el).overflowY))) {
@@ -234,25 +235,17 @@ pub mod js {
 		return false;
 	}"#;
 
-	/// `([cardSel, idAttr, ids]) => void`: frees what the outermost cards with these ids paint — their
-	/// images, and their rendering, behind `content-visibility: hidden`. Each keeps its box, so the
-	/// feed's height and the cards' order (what `CARDS_HTML` skips by) stay as they were.
+	/// `([cardSel, idAttr, ids]) => void`: replaces the outermost cards with these ids by empty
+	/// spacers of their height, so the renderer drops their DOM and the feed's scroll height holds.
 	pub const RELEASE: &str = r#"([cardSel, idAttr, ids]) => {
 		const want = new Set(ids);
 		for (const el of document.querySelectorAll(cardSel)) {
 			if (!want.has(el.getAttribute(idAttr))) continue;
 			if (el.parentElement && el.parentElement.closest(cardSel)) continue;
-			const box = el.getBoundingClientRect();
-			for (const img of el.querySelectorAll("img")) {
-				const r = img.getBoundingClientRect();
-				img.style.width = r.width + "px";
-				img.style.height = r.height + "px";
-				img.removeAttribute("srcset");
-				img.src = "";
-			}
-			for (const b of el.querySelectorAll('[style*="background-image"]')) b.style.backgroundImage = "none";
-			el.style.containIntrinsicSize = `${box.width}px ${box.height}px`;
-			el.style.contentVisibility = "hidden";
+			const spacer = document.createElement("div");
+			spacer.setAttribute("data-ra-read", "");
+			spacer.style.height = el.getBoundingClientRect().height + "px";
+			el.replaceWith(spacer);
 		}
 	}"#;
 

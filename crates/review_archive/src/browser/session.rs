@@ -9,7 +9,7 @@ use jiff::Timestamp;
 use review_archive_core::{
 	Capture,
 	maps::{
-		SCREEN, WalkEnd, WalkPolicy, Walked, WalkedCard, cost, parse,
+		WalkEnd, WalkPolicy, Walked, WalkedCard, cost, parse,
 		selectors::{self as sel, js},
 	},
 	tokens::Meter,
@@ -336,15 +336,15 @@ impl Page<'_> {
 				self.eval::<u32>(js::EXPAND_ALL, (sel::CARD, sel::EXPAND)).await?;
 				tokio::time::sleep(Duration::from_millis(300)).await;
 
-				// Only the tail: cards already read are not re-parsed on every step. A screen of
-				// overlap covers a feed that re-rendered its last few cards.
-				let skip = seen.len().saturating_sub(SCREEN);
-				let html: String = self.eval(js::CARDS_HTML, (sel::CARD, skip)).await?;
+				// cards already read are spacers by now; one the feed rendered again is dropped as `seen`
+				let html: String = self.eval(js::CARDS_HTML, sel::CARD).await?;
 				if let Some(dir) = self.cfg.dump_html.as_deref() {
 					dump(dir, &html).await?;
 				}
+				let parsed = parse::cards(&html);
+				let on_page: Vec<String> = parsed.iter().map(|c| c.id.clone()).collect();
 				let mut read = Vec::new();
-				for card in parse::cards(&html) {
+				for card in parsed {
 					if cards.len() >= max {
 						break;
 					}
@@ -363,8 +363,8 @@ impl Page<'_> {
 					policy.observe(&card);
 					cards.push((card, capture));
 				}
-				if !read.is_empty() {
-					self.eval::<()>(js::RELEASE, (sel::CARD, sel::CARD_ID_ATTR, &read)).await?;
+				if !on_page.is_empty() {
+					self.eval::<()>(js::RELEASE, (sel::CARD, sel::CARD_ID_ATTR, &on_page)).await?;
 				}
 				if cards.len() >= max {
 					return Ok(Some(WalkEnd::Cap));
