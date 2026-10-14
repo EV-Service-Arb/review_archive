@@ -288,7 +288,7 @@ async fn read_cgroup(dir: &Path) -> CgroupFiles {
 async fn processes(procs: &str) -> Vec<Processes> {
 	let each = procs.split_whitespace().map(|pid| async move {
 		let (cmdline, rollup) = tokio::join!(read(format!("/proc/{pid}/cmdline")), read(format!("/proc/{pid}/smaps_rollup")));
-		Some((process_kind(&cmdline?), counter(&rollup?, "Pss:")? << 10))
+		Some((process_kind(&cmdline?), pss_kib(&rollup?)? << 10))
 	});
 	let mut out: Vec<Processes> = Vec::new();
 	for (kind, pss) in futures::future::join_all(each).await.into_iter().flatten() {
@@ -302,6 +302,11 @@ async fn processes(procs: &str) -> Vec<Processes> {
 	}
 	out.sort_by_key(|p| std::cmp::Reverse(p.pss));
 	out
+}
+
+/// `Pss:   1234 kB` of `/proc/<pid>/smaps_rollup`.
+fn pss_kib(rollup: &str) -> Option<u64> {
+	rollup.lines().find_map(|l| l.strip_prefix("Pss:")?.split_whitespace().next()?.parse().ok())
 }
 
 /// Chromium's `--type=` (`renderer`, `gpu-process`, …), else the executable's name: the browser
@@ -489,6 +494,8 @@ mod tests {
 		assert_eq!(process_kind("/nix/store/x-chromium/libexec/chromium/chromium\0--type=renderer\0--lang=en\0"), "renderer");
 		assert_eq!(process_kind("/nix/store/x-chromium/libexec/chromium/chromium\0--headless\0"), "chromium");
 		assert_eq!(process_kind("/nix/store/y-nodejs/bin/node\0/z/cli.js\0run-driver\0"), "node");
+		let rollup = "55d1c0000000-7ffc4a5ff000 ---p 00000000 00:00 0 [rollup]\nRss:              183704 kB\nPss:              120333 kB\nPss_Dirty:         90112 kB\n";
+		assert_eq!(pss_kib(rollup), Some(120_333));
 		let s = Snapshot {
 			processes: vec![
 				Processes {

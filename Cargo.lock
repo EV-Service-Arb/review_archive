@@ -674,8 +674,8 @@ dependencies = [
 
 [[package]]
 name = "browser_manipulation"
-version = "0.4.1"
-source = "git+https://github.com/valeratrades/browser_manipulation?tag=v0.4.1#fd64e2e7d2f0237f71ad68a8f31e8165671055f0"
+version = "0.4.2"
+source = "git+https://github.com/valeratrades/browser_manipulation?tag=v0.4.2#3464ffee79446cfaa43c1b52bf79715b3cff4686"
 dependencies = [
  "base64 0.23.1",
  "bon",

@@ -7,7 +7,7 @@
   inputs = {
     v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
     browser_manipulation = {
-      url = "github:valeratrades/browser_manipulation?ref=v0.4.1";
+      url = "github:valeratrades/browser_manipulation?ref=v0.4.2";
       inputs.v_flakes.follows = "v_flakes";
     };
   };
@@ -87,7 +87,7 @@
 
         cargoLock = {
           lockFile = ./Cargo.lock;
-          outputHashes."browser_manipulation-0.4.1" = "sha256-+KhVxi+1YNBNjLleF6FSvld/5qE7DNOVZe2gnPH9/R0=";
+          outputHashes."browser_manipulation-0.4.2" = "sha256-2Zq5nuWWHDGqYIH6bX27h3sduLQ72IlPw1ClPcKBesE=";
           outputHashes."sa_auth-0.1.0" = "sha256-xFZDo9WlM5unGX6cXisnve5odDKHWukfkFPyQ/AltiM=";
           outputHashes."sa_ui-0.1.0" = "sha256-xFZDo9WlM5unGX6cXisnve5odDKHWukfkFPyQ/AltiM=";
         };

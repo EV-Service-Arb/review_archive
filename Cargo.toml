@@ -22,7 +22,7 @@ review_archive_core = { path = "crates/review_archive_core", version = "0.1.0" }
 review_archive_server = { path = "crates/review_archive_server", version = "0.1.0" }
 
 axum = "0.8"
-browser_manipulation = { git = "https://github.com/valeratrades/browser_manipulation", tag = "v0.4.1" }
+browser_manipulation = { git = "https://github.com/valeratrades/browser_manipulation", tag = "v0.4.2" }
 clap = { version = "4", features = ["derive"] }
 color-eyre = "0.6"
 concierge_iam = "0.1.0"
