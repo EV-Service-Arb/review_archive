@@ -214,7 +214,7 @@ cgroup (burst)
 │                     optimization-guide models
 │  └─ GPU             no map to draw: tiles, satellite, Street View, 3D blocked (`sel::BLOCKED`)
 ├─ renderer           one (`--renderer-process-limit=1`, no site isolation); cards already read
-│                     are released (`js::RELEASE`: images emptied, `content-visibility: hidden`)
+│                     are released (`js::RELEASE`: each becomes an empty spacer of its height)
 │  └─ frame buffers   1280×900 at 1x; a card alone is rasterized at 2x (`Shot::Element`)
 ├─ storage service    the one utility process left
 └─ page cache         32 MiB disk cache
