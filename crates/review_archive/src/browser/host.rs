@@ -310,9 +310,10 @@ fn pss_kib(rollup: &str) -> Option<u64> {
 }
 
 /// Chromium's `--type=` (`renderer`, `gpu-process`, …), else the executable's name: the browser
-/// process, the node driver, this server.
+/// process, the node driver, this server. Chromium's children rewrite their argv as one
+/// space-joined string, so both separate arguments.
 fn process_kind(cmdline: &str) -> String {
-	let mut args = cmdline.split('\0');
+	let mut args = cmdline.split(['\0', ' ']).filter(|a| !a.is_empty());
 	let exe = args.next().unwrap_or_default();
 	match args.find_map(|a| a.strip_prefix("--type=")) {
 		Some(t) => t.to_owned(),
@@ -493,6 +494,10 @@ mod tests {
 	fn a_process_is_its_chromium_type_or_its_executable() {
 		assert_eq!(process_kind("/nix/store/x-chromium/libexec/chromium/chromium\0--type=renderer\0--lang=en\0"), "renderer");
 		assert_eq!(process_kind("/nix/store/x-chromium/libexec/chromium/chromium\0--headless\0"), "chromium");
+		assert_eq!(
+			process_kind("/nix/store/x-chromium/libexec/chromium/chromium --type=gpu-process --user-data-dir=/data/chromium-profile --no-sandbox\0\0\0"),
+			"gpu-process"
+		);
 		assert_eq!(process_kind("/nix/store/y-nodejs/bin/node\0/z/cli.js\0run-driver\0"), "node");
 		let rollup = "55d1c0000000-7ffc4a5ff000 ---p 00000000 00:00 0 [rollup]\nRss:              183704 kB\nPss:              120333 kB\nPss_Dirty:         90112 kB\n";
 		assert_eq!(pss_kib(rollup), Some(120_333));
