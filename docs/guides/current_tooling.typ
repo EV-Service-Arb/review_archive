@@ -1,3 +1,5 @@
+#show link: it => underline(text(fill: blue, it))
+
 = stuff already nice to use
 
 == MCP plugin
@@ -19,7 +21,7 @@ Knows to respect authority of information source (10 levels) and adjust for age 
 - *codex*:
   `codex mcp add service-arb --url https://sa.evinvest.ltd/playbook_mcp`, or again, - just tell it to do it
 - *ChatGPT* in browser:
-  Settings → Apps & Connectors → Advanced: turn on *Developer mode*. Then *Create*: name `service-arb`, URL `https://sa.evinvest.ltd/playbook_mcp`, authentication OAuth. Select it in a chat under *+* → Developer mode | *Connect* on the connector
+  Settings → Apps & Connectors → Advanced: turn on *Developer mode*. Then *Create*: name `service-arb`, URL #link("https://sa.evinvest.ltd/playbook_mcp")[`https://sa.evinvest.ltd/playbook_mcp`], authentication OAuth. Select it in a chat under *+* → Developer mode | *Connect* on the connector
 - *anywhere* else:
   it's done by the global standard, just ask the agent
 
