@@ -96,6 +96,7 @@ impl Session {
 			.lean
 			.as_deref()
 			.ok_or_else(|| SessionError::new_launch("`browser.lean` is not set (`[]` for none)".to_owned()))?;
+		forget_negotiate(profile_dir)?;
 		let launch = Launch::Owned {
 			profile: profile_dir.to_owned(),
 			executable,
@@ -135,6 +136,27 @@ impl Session {
 		tab.block(sel::BLOCKED).await?;
 		Ok(Page { tab, cfg: &self.cfg })
 	}
+}
+
+/// Chromium remembers a site's `WWW-Authenticate: Negotiate` in `Local State`, and from then on
+/// hangs every start with `NetworkServiceInProcess2` until it is killed; nothing here authenticates with Negotiate.
+fn forget_negotiate(profile_dir: &Path) -> eyre::Result<()> {
+	let path = profile_dir.join("Local State");
+	let text = match std::fs::read_to_string(&path) {
+		Ok(t) => t,
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()), // a fresh profile
+		Err(e) => return Err(eyre::Report::new(e).wrap_err(format!("reading {}", path.display()))),
+	};
+	let mut state: serde_json::Value = serde_json::from_str(&text).wrap_err_with(|| format!("parsing {}", path.display()))?;
+	let Some(net) = state.get_mut("net").and_then(serde_json::Value::as_object_mut) else {
+		return Ok(());
+	};
+	if net.remove("received_http_auth_negotiate_headers").is_none() {
+		return Ok(());
+	}
+	let tmp = path.with_extension("tmp");
+	std::fs::write(&tmp, serde_json::to_vec(&state)?).wrap_err_with(|| format!("writing {}", tmp.display()))?;
+	std::fs::rename(&tmp, &path).wrap_err_with(|| format!("replacing {}", path.display()))
 }
 
 fn args(lean: &[Lean]) -> Vec<String> {

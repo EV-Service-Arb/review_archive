@@ -95,3 +95,27 @@ async fn live_capture_without_a_store() {
 	assert!(got.webps.values().next().unwrap().width >= 600);
 	assert!(archive.store().is_err());
 }
+
+/// A profile that once met `WWW-Authenticate: Negotiate` keeps a flag in `Local State` that hangs
+/// every later start with the network service in the browser process, until it is cleared.
+#[tokio::test]
+#[ignore = "live: needs Chrome and the network"]
+async fn live_capture_on_a_profile_that_met_negotiate() {
+	let dir = tempfile::tempdir().unwrap();
+	let mut config = config(dir.path());
+	let profile = dir.path().join("profile");
+	std::fs::create_dir(&profile).unwrap();
+	std::fs::write(profile.join("Local State"), r#"{"net":{"received_http_auth_negotiate_headers":true}}"#).unwrap();
+	config.browser.profile_dirs = vec![profile];
+	config.data_dir = None;
+	let archive = Archive::open(config).await.unwrap();
+	let got = archive.capture_place(&CaptureRequest::new(PLACE_ID).lang("fr").max_reviews(5)).await;
+	archive.close().await;
+	if let Err(e) = got {
+		assert!(
+			matches!(e.downcast_ref::<SessionError>(), Some(SessionError::LimitedView { .. } | SessionError::Blocked { .. })),
+			"{}",
+			review_archive::describe(&e)
+		);
+	}
+}
