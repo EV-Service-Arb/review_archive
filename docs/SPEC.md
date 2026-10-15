@@ -270,7 +270,7 @@ exposure for it. Tokens price that, and the members whose places are scanned pay
   (each retried click 2), each scroll of the feed 1 — the data requests each sends Google, a
   scroll's ~9 being the unit. "More" and screenshots send none. An unchanged place costs 8;
   a rescan 15 and 1 per screen of cards.
-- `token_ledger(id, person_id, at, delta, kind[accrual|grant|purchase|set|charge], run_id, by_email, note)`:
+- `token_ledger(id, person_id, at, delta, kind[accrual|grant|purchase|set|charge|kickback], run_id, by_email, note)`:
   append-only; a balance is the sum of its rows. Reading a balance renews it first, a whole
   day at a time: `tokens.daily` (15) per day while under `tokens.cap` (300); granted or bought
   tokens above the cap stay. A member seen for the first time starts with a day's worth.
@@ -285,8 +285,13 @@ exposure for it. Tokens price that, and the members whose places are scanned pay
   they hold less than a first screen; asked for while the same scan is already queued, it is
   that job's and its first requester pays. Places nobody tracks, the operator's jobs and
   ad-hoc captures are paid by no one and limited by the hour only.
+- A run that failed, or met a failure (`Warning::Failure`; a `Warning::Limit` is none), is
+  ours: its end transaction also writes `kickbacks(id, person_id, run_id, amount, at,
+  claimed_at)`, each payer owed what they paid. Pending ones are not balance;
+  `POST /me/tokens/claim` turns them into `kickback` rows. The hour still counts the run.
 - `purchase` is recorded by an admin (a payment reference in `note`); nothing is sold here.
-- `GET /me` carries the signed-in person's `tokens {balance, daily, cap}`; `GET /me/tokens` is
+- `GET /me` carries the signed-in person's `tokens {balance, daily, cap, kickbacks}`
+  (pending, each with its run, place and the run's error); `GET /me/tokens` is
   the member's ledger, each charge with its run and place; `GET /me/usage` its charges summed
   per UTC day over the last 30 (`{day, walks, tokens}`, every day present) and the places it
   tracks now. `GET /members` lists every person

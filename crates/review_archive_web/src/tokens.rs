@@ -44,7 +44,7 @@ pub fn Ledger(gmails: Vec<GmailOverview>, tokens: Option<TokensDto>, tab: Option
 						}
 						span { class: "min-w-0 flex-1 truncate",
 							match (e.kind, e.target_id, e.target_label) {
-								(TokenKind::Charge, Some(target), Some(label)) => match gmail_of(target) {
+								(TokenKind::Charge | TokenKind::Kickback, Some(target), Some(label)) => match gmail_of(target) {
 									Some(gmail) => rsx! { Link { class: "hover:underline", to: Route::at(tab, View::Place { gmail, target }), "{label}" } },
 									None => rsx! { "{label}" },
 								},

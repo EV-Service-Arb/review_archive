@@ -600,7 +600,17 @@ fn Workspace(view: Route) -> Element {
 		_ => return rsx! { div { class: "{shell} p-6 text-ink-soft", "Loading…" } },
 	};
 	let (tokens, whom) = match &*tokens.read() {
-		Some(Ok((mine, whom))) => (Some(whom.as_ref().map_or(*mine, |w| TokensDto { balance: w.balance, ..*mine })), whom.clone()),
+		Some(Ok((mine, whom))) => (
+			Some(whom.as_ref().map_or_else(
+				|| mine.clone(),
+				|w| TokensDto {
+					balance: w.balance,
+					kickbacks: Vec::new(),
+					..mine.clone()
+				},
+			)),
+			whom.clone(),
+		),
 		Some(Err(e)) => return rsx! { div { class: "{shell} p-6 text-accent-error", "{e}" } },
 		None => (None, None),
 	};
@@ -626,7 +636,7 @@ fn Workspace(view: Route) -> Element {
 
 	rsx! {
 		div { class: "{shell}",
-			Rail { gmails: gmails.clone(), current, at: at.clone(), tokens, tab }
+			Rail { gmails: gmails.clone(), current, at: at.clone(), tokens: tokens.clone(), tab }
 			div { class: "flex min-h-0 min-w-0 flex-1 flex-col",
 				if let Some(acting) = acting {
 					div { class: "border-b border-border bg-accent-warn/15 px-6 py-2 text-accent-warn", "{acting}" }
@@ -680,6 +690,18 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 			div { class: "flex items-center gap-2 px-4 py-4",
 				span { class: "flex-1 text-[14px] font-semibold", "review_archive" }
 				if let Some(t) = tokens {
+					if !t.kickbacks.is_empty() {
+						button {
+							class: "rounded-md px-1.5 py-0.5 font-mono text-positive cursor-pointer hover:bg-hover",
+							title: t.kickbacks.iter().fold("added back on click, these failed:".to_owned(), |mut s, k| {
+								let why: String = k.why.chars().take(120).collect();
+								s += &format!("\n· {}, {}: {why}", k.target_label, ago(&k.at));
+								s
+							}),
+							onclick: move |_| act(|c| async move { c.claim_kickbacks().await.map(drop) }),
+							"+{t.kickbacks.iter().map(|k| k.amount).sum::<i64>()}"
+						}
+					}
 					Link {
 						class: if at == View::Tokens { "rounded-md px-2 py-0.5 bg-hover text-ink" } else { "rounded-md px-2 py-0.5 text-ink-soft hover:bg-hover" },
 						to: Route::at(tab, View::Tokens),

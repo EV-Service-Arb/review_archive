@@ -26,7 +26,7 @@ impl Archive {
 		let mut out = Vec::new();
 		for p in self.store()?.people().await? {
 			out.push(MemberDto {
-				balance: self.tokens(PersonId(p.id)).await?.balance,
+				balance: self.store()?.balance(PersonId(p.id), Timestamp::now(), &self.inner.tokens).await?,
 				id: p.id,
 				email: p.email,
 				name: p.name,
@@ -190,11 +190,19 @@ impl Archive {
 	/// The member's tokens, renewed up to now.
 	pub async fn tokens(&self, member: PersonId) -> eyre::Result<TokensDto> {
 		let cfg = &self.inner.tokens;
+		let store = self.store()?;
 		Ok(TokensDto {
-			balance: self.store()?.balance(member, Timestamp::now(), cfg).await?,
+			balance: store.balance(member, Timestamp::now(), cfg).await?,
 			daily: cfg.daily,
 			cap: cfg.cap,
+			kickbacks: store.kickbacks(member).await?,
 		})
+	}
+
+	/// Adds the member's pending kick-backs to their balance.
+	pub async fn claim_kickbacks(&self, member: PersonId) -> eyre::Result<TokensDto> {
+		self.store()?.claim(member, Timestamp::now(), &self.inner.tokens).await?;
+		self.tokens(member).await
 	}
 
 	/// The member's ledger, newest first: 200 rows.
@@ -209,11 +217,9 @@ impl Archive {
 
 	/// Sets or adds to the member's balance, as admin `by`.
 	pub async fn change_tokens(&self, member: PersonId, req: &TokensChange, by: &str) -> eyre::Result<TokensDto> {
-		let cfg = &self.inner.tokens;
-		Ok(TokensDto {
-			balance: self.store()?.change_balance(member, req.change, by, req.note.as_deref(), Timestamp::now(), cfg).await?,
-			daily: cfg.daily,
-			cap: cfg.cap,
-		})
+		self.store()?
+			.change_balance(member, req.change, by, req.note.as_deref(), Timestamp::now(), &self.inner.tokens)
+			.await?;
+		self.tokens(member).await
 	}
 }

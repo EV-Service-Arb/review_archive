@@ -263,6 +263,11 @@ impl Client {
 		Self::json(self.request(Method::GET, "me/tokens")?).await
 	}
 
+	/// `POST /me/tokens/claim`: adds the member's pending kick-backs to their balance.
+	pub async fn claim_kickbacks(&self) -> Result<TokensDto, Error> {
+		Self::json(self.request(Method::POST, "me/tokens/claim")?).await
+	}
+
 	/// `GET /me/usage`: the member's charges by day, and what they track.
 	pub async fn usage(&self) -> Result<Usage, Error> {
 		Self::json(self.request(Method::GET, "me/usage")?).await

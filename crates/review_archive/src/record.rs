@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use jiff::Timestamp;
 use review_archive_core::{
-	Capture, Coverage, Known, ReviewId, Scan, Target, TargetKind,
+	Capture, Coverage, Known, ReviewId, Scan, Target, TargetKind, Warning,
 	dto::{Counts, RunStatus, RunSummary},
 	reconcile,
 	schedule::Schedule,
@@ -82,6 +82,7 @@ impl Recorder<'_> {
 					job,
 					tokens: meter.spent(),
 					payers: &bill.payers,
+					kick_back: true,
 				};
 				self.store.fail_run(end, (self.now)()).await?;
 				#[cfg(feature = "maps")]
@@ -103,7 +104,7 @@ impl Recorder<'_> {
 				let plan = reconcile::plan(&known, &scan);
 				warnings.extend(plan.warnings.iter().cloned());
 				summary.status = if warnings.is_empty() { RunStatus::Ok } else { RunStatus::Partial };
-				summary.error = (!warnings.is_empty()).then(|| warnings.join("; "));
+				summary.error = (!warnings.is_empty()).then(|| warnings.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "));
 				summary.captured = sat_u32(captures.len());
 				summary.complete = scan.coverage == Coverage::Complete;
 				let write = ScanWrite {
@@ -124,6 +125,7 @@ impl Recorder<'_> {
 					job,
 					tokens: meter.spent(),
 					payers: &bill.payers,
+					kick_back: warnings.iter().any(|w| matches!(w, Warning::Failure(_))),
 				};
 				let applied = match self.store.apply(target.id, write, end, (self.now)()).await {
 					Ok(applied) => applied,
@@ -133,6 +135,7 @@ impl Recorder<'_> {
 						let failed = RunEnd {
 							status: RunStatus::Failed,
 							error: Some("internal error: the scan could not be stored"),
+							kick_back: true,
 							..end
 						};
 						if let Err(also) = self.store.fail_run(failed, (self.now)()).await {
@@ -153,7 +156,7 @@ impl Recorder<'_> {
 
 	/// Writes the screenshots the archive wants to the blob store; one that fails is a
 	/// warning and stays pending.
-	async fn store_captures(&self, target: &Target, known: &Known, scan: &Scan, warnings: &mut Vec<String>) -> HashMap<String, StoredCapture> {
+	async fn store_captures(&self, target: &Target, known: &Known, scan: &Scan, warnings: &mut Vec<Warning>) -> HashMap<String, StoredCapture> {
 		let mut captures = HashMap::new();
 		for obs in &scan.reviews {
 			let Some(c) = &obs.capture else { continue };
@@ -164,7 +167,7 @@ impl Recorder<'_> {
 				Ok(stored) => {
 					captures.insert(obs.source_review_id.clone(), stored);
 				}
-				Err(e) => warnings.push(format!("capture of {} not stored: {e:#}", obs.source_review_id)),
+				Err(e) => warnings.push(Warning::Failure(format!("capture of {} not stored: {e:#}", obs.source_review_id))),
 			}
 		}
 		captures

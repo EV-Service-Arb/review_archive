@@ -115,6 +115,8 @@ pub struct RunEnd<'a> {
 	pub tokens: i64,
 	/// Who pays for it: [`Bill::payers`].
 	pub payers: &'a [PersonId],
+	/// Its charges go back to its payers: it failed, or met a [`review_archive_core::Warning::Failure`].
+	pub kick_back: bool,
 }
 
 /// What a scan saw, ready to be written.
@@ -1012,7 +1014,8 @@ async fn finish(tx: &mut SqliteConnection, end: RunEnd<'_>, counts: Counts, seen
 		.execute(&mut *tx)
 		.await
 		.wrap_err("recording run end")?;
-	tokens::charge(tx, end.run, end.tokens, end.payers, now).await?;
+	assert!(end.kick_back || end.status != RunStatus::Failed, "a failed run is ours, not its payers'");
+	tokens::charge(tx, end.run, end.tokens, end.payers, end.kick_back, now).await?;
 	if let Some(job) = end.job {
 		let failed = end.status == RunStatus::Failed;
 		let status = if failed { JobStatus::Failed } else { JobStatus::Done };

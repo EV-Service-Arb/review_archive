@@ -7,7 +7,7 @@ use jiff::Timestamp;
 use serde::Deserialize;
 
 use crate::{
-	Capture, Coverage, Observed,
+	Capture, Coverage, Observed, Warning,
 	maps::{Card, WalkPolicy, WalkedCard},
 	normalise_ws, relative_date,
 };
@@ -103,11 +103,13 @@ pub fn observed(r: ApiReview) -> Observed {
 
 /// How much of the location the API list is known to hold: all of it, unless the API
 /// listed fewer than it counts.
-pub fn list_coverage(listed: usize, total: Option<u64>, warnings: &mut Vec<String>) -> Coverage {
+pub fn list_coverage(listed: usize, total: Option<u64>, warnings: &mut Vec<Warning>) -> Coverage {
 	let listed = u64::try_from(listed).unwrap_or(u64::MAX);
 	match total {
 		Some(total) if listed < total => {
-			warnings.push(format!("the API listed {listed} reviews of the {total} it counts; no review is judged gone this run"));
+			warnings.push(Warning::Failure(format!(
+				"the API listed {listed} reviews of the {total} it counts; no review is judged gone this run"
+			)));
 			Coverage::DownTo(None)
 		}
 		_ => Coverage::Complete,

@@ -101,6 +101,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 	let me = Router::new()
 		.route("/me", get(me))
 		.route("/me/tokens", get(ledger))
+		.route("/me/tokens/claim", post(claim_kickbacks))
 		.route("/me/usage", get(usage))
 		.route("/me/overview", get(overview))
 		.route("/me/gmails", post(add_gmail))
@@ -449,6 +450,12 @@ async fn change_tokens(State(s): State<AppState>, caller: Caller, Path(id): Path
 #[utoipa::path(get, path = "/me/tokens", tag = "me", responses((status = 200, body = [LedgerEntry])))]
 async fn ledger(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Vec<LedgerEntry>>> {
 	Ok(Json(s.archive.ledger(m).await?))
+}
+
+/// Adds the member's pending kick-backs to their balance.
+#[utoipa::path(post, path = "/me/tokens/claim", tag = "me", responses((status = 200, body = TokensDto)))]
+async fn claim_kickbacks(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<TokensDto>> {
+	Ok(Json(s.archive.claim_kickbacks(m).await?))
 }
 
 /// The member's charges a day at a time over the last 30 days, and the places they track now.

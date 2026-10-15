@@ -9,7 +9,7 @@ use std::{
 use jiff::Timestamp;
 use review_archive::{
 	core::{
-		Capture, Coverage, Known, Observed, ReviewId, Scan, Target, TargetId, TargetKind,
+		Capture, Coverage, Known, Observed, ReviewId, Scan, Target, TargetId, TargetKind, Warning,
 		dto::{RunStatus, TargetPatch},
 		schedule::Schedule,
 		tokens::{Meter, Tokens},
@@ -275,7 +275,7 @@ async fn failures_are_runs_and_back_off() {
 	src.set(Ok(Scan {
 		reviews: vec![review("a", 5, "x", None, false)],
 		coverage: Coverage::DownTo(None),
-		warnings: vec!["screenshot of a failed".into()],
+		warnings: vec![Warning::Failure("screenshot of a failed".into())],
 		cut_after: None,
 		listed: None,
 		post: None,

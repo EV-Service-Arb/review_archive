@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use jiff::Timestamp;
 pub use parse::Card;
 
-use crate::{Capture, Coverage, Known, Observed, OwnerPost, Scan, relative_date};
+use crate::{Capture, Coverage, Known, Observed, OwnerPost, Scan, Warning, relative_date};
 
 /// Cards per screen of the feed: a run this long of already-archived cards ends a walk.
 pub const SCREEN: usize = 10;
@@ -87,7 +87,7 @@ pub struct Walked {
 	/// The page it walked.
 	pub page_url: String,
 	/// Things that went wrong without ending the walk (a failed screenshot).
-	pub warnings: Vec<String>,
+	pub warnings: Vec<Warning>,
 	/// Whether the list was seen to re-sort to newest first. When not, its order is unknown.
 	pub sorted: bool,
 	/// How many reviews the page says the list holds, when it says.
@@ -213,20 +213,22 @@ impl<'a> NewestFirst<'a> {
 			last
 		} else {
 			if unreached > 0 {
-				scan.warnings
-					.push(format!("{unreached} reviews still without a screenshot lie deeper than a scan reads; they stay pending"));
+				scan.warnings.push(Warning::Limit(format!(
+					"{unreached} reviews still without a screenshot lie deeper than a scan reads; they stay pending"
+				)));
 			}
 			None
 		};
 		if end == WalkEnd::Cap && (self.known.initial || !self.caught_up) {
-			scan.warnings.push(format!("stopped after {max} reviews without reaching archived ones or the end of the list"));
+			scan.warnings
+				.push(Warning::Limit(format!("stopped after {max} reviews without reaching archived ones or the end of the list")));
 		}
 		if end == WalkEnd::Budget && cut_after.is_some() {
 			scan.warnings
-				.push("out of tokens before the end of the list; the next scan goes on from its last card".to_owned());
+				.push(Warning::Limit("out of tokens before the end of the list; the next scan goes on from its last card".to_owned()));
 		}
 		if end.cut_short() && unreached > 0 && cut_after.is_some() {
-			scan.warnings.push(format!("{unreached} reviews still without a screenshot were not reached"));
+			scan.warnings.push(Warning::Limit(format!("{unreached} reviews still without a screenshot were not reached")));
 		}
 		scan.cut_after = cut_after;
 		scan
@@ -369,7 +371,7 @@ pub fn scan_of(walked: Walked, now: Timestamp) -> Scan {
 /// load that stalled. A newest-first prefix only when the list was seen to re-sort and its
 /// dates run newest first; otherwise, nothing — a relevance-sorted list says nothing about
 /// what is missing from it.
-fn coverage(reviews: &[Observed], end: WalkEnd, sorted: bool, total: Option<u64>, warnings: &mut Vec<String>) -> Coverage {
+fn coverage(reviews: &[Observed], end: WalkEnd, sorted: bool, total: Option<u64>, warnings: &mut Vec<Warning>) -> Coverage {
 	let seen = u64::try_from(reviews.len()).unwrap_or(u64::MAX);
 	if end == WalkEnd::ReachedEnd && total.is_some_and(|t| seen >= t) {
 		return Coverage::Complete;
@@ -379,7 +381,7 @@ fn coverage(reviews: &[Observed], end: WalkEnd, sorted: bool, total: Option<u64>
 	}
 	let dates: Vec<Timestamp> = reviews.iter().filter_map(|r| r.published_est).collect();
 	if dates.windows(2).any(|w| w[1] > w[0]) {
-		warnings.push("the review list is not in newest-first order; no review is judged gone this run".to_owned());
+		warnings.push(Warning::Failure("the review list is not in newest-first order; no review is judged gone this run".to_owned()));
 		return Coverage::DownTo(None);
 	}
 	Coverage::DownTo(dates.last().copied())
@@ -555,7 +557,7 @@ mod tests {
 		(0..SCREEN).for_each(|i| p.observe(&card(&format!("k{i}"), "a day ago").0));
 		assert!(!p.satisfied(), "the pending one (posted 2026-08-18 at the earliest) is further down");
 		let capped = p.conclude(walked(vec![card("k0", "a day ago")], WalkEnd::Cap, true, None), 10, now());
-		assert_eq!(capped.warnings, ["1 reviews still without a screenshot were not reached"]);
+		assert_eq!(capped.warnings, [Warning::Limit("1 reviews still without a screenshot were not reached".into())]);
 		assert_eq!(capped.cut_after.as_deref(), Some("k0"), "the next scan reads deeper, with the larger limit");
 		p.observe(&card("older", "2 months ago").0);
 		assert!(p.satisfied(), "walked past it: it is gone from the list, or its date moved");
@@ -574,7 +576,10 @@ mod tests {
 		(0..SCREEN).for_each(|i| p.observe(&card(&format!("k{i}"), "a day ago").0));
 		let s = p.conclude(walked(vec![card("k9", "a day ago")], WalkEnd::Cap, true, None), 2000, now());
 		assert_eq!(s.cut_after, None);
-		assert_eq!(s.warnings, ["1 reviews still without a screenshot lie deeper than a scan reads; they stay pending"]);
+		assert_eq!(
+			s.warnings,
+			[Warning::Limit("1 reviews still without a screenshot lie deeper than a scan reads; they stay pending".into())]
+		);
 	}
 
 	/// The end of a feed that may have stalled does not close a gap the walk never got to;
