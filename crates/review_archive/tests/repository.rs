@@ -107,6 +107,7 @@ fn scan(reviews: Vec<Observed>, coverage: Coverage) -> Result<Scan, String> {
 		cut_after: None,
 		listed: None,
 		post: None,
+		name: None,
 	})
 }
 
@@ -127,7 +128,8 @@ async fn env() -> Env {
 	let id = store
 		.add_target(
 			&InsertTarget {
-				label: "Café test".into(),
+				label: None,
+				name: Some("Café test".into()),
 				kind: TargetKind::Maps,
 				place_id: "ChIJtesttesttesttest".into(),
 				gbp: None,
@@ -265,6 +267,7 @@ async fn failures_are_runs_and_back_off() {
 		cut_after: None,
 		listed: None,
 		post: None,
+		name: None,
 	}));
 	let s = e.archive().run(&src, &e.target).await.unwrap();
 	assert_eq!(s.status, RunStatus::Partial);
@@ -380,6 +383,7 @@ fn cut(reviews: Vec<Observed>, cut_after: Option<&str>) -> Result<Scan, String> 
 		cut_after: cut_after.map(str::to_owned),
 		listed: None,
 		post: None,
+		name: None,
 	})
 }
 
@@ -627,4 +631,58 @@ async fn avif_captures_become_webp() {
 	let pixels = [ravif::RGB8::new(90, 90, 90); 12];
 	let avif = ravif::Encoder::new().with_exif(exif.into_inner()).encode_rgb(ravif::Img::new(&pixels[..], 4, 3)).unwrap();
 	legacy_capture_becomes_webp("avif", avif.avif_file).await;
+}
+
+/// A place added by its id is shown as Google names it from its first walk on; a label a
+/// person gave stays what it is shown as.
+#[tokio::test]
+async fn a_scan_names_its_place() {
+	let e = env().await;
+	let id = e
+		.store
+		.add_target(
+			&InsertTarget {
+				label: None,
+				name: None,
+				kind: TargetKind::Maps,
+				place_id: "ChIJunnamedunnamed".into(),
+				gbp: None,
+				lang: "en".into(),
+				interval: v_utils::TF_6H,
+				enabled: true,
+			},
+			now(),
+		)
+		.await
+		.unwrap();
+	let target = || async { e.store.target(id).await.unwrap() };
+	assert_eq!(target().await.to_string(), "ChIJunnamedunnamed");
+
+	let named = |name: &str| {
+		Ok(Scan {
+			name: Some(name.into()),
+			..cut(vec![], None).unwrap()
+		})
+	};
+	let src = Scripted(Mutex::new(named("Joe's")));
+	e.archive().run(&src, &target().await).await.unwrap();
+	assert_eq!(target().await.to_string(), "Joe's");
+
+	src.set(named("Joe's Pizza"));
+	e.archive().run(&src, &target().await).await.unwrap();
+	assert_eq!(target().await.to_string(), "Joe's Pizza", "renamed on Google, renamed here");
+
+	src.set(Err("blocked by Google".into()));
+	e.archive().run(&src, &target().await).await.unwrap();
+	assert_eq!(target().await.to_string(), "Joe's Pizza", "a failed walk keeps the name");
+
+	let labelled = TargetPatch {
+		label: Some("our Joe's".into()),
+		..Default::default()
+	};
+	e.store.update_target(id, &labelled).await.unwrap();
+	src.set(named("Joe's Pizzeria"));
+	e.archive().run(&src, &target().await).await.unwrap();
+	let t = target().await;
+	assert_eq!((t.to_string().as_str(), t.name.as_deref()), ("our Joe's", Some("Joe's Pizzeria")));
 }

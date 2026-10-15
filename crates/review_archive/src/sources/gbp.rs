@@ -165,6 +165,7 @@ impl ReviewSource for GbpSource<'_> {
 		let mut reviews: Vec<Observed> = list.reviews.into_iter().map(observed).collect();
 		let mut warnings = Vec::new();
 		let coverage = list_coverage(reviews.len(), list.total, &mut warnings);
+		let mut name = None;
 
 		let wanted: Vec<&Observed> = reviews.iter().filter(|r| known.wants_capture(&r.source_review_id)).collect();
 		if !wanted.is_empty() {
@@ -181,6 +182,7 @@ impl ReviewSource for GbpSource<'_> {
 			};
 			match walked {
 				Ok(walked) => {
+					name = Some(walked.name);
 					warnings.extend(walked.warnings);
 					if walked.end.cut_short() && !policy.satisfied() {
 						warnings.push("the Maps walk stopped before matching every new API review; they stay without a screenshot".to_owned());
@@ -200,6 +202,7 @@ impl ReviewSource for GbpSource<'_> {
 			cut_after: None,
 			listed: list.total,
 			post: None,
+			name,
 		})
 	}
 }

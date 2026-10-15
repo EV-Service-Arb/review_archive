@@ -64,7 +64,7 @@ impl Recorder<'_> {
 		let run = self.store.start_run(target.id, source.ad_hoc(), (self.now)()).await?;
 		let mut summary = RunSummary {
 			target: target.id.0,
-			label: target.label.clone(),
+			label: target.to_string(),
 			status: RunStatus::Failed,
 			counts: Counts::default(),
 			captured: 0,
@@ -112,6 +112,7 @@ impl Recorder<'_> {
 					cut_after: scan.cut_after.as_deref(),
 					listed: scan.listed,
 					post: scan.post.as_ref(),
+					name: scan.name.as_deref(),
 					ad_hoc: source.ad_hoc(),
 					scanner_version: SCANNER_VERSION,
 				};
@@ -169,7 +170,7 @@ impl Recorder<'_> {
 	}
 
 	async fn store_capture(&self, target: &Target, source_review_id: &str, c: &Capture) -> eyre::Result<StoredCapture> {
-		let webp = webp::provenance(c, &target.label, source_review_id).await?;
+		let webp = webp::provenance(c, &target.to_string(), source_review_id).await?;
 		let sha256 = self.blobs.put(&webp.bytes).await?;
 		Ok(StoredCapture {
 			sha256,

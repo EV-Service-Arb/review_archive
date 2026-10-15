@@ -197,6 +197,7 @@ impl ReviewSource for Listed {
 			cut_after: None,
 			listed: Some(u64::try_from(self.0.len()).unwrap()),
 			post: None,
+			name: None,
 		})
 	}
 }
@@ -222,6 +223,7 @@ impl ReviewSource for Posted {
 			cut_after: None,
 			listed: None,
 			post: Some(self.0.clone()),
+			name: None,
 		})
 	}
 }
@@ -383,7 +385,11 @@ async fn scans_and_captures_are_jobs_with_their_reviews() {
 		panic!("nothing works the queue here")
 	};
 	let implicit = e.client.target(e.client.job(id).await.unwrap().target_id).await.unwrap();
-	assert!(!implicit.target.enabled && implicit.target.label.starts_with("ad hoc"));
+	assert_eq!(
+		(implicit.target.enabled, implicit.target.label.as_str()),
+		(false, "ChIJotherotherotherother"),
+		"named by its first walk"
+	);
 	let bad = e.client.capture(&CaptureRequest::default(), None).await.unwrap_err();
 	assert_eq!(bad.status(), Some(StatusCode::BAD_REQUEST));
 

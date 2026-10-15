@@ -16,7 +16,7 @@ use crate::{Target, TargetKind, fmt_ts};
 pub struct TargetDto {
 	/// Its id in the archive.
 	pub id: i64,
-	/// What people call it.
+	/// What it is shown as: a person's label, else the place's name, else its place id.
 	pub label: String,
 	/// `maps` or `gbp`.
 	pub kind: TargetKind,
@@ -38,10 +38,11 @@ pub struct TargetDto {
 
 impl From<Target> for TargetDto {
 	fn from(t: Target) -> Self {
+		let label = t.to_string();
 		let (gbp_account, gbp_location) = t.gbp.map(|g| (g.account, g.location)).unzip();
 		Self {
 			id: t.id.0,
-			label: t.label,
+			label,
 			kind: t.kind,
 			place_id: t.place_id,
 			gbp_account,

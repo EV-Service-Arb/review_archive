@@ -51,9 +51,13 @@ fn en_replies() {
 	insta::assert_yaml_snapshot!(cards);
 }
 
-fn post(name: &str) -> Option<parse::Post> {
+fn html(name: &str) -> String {
 	let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
-	parse::owner_post(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}")))
+	std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
+fn post(name: &str) -> Option<parse::Post> {
+	parse::owner_post(&html(name))
 }
 
 #[test]
@@ -68,4 +72,14 @@ fn owner_posts() {
 	assert!(fr.text.starts_with("A Stay That Works Around You!"), "{fr:?}");
 
 	assert_eq!(post("maps_en_overview_no_post.html"), None, "a reply to a review is not a post");
+}
+
+#[test]
+fn place_names() {
+	assert_eq!(parse::place_name(&html("maps_en_overview_no_post.html")).as_deref(), Some("ClearDrain Plumber Mississauga"));
+	assert_eq!(
+		parse::place_name(&html("maps_fr_limited_view.html")).as_deref(),
+		Some("Tour Eiffel"),
+		"not the sponsored heading beside it"
+	);
 }

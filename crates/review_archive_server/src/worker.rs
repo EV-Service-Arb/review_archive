@@ -123,7 +123,7 @@ async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, jobs_in_
 		let recorded = archive.scan(&target).await?;
 		tracing::info!("{}", recorded.summary);
 		return Ok(match recorded.failure {
-			Some(e) => failed(e.wrap_err(format!("scan of target {} ({})", target.id, target.label)), "scan failed"),
+			Some(e) => failed(e.wrap_err(format!("scan of target {} ({target})", target.id)), "scan failed"),
 			None => Step::Scanned,
 		});
 	}

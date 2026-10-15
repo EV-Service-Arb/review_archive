@@ -338,18 +338,33 @@ impl Archive {
 			.ok_or_else(|| Rejected::invalid("name the place: `place` or `maps_url`"))?;
 		let interval = req.interval.as_deref().map(parse_interval).transpose()?;
 		let gbp = req.gbp.as_deref().map(str::parse::<GbpLocation>).transpose()?;
-		self.insert_target(place, req.label.clone(), req.lang.clone(), interval, gbp, true).await
+		let (place_id, resolved) = crate::places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), place).await?;
+		let name = resolved.as_ref().and_then(|r| r.name.clone());
+		Ok(Added {
+			target: self.insert_target(place_id, name, req.label.clone(), req.lang.clone(), interval, gbp, true).await?,
+			resolved,
+		})
 	}
 
-	async fn insert_target(&self, place: &str, label: Option<String>, lang: Option<String>, interval: Option<Timeframe>, gbp: Option<GbpLocation>, enabled: bool) -> eyre::Result<Added> {
+	/// `name`: the place's, when a Places search already found it.
+	async fn insert_target(
+		&self,
+		place_id: String,
+		name: Option<String>,
+		label: Option<String>,
+		lang: Option<String>,
+		interval: Option<Timeframe>,
+		gbp: Option<GbpLocation>,
+		enabled: bool,
+	) -> eyre::Result<Target> {
 		let store = self.store()?;
 		let interval = interval.unwrap_or(self.inner.defaults.interval);
 		self.check_interval(interval)?;
 		let lang = lang.unwrap_or_else(|| self.inner.defaults.lang.clone());
 		check_lang(&lang)?;
-		let (place_id, resolved) = crate::places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), place).await?;
 		let target = InsertTarget {
-			label: label.or_else(|| resolved.as_ref().and_then(|r| r.name.clone())).unwrap_or_else(|| place_id.clone()),
+			label,
+			name,
 			kind: if gbp.is_some() { TargetKind::Gbp } else { TargetKind::Maps },
 			place_id,
 			gbp,
@@ -358,10 +373,7 @@ impl Archive {
 			enabled,
 		};
 		let id = store.add_target(&target, Timestamp::now()).await?;
-		Ok(Added {
-			target: store.target(id).await?,
-			resolved,
-		})
+		store.target(id).await
 	}
 
 	/// Every target.
@@ -669,10 +681,7 @@ impl Archive {
 		let (place_id, resolved) = crate::places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), place).await?;
 		let target = match store.find_target(&place_id, &lang, None).await? {
 			Some(t) => t,
-			None => {
-				let name = resolved.and_then(|r| r.name).unwrap_or_else(|| place_id.clone());
-				self.insert_target(&place_id, Some(format!("ad hoc: {name}")), Some(lang), None, None, false).await?.target
-			}
+			None => self.insert_target(place_id, resolved.and_then(|r| r.name), None, Some(lang), None, None, false).await?,
 		};
 		store
 			.enqueue_job(JobKind::Capture, target.id, Some(&req.limits), None, self.inner.defaults.max_queued_jobs, Timestamp::now())

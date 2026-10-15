@@ -148,6 +148,7 @@ mod tests {
 			cut_after: None,
 			listed: None,
 			post: None,
+			name: None,
 		};
 		let p = plan(&k, &scan);
 		assert_eq!(p.new.iter().map(|o| o.source_review_id.as_str()).collect::<Vec<_>>(), ["new"]);
@@ -168,6 +169,7 @@ mod tests {
 			cut_after: None,
 			listed: None,
 			post: None,
+			name: None,
 		};
 		// b is already gone and stays so without being marked again
 		assert_eq!(plan(&k, &scan).gone, [ReviewId(1)]);
@@ -189,6 +191,7 @@ mod tests {
 			cut_after: None,
 			listed: None,
 			post: None,
+			name: None,
 		};
 		assert_eq!(plan(&k, &scan).gone, [ReviewId(1)]);
 
@@ -212,6 +215,7 @@ mod tests {
 			cut_after: None,
 			listed: None,
 			post: None,
+			name: None,
 		};
 		assert!(plan(&k, &scan).gone.is_empty());
 		// walked well past even the earliest it can be: gone
@@ -234,6 +238,7 @@ mod tests {
 			cut_after: None,
 			listed: None,
 			post: None,
+			name: None,
 		};
 		let p = plan(&k, &scan);
 		assert!(p.gone.is_empty());

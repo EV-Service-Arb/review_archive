@@ -73,7 +73,7 @@ pub async fn export(store: &Store, blobs: &BlobStore, target: TargetId, since: O
 		exported_at: fmt_ts(now),
 		target: TargetInfo {
 			id: t.id.0,
-			label: t.label,
+			label: t.to_string(),
 			kind: t.kind,
 			place_id: t.place_id,
 		},
