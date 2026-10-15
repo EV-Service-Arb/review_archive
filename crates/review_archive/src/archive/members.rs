@@ -5,8 +5,8 @@ use jiff::Timestamp;
 use review_archive_core::{
 	GbpLocation, PersonId, Rejected, ReviewId, TargetId, check_lang,
 	dto::{
-		Board, GmailDto, GmailOverview, JobKind, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, ReinstatementDto, TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto,
-		Usage,
+		Board, GmailDto, GmailOverview, JobKind, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, PlaceDto, ReinstatementDto, TargetDto, TargetPatch, TgChannelDto, TokensChange,
+		TokensDto, Usage,
 	},
 	maps::cost,
 };
@@ -57,6 +57,11 @@ impl Archive {
 	/// record stays.
 	pub async fn delete_gmail(&self, member: PersonId, id: i64) -> eyre::Result<()> {
 		self.store()?.delete_gmail(member, id).await
+	}
+
+	/// Every place a pasted id or Maps URL may mean, to pick one to track by its id.
+	pub async fn places(&self, input: &str) -> eyre::Result<Vec<PlaceDto>> {
+		crate::places::candidates(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), input).await
 	}
 
 	/// Tracks a place under the member's gmail: the target on that place, language and

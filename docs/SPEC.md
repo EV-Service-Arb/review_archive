@@ -85,10 +85,11 @@ Out — do not build, even as an option:
 
 ### Place id resolution
 
-`target add` accepts a place id or a Google Maps URL. From a URL, parse the id if
-present; otherwise resolve via Places API (New) `places:searchText`
-(`GOOGLE_MAPS_KEY`, field mask `places.id,places.displayName,places.formattedAddress`),
-same as `gmaps_optimal_placement_sources/src/poi.rs`.
+`target add` accepts a place id or a Google Maps URL. From a URL, take the id it carries
+(`!1s0x…:0x…` in `data=` is the place id, re-encoded); otherwise search Places API (New)
+`places:searchText` (`GOOGLE_MAPS_KEY`) for the URL's name. A place is never guessed: only
+hits bearing that exact name count, and when several do, the person picks one by its id
+(`GET /me/places`).
 
 ## Storage
 

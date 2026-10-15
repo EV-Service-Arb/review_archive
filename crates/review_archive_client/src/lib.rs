@@ -31,8 +31,8 @@ use reqwest::{Method, RequestBuilder, StatusCode, Url};
 pub use review_archive_core::dto;
 use review_archive_core::dto::{
 	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LedgerEntry, MEMBER_HEADER, Me, MemberDto, NewGmail, NewTarget, NewTgChannel,
-	NewTrack, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail, TargetDto, TargetPatch, TgChannelDto, TokensChange,
-	TokensDto, Usage, WaitQuery, WebhookDto,
+	NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail, TargetDto, TargetPatch,
+	TgChannelDto, TokensChange, TokensDto, Usage, WaitQuery, WebhookDto,
 };
 use serde::de::DeserializeOwned;
 
@@ -293,6 +293,11 @@ impl Client {
 	pub async fn set_gmail_enabled(&self, gmail: i64, enabled: bool) -> Result<(), Error> {
 		Self::send(self.request(Method::PATCH, &format!("me/gmails/{gmail}"))?.json(&Switch { enabled })).await?;
 		Ok(())
+	}
+
+	/// `GET /me/places`: every place a pasted id or Maps URL may mean.
+	pub async fn places(&self, place: &str) -> Result<Vec<PlaceDto>, Error> {
+		Self::json(self.request(Method::GET, "me/places")?.query(&PlaceQuery { place: place.to_owned() })).await
 	}
 
 	/// `POST /me/gmails/{gmail}/tracks`: the place's target, shared or new.

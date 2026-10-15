@@ -26,7 +26,7 @@ use ev_lib::{
 };
 use review_archive_client::{
 	Client,
-	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, RunStatus, ScanState, TokensChange, TokensDto},
+	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, RunStatus, ScanState, TokensChange, TokensDto},
 };
 use sa_auth::{Members, Permission, PermissionSet, Tokens};
 use sa_ui::TokenCost;
@@ -790,6 +790,7 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 #[component]
 fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab: Option<i64>) -> Element {
 	let mut place = use_signal(String::new);
+	let mut choices = use_signal(Vec::<PlaceDto>::new);
 	let filter: Signal<filter::Filter> = use_context();
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
@@ -813,8 +814,16 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab:
 						let id = g.id;
 						move |e: FormEvent| {
 							e.prevent_default();
-							let req = NewTrack { place: place(), ..Default::default() };
-							act(move |c| async move { c.track(id, &req).await.map(drop) });
+							let input = place();
+							act(move |c| async move {
+								match <[PlaceDto; 1]>::try_from(c.places(&input).await?) {
+									Ok([one]) => c.track(id, &NewTrack { place: one.place_id, ..Default::default() }).await.map(drop),
+									Err(many) => {
+										choices.set(many);
+										Ok(())
+									}
+								}
+							});
 							place.set(String::new());
 						}
 					},
@@ -825,6 +834,34 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab:
 						oninput: move |e: FormEvent| place.set(e.value()),
 					}
 					Button { "+ Track place" }
+				}
+			}
+		}
+		if let Some(g) = gmail.as_ref().filter(|_| !choices.read().is_empty()) {
+			div { class: "flex flex-col gap-1 border-b border-border px-6 py-3",
+				div { class: "flex items-center gap-2",
+					span { class: "text-ink-soft", "{choices.read().len()} places bear this name; which one?" }
+					div { class: "flex-1" }
+					Button { variant: ButtonVariant::Ghost, size: Size::Xs, r#type: "button", onclick: move |_| choices.set(Vec::new()), "cancel" }
+				}
+				for p in choices() {
+					Button {
+						key: "{p.place_id}",
+						class: "justify-start text-left",
+						variant: ButtonVariant::Outline,
+						size: Size::Sm,
+						r#type: "button",
+						onclick: {
+							let (id, place_id) = (g.id, p.place_id.clone());
+							move |_| {
+								let req = NewTrack { place: place_id.clone(), ..Default::default() };
+								act(move |c| async move { c.track(id, &req).await.map(drop) });
+								choices.set(Vec::new());
+							}
+						},
+						span { class: "font-medium", {p.name.clone().unwrap_or(p.place_id.clone())} }
+						if let Some(a) = &p.address { span { class: "text-ink-soft", " · {a}" } }
+					}
 				}
 			}
 		}

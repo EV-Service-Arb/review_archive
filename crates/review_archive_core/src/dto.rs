@@ -727,6 +727,27 @@ pub struct Board {
 	pub reinstating: Vec<BoardCard>,
 }
 
+/// A place a pasted id or Maps URL may mean (`GET /me/places`).
+#[skip_serializing_none]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PlaceDto {
+	/// The Google place id.
+	pub place_id: String,
+	/// Its display name.
+	pub name: Option<String>,
+	/// Its address.
+	pub address: Option<String>,
+}
+
+/// `GET /me/places`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
+pub struct PlaceQuery {
+	/// A place id or a Google Maps URL.
+	pub place: String,
+}
+
 /// `POST /me/gmails/{id}/tracks`: watch a place under this gmail. The place is watched once
 /// however many members track it; one already watched with this language is reused.
 #[skip_serializing_none]

@@ -32,7 +32,8 @@ async fn search_text(State(s): State<Stub>, headers: HeaderMap, Json(body): Json
 	}
 	Json(json!({ "places": [
 		{ "id": "ChIJprocopeprocopeproc", "displayName": { "text": "Le Procope" }, "formattedAddress": "13 Rue de l'Ancienne Comédie, Paris" },
-		{ "id": "ChIJsecondsecondsecond" }
+		{ "id": "ChIJsecondsecondsecond" },
+		{ "id": "ChIJnamesakenamesakena", "displayName": { "text": "le procope" }, "formattedAddress": "1 Rue de Lyon, Marseille" }
 	] }))
 	.into_response()
 }
@@ -59,16 +60,14 @@ async fn stub() -> (Stub, String, tokio::task::JoinHandle<()>) {
 }
 
 #[tokio::test]
-async fn the_first_place_is_taken_and_the_search_is_biased_to_the_map() {
+async fn every_place_bearing_the_name_is_found_and_the_search_is_biased_to_the_map() {
 	let (s, url, server) = stub().await;
 	let got = search(&reqwest::Client::new(), &format!("{url}:searchText"), "key-123", "Le Procope", Some((48.853, 2.3389)))
 		.await
 		.unwrap();
 	server.abort();
-	assert_eq!(
-		(got.place_id.as_str(), got.name.as_deref(), got.query.as_str()),
-		("ChIJprocopeprocopeproc", Some("Le Procope"), "Le Procope")
-	);
+	let ids: Vec<&str> = got.iter().map(|p| p.place_id.as_str()).collect();
+	assert_eq!(ids, ["ChIJprocopeprocopeproc", "ChIJnamesakenamesakena"]);
 	let (headers, body) = s.got.lock().unwrap()[0].clone();
 	assert_eq!(headers["x-goog-api-key"], "key-123");
 	assert_eq!(headers["x-goog-fieldmask"], "places.id,places.displayName,places.formattedAddress");
