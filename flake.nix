@@ -7,7 +7,7 @@
   inputs = {
     v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
     browser_manipulation = {
-      url = "github:valeratrades/browser_manipulation?ref=v0.4.3";
+      url = "github:valeratrades/browser_manipulation?ref=v0.4.4";
       inputs.v_flakes.follows = "v_flakes";
     };
   };
@@ -87,9 +87,7 @@
 
         cargoLock = {
           lockFile = ./Cargo.lock;
-          outputHashes."browser_manipulation-0.4.3" = "sha256-XbySzH0mR+7kY5eVpv+Wqe4G7V1kj9l7Y6oITxWLLzY=";
-          outputHashes."sa_auth-0.1.0" = "sha256-xFZDo9WlM5unGX6cXisnve5odDKHWukfkFPyQ/AltiM=";
-          outputHashes."sa_ui-0.1.0" = "sha256-xFZDo9WlM5unGX6cXisnve5odDKHWukfkFPyQ/AltiM=";
+          allowBuiltinFetchGit = true;
         };
         bin = rustPlatform.buildRustPackage {
           inherit pname;
