@@ -372,6 +372,13 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 			std::fs::create_dir_all(&dir).wrap_err_with(|| format!("creating {}", dir.display()))?;
 			let socket = dir.join("grafana.sock");
 			eyre::ensure!(socket.as_os_str().len() < 108, "{} is past a unix socket path's 107 bytes: move the data dir", socket.display());
+			// a Grafana killed with its `serve` leaves its socket behind, and the next one cannot bind it
+			match std::os::unix::net::UnixStream::connect(&socket) {
+				Ok(_) => eyre::bail!("a Grafana already answers on {}: another serve runs on this data dir", socket.display()),
+				Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => std::fs::remove_file(&socket).wrap_err_with(|| format!("removing the stale {}", socket.display()))?,
+				Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+				Err(e) => return Err(eyre::Report::new(e).wrap_err(format!("probing {}", socket.display()))),
+			}
 			let child = tokio::process::Command::new(bin)
 				.env("GF_SERVER_PROTOCOL", "socket")
 				.env("GF_SERVER_SOCKET", &socket)
