@@ -15,6 +15,9 @@ ignored = ["getrandom"]
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+grafana = []
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dioxus = { version = "0.7", default-features = false, features = ["launch", "logger", "lib", "web", "router"] } # no devtools: nothing serves its /_dioxus socket
 dockviewers_dioxus = { version = "0.2.3", default-features = false, features = ["web"] }
@@ -30,7 +33,7 @@ sa_ui.workspace = true
 strum.workspace = true
 wasm-bindgen = "=0.2.129" # the flake's wasm-bindgen-cli is this version; a skew is a hard error
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["DataTransfer", "DragEvent", "Element", "HtmlDocument", "Location", "Storage", "Window", "Document"] }
+web-sys = { version = "0.3", features = ["DataTransfer", "DragEvent", "Element", "HtmlDocument", "HtmlIFrameElement", "MessageEvent", "Location", "Storage", "Window", "Document"] }
 
 [build-dependencies]
 ev_lib_classes = { workspace = true }

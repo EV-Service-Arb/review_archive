@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: review_archive
+    type: file
+    updateIntervalSeconds: 5
+    options:
+      path: ${RA_GRAFANA}/dashboards

@@ -162,7 +162,7 @@
             cd "$repo"
             out="$repo/tmp/mfe-dev"
             RUSTFLAGS='${wasmFlags}' nix develop "$repo" --command bash -euc "
-              cargo build -p review_archive_web --target wasm32-unknown-unknown
+              cargo build -p review_archive_web --target wasm32-unknown-unknown --features grafana
               bash crates/review_archive_web/package.sh target/wasm32-unknown-unknown/debug/review_archive_web.wasm '$out'
             "
             cat >"$out/config.toml" <<EOF
@@ -174,6 +174,28 @@
             lean = []
             EOF
             exec nix develop "$repo" --command cargo r -p review_archive_server -- --config "$out/config.toml" serve --dev-member "$member"
+          '';
+        };
+
+        # `nix run .#dev-grafana`: Grafana at :59111 over dev-mfe's API, anonymous Viewer, framable by the
+        # dashboard (its `grafana` feature). Dashboards are read from `grafana/` as they are edited.
+        devGrafana = pkgs.writeShellApplication {
+          name = "dev-grafana";
+          runtimeInputs = [ pkgs.git ];
+          text = ''
+            repo="$(git rev-parse --show-toplevel)"
+            state="$repo/tmp/grafana"
+            mkdir -p "$state"
+            export RA_GRAFANA="$repo/grafana"
+            export GF_PATHS_DATA="$state" GF_PATHS_LOGS="$state/log"
+            export GF_PATHS_PLUGINS="${pkgs.linkFarm "grafana-plugins" (map (p: { name = p.pname; path = p; }) (with pkgs.grafanaPlugins; [ yesoreyeram-infinity-datasource marcusolsson-dynamictext-panel ]))}"
+            export GF_PATHS_PROVISIONING="$RA_GRAFANA/provisioning"
+            export GF_SERVER_HTTP_ADDR=127.0.0.1 GF_SERVER_HTTP_PORT=59111
+            export GF_AUTH_ANONYMOUS_ENABLED=true GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+            export GF_SECURITY_ALLOW_EMBEDDING=true
+            export GF_PLUGINS_PREINSTALL_DISABLED=true # its plugin dir is the store's
+            export GF_ANALYTICS_REPORTING_ENABLED=false GF_ANALYTICS_CHECK_FOR_UPDATES=false GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
+            exec ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana
           '';
         };
 
@@ -240,6 +262,7 @@
             nix build .#${pname}-container    OCI image with chromium-headless-shell (Linux only)
             nix build .#mfe                   the dashboard bundle (served under /mfe/)
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
+            nix run .#dev-grafana             Grafana over dev-mfe's API at :59111, the dashboard's Grafana view
             nix run .#publish -- major|minor|patch [note]
                                               tag the next vX.Y.Z and push it: CI ships the image
             nix run .#help                    this
@@ -289,6 +312,7 @@
         apps = {
           help = { type = "app"; program = lib.getExe help; };
           dev-mfe = { type = "app"; program = lib.getExe devMfe; };
+          dev-grafana = { type = "app"; program = lib.getExe devGrafana; };
           publish = { type = "app"; program = lib.getExe publish; };
         };
 

@@ -8,6 +8,8 @@
 
 mod board;
 mod filter;
+#[cfg(feature = "grafana")]
+mod grafana;
 mod telegram;
 mod tokens;
 
@@ -128,7 +130,12 @@ fn may(p: impl Permission) -> bool {
 enum View {
 	Home,
 	Gmail(i64),
-	Place { gmail: i64, target: i64 },
+	#[cfg(feature = "grafana")]
+	Grafana(i64),
+	Place {
+		gmail: i64,
+		target: i64,
+	},
 	Telegram,
 	Tokens,
 }
@@ -138,6 +145,8 @@ impl dioxus::router::ToRouteSegments for View {
 		match self {
 			Self::Home => write!(f, "/"), // an empty path would be no URL at all: a link to it goes nowhere
 			Self::Gmail(g) => write!(f, "/gmails/{g}"),
+			#[cfg(feature = "grafana")]
+			Self::Grafana(g) => write!(f, "/gmails/{g}/grafana"),
 			Self::Place { gmail, target } => write!(f, "/gmails/{gmail}/places/{target}"),
 			Self::Telegram => write!(f, "/telegram"),
 			Self::Tokens => write!(f, "/tokens"),
@@ -153,6 +162,8 @@ impl dioxus::router::FromRouteSegments for View {
 		match segments {
 			[] | [""] => Ok(Self::Home),
 			["gmails", g] => Ok(Self::Gmail(id(g)?)),
+			#[cfg(feature = "grafana")]
+			["gmails", g, "grafana"] => Ok(Self::Grafana(id(g)?)),
 			["gmails", g, "places", t] => Ok(Self::Place { gmail: id(g)?, target: id(t)? }),
 			["telegram"] => Ok(Self::Telegram),
 			["tokens"] => Ok(Self::Tokens),
@@ -597,6 +608,8 @@ fn Workspace(view: Route) -> Element {
 	let (picked, target) = match at {
 		View::Home | View::Telegram | View::Tokens => (None, None),
 		View::Gmail(gmail) => (Some(gmail), None),
+		#[cfg(feature = "grafana")]
+		View::Grafana(gmail) => (Some(gmail), None),
 		View::Place { gmail, target } => (Some(gmail), Some(target)),
 	};
 	// a removed gmail's URL shows them all, as home does
@@ -627,6 +640,10 @@ fn Workspace(view: Route) -> Element {
 					},
 					(View::Tokens, _) => rsx! {
 						tokens::Ledger { gmails: gmails.clone(), tokens, tab }
+					},
+					#[cfg(feature = "grafana")]
+					(View::Grafana(_), Some(g)) => rsx! {
+						grafana::Overview { gmail: g.gmail, tab }
 					},
 					(_, None) if gmails.is_empty() => rsx! {
 						div { class: "p-6 text-ink-soft", "Add the gmail your places are managed from, on the left." }
@@ -754,12 +771,19 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab:
 	let filter: Signal<filter::Filter> = use_context();
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
+	#[cfg(feature = "grafana")]
+	let grafana = gmail
+		.as_ref()
+		.map(|g| rsx! { Link { class: "text-ink-soft hover:text-ink", to: Route::at(tab, View::Grafana(g.id)), "Grafana" } });
+	#[cfg(not(feature = "grafana"))]
+	let grafana = None::<Element>;
 	rsx! {
 		header { class: "flex h-14 shrink-0 items-center gap-3 border-b border-border px-6",
 			span { class: "text-ink-soft", {gmail.as_ref().map_or("All gmails", |g| g.gmail.as_str())} }
 			span { class: "text-ink-soft", "/" }
 			span { class: "font-medium", "Locations" }
 			div { class: "flex-1" }
+			{grafana}
 			if let Some(g) = &gmail {
 				form {
 					class: "flex gap-2",
