@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{Coverage, Known, Observed, ReviewId, Scan};
+use crate::{Coverage, Known, Observed, ReviewId, Scan, Warning};
 
 /// What to write for one scan.
 #[derive(Debug, Default)]
@@ -18,7 +18,7 @@ pub struct Plan<'a> {
 	/// Newly gone: known, not gone before, and absent where the scan looked.
 	pub gone: Vec<ReviewId>,
 	/// Why the scan was not trusted as far as its coverage claimed. Makes the run `partial`.
-	pub warnings: Vec<String>,
+	pub warnings: Vec<Warning>,
 	/// Each listed review's first position in the scan.
 	order: HashMap<&'a str, usize>,
 }
@@ -63,8 +63,9 @@ pub fn plan<'a>(known: &Known, scan: &'a Scan) -> Plan<'a> {
 
 	let live_known = known.reviews.values().any(|k| !k.gone);
 	if scan.coverage == Coverage::Complete && seen.is_empty() && live_known {
-		plan.warnings
-			.push("the source listed no reviews at all while the archive has live ones; not taking that as every review gone".to_owned());
+		plan.warnings.push(Warning::Failure(
+			"the source listed no reviews at all while the archive has live ones; not taking that as every review gone".to_owned(),
+		));
 		return plan;
 	}
 

@@ -16,6 +16,7 @@ use std::{
 };
 
 use review_archive_core::{
+	Warning,
 	maps::{Card, WalkEnd, WalkPolicy, Walked, selectors::js},
 	tokens::Meter,
 };
@@ -205,7 +206,7 @@ impl Browser {
 						}
 					}
 					Ok(mut w) if w.end == WalkEnd::Interrupted => {
-						w.warnings.extend(page.save("walk-interrupted").await.map(page_line));
+						w.warnings.extend(page.save("walk-interrupted").await.map(|s| Warning::Failure(page_line(s))));
 						Ok(w)
 					}
 					Ok(w) => Ok(w),
@@ -218,7 +219,7 @@ impl Browser {
 				match (page.close().await, walked) {
 					(Ok(()), walked) => (walked, false, js_heap),
 					(Err(e), Ok(mut w)) => {
-						w.warnings.push(format!("closing the tab after the walk: {e:#}"));
+						w.warnings.push(Warning::Failure(format!("closing the tab after the walk: {e:#}")));
 						(Ok(w), true, js_heap)
 					}
 					// the walk's own failure says more than the tab that would not close after it

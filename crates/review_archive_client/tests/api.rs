@@ -861,7 +861,12 @@ async fn me_is_open_to_anyone_signed_in() {
 			email: "alice@x.com".into(),
 			name: ALICE.into(),
 			permissions: vec![],
-			tokens: TokensDto { balance: 15, daily: 15, cap: 300 },
+			tokens: TokensDto {
+				balance: 15,
+				daily: 15,
+				cap: 300,
+				kickbacks: vec![]
+			},
 		}
 	);
 	assert_eq!(alice.overview().await.unwrap(), vec![]);

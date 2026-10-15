@@ -785,7 +785,7 @@ pub struct Me {
 }
 
 /// A member's tokens: what their places' scans are paid with.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TokensDto {
 	/// What they hold now.
@@ -794,6 +794,24 @@ pub struct TokensDto {
 	pub daily: i64,
 	/// Where daily renewal stops.
 	pub cap: i64,
+	/// Owed back for runs that failed, newest first; claiming adds them to `balance`.
+	pub kickbacks: Vec<KickbackDto>,
+}
+
+/// A run's charge, owed back to a member because the run failed.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct KickbackDto {
+	/// The run.
+	pub run_id: i64,
+	/// Its place.
+	pub target_label: String,
+	/// When the run ended.
+	pub at: String,
+	/// What they paid for it.
+	pub amount: i64,
+	/// What failed: the run's error.
+	pub why: String,
 }
 
 /// Why a member's balance moved. Stored as its lowercase name.
@@ -812,6 +830,8 @@ pub enum TokenKind {
 	Set,
 	/// A scan of their place.
 	Charge,
+	/// A charge given back, its run having failed.
+	Kickback,
 }
 
 /// `GET /me/tokens`: a row of the member's ledger.

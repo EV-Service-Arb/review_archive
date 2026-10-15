@@ -9,7 +9,7 @@ use review_archive::{
 	Archive,
 	config::Config,
 	core::{
-		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId,
+		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId, Warning,
 		dto::{BalanceChange, LocationSummary, NewGmail, NewTarget, ScanState, TokenKind, UsageDay},
 		schedule::Schedule,
 		tokens::{Meter, Tokens},
@@ -32,6 +32,27 @@ struct Fails;
 impl ReviewSource for Fails {
 	async fn scan(&self, _: &Target, _: &Known, _: &mut Meter) -> eyre::Result<Scan> {
 		eyre::bail!("blocked")
+	}
+}
+
+/// A walk that costs `.0` tokens and falls short as `.1` says.
+struct Warns(i64, Warning);
+
+impl ReviewSource for Warns {
+	async fn scan(&self, target: &Target, known: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
+		let mut scan = Spends(self.0).scan(target, known, meter).await?;
+		scan.warnings.push(self.1.clone());
+		Ok(scan)
+	}
+}
+
+/// A walk that costs `.0` tokens, then breaks.
+struct BreaksAfter(i64);
+
+impl ReviewSource for BreaksAfter {
+	async fn scan(&self, _: &Target, _: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
+		meter.spend(self.0);
+		eyre::bail!("the page went away")
 	}
 }
 
@@ -362,4 +383,41 @@ async fn the_card_shows_a_scan_queued_then_running_then_gone() {
 	recorder(&archive, &blobs).record(&peek, &t, Some(job)).await.unwrap();
 	assert!(matches!(*peek.seen.lock().unwrap(), Some(ScanState::Running { .. })));
 	assert_eq!(card(&archive, m, t.id).await.scan, None);
+}
+
+#[tokio::test]
+async fn a_failure_is_kicked_back() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let t = target(&archive, "ChIJtokenstest000kickback").await;
+	let a = person(archive.store().unwrap(), "a").await;
+	tracks(&archive, a, t.id).await;
+	set(&archive, a, 100).await;
+
+	let rec = archive.record(&Warns(20, Warning::Failure("screenshot of x failed".into())), &t).await.unwrap();
+	let tokens = archive.tokens(a).await.unwrap();
+	assert_eq!(tokens.balance, 80, "charged all the same");
+	assert_eq!(
+		tokens.kickbacks.iter().map(|k| (k.run_id, k.amount, k.why.as_str())).collect::<Vec<_>>(),
+		[(rec.run.0, 20, "screenshot of x failed")]
+	);
+
+	let claimed = archive.claim_kickbacks(a).await.unwrap();
+	assert_eq!((claimed.balance, claimed.kickbacks.len()), (100, 0));
+	let back = archive.ledger(a).await.unwrap().into_iter().find(|l| l.kind == TokenKind::Kickback).unwrap();
+	assert_eq!((back.delta, back.run_id, back.target_id), (20, Some(rec.run.0), Some(t.id.0)));
+	assert_eq!(archive.claim_kickbacks(a).await.unwrap().balance, 100, "claimed once");
+
+	archive.record(&Warns(10, Warning::Limit("out of tokens".into())), &t).await.unwrap();
+	let tokens = archive.tokens(a).await.unwrap();
+	assert_eq!((tokens.balance, tokens.kickbacks.len()), (90, 0), "a limit is no failure");
+
+	let b = person(archive.store().unwrap(), "b").await;
+	tracks(&archive, b, t.id).await;
+	set(&archive, b, 4).await;
+	archive.record(&BreaksAfter(20), &t).await.unwrap();
+	assert_eq!(archive.tokens(a).await.unwrap().balance, 74);
+	assert_eq!(archive.tokens(b).await.unwrap().balance, 0);
+	assert_eq!(archive.claim_kickbacks(a).await.unwrap().balance, 90, "each gets back what they paid");
+	assert_eq!(archive.claim_kickbacks(b).await.unwrap().balance, 4);
 }

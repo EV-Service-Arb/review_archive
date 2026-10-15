@@ -184,8 +184,9 @@ with its own platform implements `sources::ReviewSource` and records through
 - **Tokens are a ledger; a balance is its sum; members pay for the scans of their places.**
   `token_ledger` rows are only added (renewal, an admin's set as a difference, charges). A
   walk is metered by `maps::cost` and stops at what its payers hold and the account's hour
-  (`tokens.per_hour`) leaves; it is charged in the run's end transaction, a failed walk
-  included — Google saw it all the same. A tracked place whose members are out of tokens is
+  (`tokens.per_hour`) leaves; it is charged in the run's end transaction. A run that failed,
+  or met any failure, kicks its charges back to its payers in that transaction, pending until
+  the member claims them; the account's hour counts it still. A tracked place whose members are out of tokens is
   not walked. A scan a member asks for is theirs alone to pay; the operator's jobs and
   ad-hoc looks are no one's.
 - **Events are an outbox.** `review.new/changed/gone/reappeared` and `run.failed` are written

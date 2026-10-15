@@ -5,7 +5,7 @@ use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
 use review_archive_core::{
 	PersonId, Rejected, TargetId,
-	dto::{BalanceChange, LedgerEntry, TokenKind, USAGE_DAYS, Usage, UsageDay},
+	dto::{BalanceChange, KickbackDto, LedgerEntry, TokenKind, USAGE_DAYS, Usage, UsageDay},
 	fmt_ts,
 	maps::cost,
 	tokens::{Tokens, accrue, split},
@@ -75,6 +75,56 @@ impl Store {
 			.wrap_err("recording a balance change")?;
 		tx.commit().await.wrap_err("committing a balance change")?;
 		Ok(balance + delta)
+	}
+
+	/// The member's kick-backs not claimed yet, newest first.
+	pub async fn kickbacks(&self, member: PersonId) -> eyre::Result<Vec<KickbackDto>> {
+		let rows: Vec<(i64, String, i64, Option<String>, String)> = sqlx::query_as(
+			"SELECT k.run_id, k.at, k.amount, r.error, COALESCE(t.label, t.name, t.place_id)
+			 FROM kickbacks k JOIN runs r ON r.id = k.run_id JOIN targets t ON t.id = r.target_id
+			 WHERE k.person_id = ? AND k.claimed_at IS NULL ORDER BY k.id DESC",
+		)
+		.bind(member.0)
+		.fetch_all(&self.pool)
+		.await
+		.wrap_err("listing pending kick-backs")?;
+		Ok(rows
+			.into_iter()
+			.map(|(run_id, at, amount, why, target_label)| KickbackDto {
+				run_id,
+				target_label,
+				at,
+				amount,
+				why: why.expect("a run that kicks back failed, or met a failure, and says which"),
+			})
+			.collect())
+	}
+
+	/// Adds the member's pending kick-backs to their balance; the new balance comes back.
+	pub async fn claim(&self, member: PersonId, now: Timestamp, cfg: &Tokens) -> eyre::Result<i64> {
+		let mut tx = self.write().await?;
+		let balance = renewed(&mut tx, member, now, cfg).await?;
+		let at = fmt_ts(now);
+		let added: i64 = sqlx::query_scalar::<_, i64>(
+			"INSERT INTO token_ledger (person_id, at, delta, kind, run_id)
+			 SELECT person_id, ?, amount, 'kickback', run_id FROM kickbacks WHERE person_id = ? AND claimed_at IS NULL
+			 RETURNING delta",
+		)
+		.bind(&at)
+		.bind(member.0)
+		.fetch_all(&mut *tx)
+		.await
+		.wrap_err("claiming kick-backs")?
+		.into_iter()
+		.sum();
+		sqlx::query("UPDATE kickbacks SET claimed_at = ? WHERE person_id = ? AND claimed_at IS NULL")
+			.bind(&at)
+			.bind(member.0)
+			.execute(&mut *tx)
+			.await
+			.wrap_err("marking kick-backs claimed")?;
+		tx.commit().await.wrap_err("committing a claim")?;
+		Ok(balance + added)
 	}
 
 	/// The member's ledger, newest first; days renewal added nothing to are left out.
@@ -249,8 +299,9 @@ async fn renewed(tx: &mut SqliteConnection, member: PersonId, now: Timestamp, cf
 	Ok(balance + delta)
 }
 
-/// Charges `spent` to `payers` for `run`, within their balances.
-pub(super) async fn charge(tx: &mut SqliteConnection, run: RunId, spent: i64, payers: &[PersonId], now: Timestamp) -> eyre::Result<()> {
+/// Charges `spent` to `payers` for `run`, within their balances; with `kick_back`, each is
+/// owed back what they paid.
+pub(super) async fn charge(tx: &mut SqliteConnection, run: RunId, spent: i64, payers: &[PersonId], kick_back: bool, now: Timestamp) -> eyre::Result<()> {
 	let mut balances = Vec::with_capacity(payers.len());
 	for m in payers {
 		let b: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(delta), 0) FROM token_ledger WHERE person_id = ?")
@@ -270,6 +321,16 @@ pub(super) async fn charge(tx: &mut SqliteConnection, run: RunId, spent: i64, pa
 			.execute(&mut *tx)
 			.await
 			.wrap_err("charging a run")?;
+		if kick_back {
+			sqlx::query("INSERT INTO kickbacks (person_id, run_id, amount, at) VALUES (?, ?, ?, ?)")
+				.bind(m.0)
+				.bind(run.0)
+				.bind(paid)
+				.bind(fmt_ts(now))
+				.execute(&mut *tx)
+				.await
+				.wrap_err("kicking a run back")?;
+		}
 	}
 	Ok(())
 }

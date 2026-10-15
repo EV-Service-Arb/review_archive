@@ -242,9 +242,8 @@ pub struct Scan {
 	pub reviews: Vec<Observed>,
 	/// How much of the list `reviews` is known to span; decides what can be judged gone.
 	pub coverage: Coverage,
-	/// Things that went wrong without failing the scan: missed captures, a walk cut short.
-	/// Any makes the run `partial`.
-	pub warnings: Vec<String>,
+	/// What the scan did not do: missed captures, a walk cut short. Any makes the run `partial`.
+	pub warnings: Vec<Warning>,
 	/// A walk stopped short of the archived part of the list (by its limit, or by the page
 	/// failing under it): the last card it read. The next scan reads on past it.
 	pub cut_after: Option<String>,
@@ -257,6 +256,23 @@ pub struct Scan {
 	pub name: Option<String>,
 	/// The place's address; only meaningful with `name`, which says the overview was read.
 	pub address: Option<String>,
+}
+
+/// Why a scan fell short of what it was asked.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Warning {
+	/// Something broke; its run is kicked back to whoever paid for it.
+	Failure(String),
+	/// A limit the scan was held to: the cap, the tokens it had.
+	Limit(String),
+}
+
+impl std::fmt::Display for Warning {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Failure(s) | Self::Limit(s) => f.write_str(s),
+		}
+	}
 }
 
 /// A post by the place's owner, as a scan saw it.

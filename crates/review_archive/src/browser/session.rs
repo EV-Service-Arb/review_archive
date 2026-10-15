@@ -7,7 +7,7 @@ use browser_manipulation::{Browser, ErrorKind, Launch, Robot, Shot, Tab, Viewpor
 use eyre::WrapErr;
 use jiff::Timestamp;
 use review_archive_core::{
-	Capture,
+	Capture, Warning,
 	maps::{
 		WalkEnd, WalkPolicy, Walked, WalkedCard, cost, parse,
 		selectors::{self as sel, js},
@@ -371,7 +371,7 @@ impl Page<'_> {
 					let capture = if policy.wants_capture(&card) {
 						self.capture(&card.id, page_url)
 							.await
-							.map_err(|e| warnings.push(format!("screenshot of {} failed: {e:#}", card.id)))
+							.map_err(|e| warnings.push(Warning::Failure(format!("screenshot of {} failed: {e:#}", card.id))))
 							.ok()
 					} else {
 						None
@@ -408,7 +408,7 @@ impl Page<'_> {
 				Ok(None) => {}
 				Err(e) if cards.is_empty() || matches!(e, SessionError::Blocked { .. }) => return Err(e),
 				Err(e) => {
-					warnings.push(format!("the walk stopped after {} reviews: {e:#}", cards.len()));
+					warnings.push(Warning::Failure(format!("the walk stopped after {} reviews: {e:#}", cards.len())));
 					break WalkEnd::Interrupted;
 				}
 			}

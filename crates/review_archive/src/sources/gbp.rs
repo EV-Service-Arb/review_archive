@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use jiff::Timestamp;
 use review_archive_core::{
-	GbpLocation, Known, Observed, Scan, Target,
+	GbpLocation, Known, Observed, Scan, Target, Warning,
 	gbp::{FindCards, ReviewList, ReviewsPage, list_coverage, match_captures, observed},
 	maps::{WalkPolicy, cost},
 	tokens::Meter,
@@ -174,12 +174,12 @@ impl ReviewSource for GbpSource<'_> {
 			let mut policy = FindCards::new(&wanted, Timestamp::now());
 			// The API list stands on its own; a failed screenshot pass only leaves captures pending.
 			let walked = match self.browser {
-				Ok(_) if meter.left() < cost::FIRST_SCREEN => Err("out of tokens".to_owned()),
+				Ok(_) if meter.left() < cost::FIRST_SCREEN => Err(Warning::Limit("screenshots skipped, out of tokens".to_owned())),
 				Ok(browser) => browser
 					.walk(&target.place_id, &target.lang, &mut policy, meter, max)
 					.await
-					.map_err(|e| format!("Maps page failed: {e:#}")),
-				Err(ref why) => Err(why.clone()),
+					.map_err(|e| Warning::Failure(format!("screenshots skipped, Maps page failed: {e:#}"))),
+				Err(ref why) => Err(Warning::Failure(format!("screenshots skipped, {why}"))),
 			};
 			match walked {
 				Ok(walked) => {
@@ -187,14 +187,17 @@ impl ReviewSource for GbpSource<'_> {
 					address = walked.address;
 					warnings.extend(walked.warnings);
 					if walked.end.cut_short() && !policy.satisfied() {
-						warnings.push("the Maps walk stopped before matching every new API review; they stay without a screenshot".to_owned());
+						// an interrupted walk carries its own failure
+						warnings.push(Warning::Limit(
+							"the Maps walk stopped before matching every new API review; they stay without a screenshot".to_owned(),
+						));
 					}
 					let mut matched = match_captures(&reviews, |id| known.wants_capture(id), walked.cards);
 					for r in &mut reviews {
 						r.capture = matched.remove(&r.source_review_id);
 					}
 				}
-				Err(why) => warnings.push(format!("screenshots skipped, {why}")),
+				Err(why) => warnings.push(why),
 			}
 		}
 		Ok(Scan {
