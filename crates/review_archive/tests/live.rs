@@ -3,8 +3,8 @@
 //!
 //! `REVIEW_ARCHIVE_CHROME` points at the browser (the devShell sets it),
 //! `REVIEW_ARCHIVE_HEADFUL=1` opens a window, and `REVIEW_ARCHIVE_PROFILE` reuses a browser
-//! profile instead of a fresh one. Google may answer with a "limited view" of Maps that
-//! has no reviews (headless, or a fresh profile), and a profile signed out of Google fails;
+//! profile instead of a fresh one, never a signed-in one (ARCHITECTURE.md § Testing). Google
+//! may answer with a "limited view" of Maps that has no reviews (headless, or a fresh profile);
 //! the scan then says so with the page saved.
 
 use review_archive::{
@@ -24,6 +24,7 @@ fn config(dir: &std::path::Path) -> Config {
 	config.browser.executable = std::env::var_os("REVIEW_ARCHIVE_CHROME").map(Into::into);
 	config.browser.lean = Some(vec![]);
 	config.browser.headful = std::env::var("REVIEW_ARCHIVE_HEADFUL").is_ok_and(|v| v == "1");
+	config.browser.guest = true;
 	config.browser.profile_dirs = std::env::var_os("REVIEW_ARCHIVE_PROFILE").map(Into::into).into_iter().collect();
 	config.defaults.max_reviews_initial = 12;
 	config.defaults.max_reviews_per_scan = 12;
@@ -59,7 +60,7 @@ async fn live_scan_of_a_real_place() {
 		return;
 	}
 	assert_eq!(error, None, "{summary}");
-	assert_eq!(summary.counts.new, 12, "{summary}");
+	assert!((1..=5).contains(&summary.counts.new), "a guest sees at most 5: {summary}");
 	assert!(summary.captured >= summary.counts.new * 5 / 6, "{summary}");
 	let reviews = archive.reviews(id, &ReviewsQuery::default()).await.unwrap();
 	assert!(reviews.iter().all(|r| r.rating.is_some() && r.published_est.is_some()));
@@ -82,17 +83,14 @@ async fn live_capture_without_a_store() {
 		Ok(got) => got,
 		Err(e) => {
 			assert!(
-				matches!(
-					e.downcast_ref::<SessionError>(),
-					Some(SessionError::LimitedView { .. } | SessionError::Blocked { .. } | SessionError::SignedOut { .. })
-				),
+				matches!(e.downcast_ref::<SessionError>(), Some(SessionError::LimitedView { .. } | SessionError::Blocked { .. })),
 				"{}",
 				review_archive::describe(&e)
 			);
 			return;
 		}
 	};
-	assert_eq!(got.scan.reviews.len(), 5, "{:?}", got.scan.warnings);
+	assert!(!got.scan.reviews.is_empty(), "{:?}", got.scan.warnings);
 	assert!(got.scan.reviews.iter().all(|r| r.capture.is_none()), "taken out into webps");
 	assert!(got.webps.values().next().unwrap().width >= 600);
 	assert!(archive.store().is_err());

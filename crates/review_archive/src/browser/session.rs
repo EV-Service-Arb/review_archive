@@ -3,7 +3,7 @@
 
 use std::{collections::HashSet, path::Path, time::Duration};
 
-use browser_manipulation::{Browser, ErrorKind, Launch, Robot, Shot, Tab, Viewport};
+use browser_manipulation::{Browser, ErrorKind, Launch, Robot, Tab, Viewport};
 use eyre::WrapErr;
 use jiff::Timestamp;
 use review_archive_core::{
@@ -213,7 +213,7 @@ impl Page<'_> {
 
 		// The place panel renders after load; wait for the way into the reviews.
 		let has_reviews_tab = self.wait_for_any(sel::REVIEWS_TAB).await?;
-		if self.eval::<bool>(js::ANY, sel::SIGNED_OUT).await? {
+		if !self.cfg.guest && self.eval::<bool>(js::ANY, sel::SIGNED_OUT).await? {
 			return Err(SessionError::new_signed_out());
 		}
 		let post = parse::owner_post(&self.eval::<String>(js::FIRST_HTML, sel::OWNER_POST).await?);
@@ -255,9 +255,12 @@ impl Page<'_> {
 		if !self.wait_for_any(sel::SORT_BUTTON).await? {
 			return Err(markup_changed("waiting for the sort button", sel::SORT_BUTTON));
 		}
-		let sorted = match self.open_sort_menu(meter).await? {
-			SortMenu::Open => self.pick_newest().await?,
-			SortMenu::SignInRequired => return Err(SessionError::new_signed_out()),
+		let sorted = match self.cfg.guest {
+			true => false, // a guest's sort button opens the sign-in dialog
+			false => match self.open_sort_menu(meter).await? {
+				SortMenu::Open => self.pick_newest().await?,
+				SortMenu::SignInRequired => return Err(SessionError::new_signed_out()),
+			},
 		};
 
 		Ok(Ok(Opened {
@@ -346,6 +349,12 @@ impl Page<'_> {
 		let mut cards: Vec<WalkedCard> = Vec::new();
 		let mut warnings = Vec::new();
 		let mut idle = 0;
+		if self.click_first(sel::PANEL_COLLAPSED).await? {
+			tracing::info!("the side panel was collapsed: opening it");
+			if !self.wait_for_any(sel::PANEL_OPEN).await? {
+				return Err(markup_changed("opening the side panel", sel::PANEL_OPEN));
+			}
+		}
 		let end = loop {
 			let step = async {
 				self.dismiss_promo().await?;
@@ -433,17 +442,14 @@ impl Page<'_> {
 		}
 		// let lazy avatars and photo thumbnails paint after the scroll
 		tokio::time::sleep(Duration::from_millis(400)).await;
-		let png = self
-			.tab
-			.screenshot(Shot::Element {
-				selector: js::MARKED_CARD,
-				scale: CARD_SCALE,
-			})
-			.await?;
+		let shot = self.tab.element_shot(js::MARKED_CARD, CARD_SCALE).await?;
+		let geometry = format!("{:?}", shot.geometry);
+		tracing::debug!(card = id, geometry, "card shot");
 		Ok(Capture {
-			png,
+			png: shot.png,
 			captured_at: Timestamp::now(),
 			page_url: page_url.to_owned(),
+			geometry,
 		})
 	}
 

@@ -200,6 +200,8 @@ mod tests {
 			sel::SORT_BUTTON,
 			sel::SORT_NEWEST,
 			sel::SIGN_IN_GATE,
+			sel::PANEL_OPEN,
+			sel::PANEL_COLLAPSED,
 			sel::EXPAND,
 			sel::OWNER_POST,
 			sel::OWNER_POST_TEXT,

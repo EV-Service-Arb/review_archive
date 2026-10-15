@@ -104,6 +104,7 @@ fn review(id: &str, rating: u8, text: &str, est: Option<&str>, capture: bool) ->
 			png: png(),
 			captured_at: "2026-09-01T10:00:00Z".parse().unwrap(),
 			page_url: "https://www.google.com/maps/place/x".into(),
+			geometry: String::new(),
 		}),
 		..Default::default()
 	}

@@ -211,6 +211,13 @@ with its own platform implements `sources::ReviewSource` and records through
 - **A capture is the review as it first appeared.** Cards are screenshotted when new (or while
   `capture_pending`), after "More" is expanded. It is kept as WebP, its provenance in Exif,
   under its SHA-256. A corrupted one (cut off, #36) is kept too, and the review stays pending.
+  The walk scrolls the feed vertically only, with the side panel open; a corrupted shot is
+  marked, never retaken in the same pass.
+
+## Testing
+
+Live tests never sign in to Google, nor reuse a signed-in profile: they walk as `browser.guest`,
+and a signed-out Maps shows at most 5 reviews of a place, unsorted, which is enough to test a walk and its shots.
 
 ## Memory
 

@@ -418,6 +418,7 @@ async fn telegram_channels_get_their_members_places_only() {
 		png: png(),
 		captured_at: now,
 		page_url: "https://maps.example/b".into(),
+		geometry: String::new(),
 	});
 	let src = Scripted(Mutex::new(complete(vec![review("a", "fine"), shot])));
 	rec.run(&src, &watched).await.unwrap();

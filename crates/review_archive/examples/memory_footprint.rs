@@ -32,6 +32,7 @@ async fn main() {
 			png: std::fs::read(f).unwrap(),
 			captured_at: jiff::Timestamp::now(),
 			page_url: "https://maps.google.com/?cid=1".into(),
+			geometry: String::new(),
 		};
 		review_archive::webp::provenance(&c, "footprint", "r").await.unwrap();
 		if (i + 1) % 250 == 0 {

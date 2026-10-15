@@ -54,3 +54,11 @@ fn limited_view_has_a_place_but_no_reviews_tab() {
 	let body = doc.root_element().text().collect::<String>().replace('\u{a0}', " ");
 	assert!(sel::LIMITED_VIEW_TEXT.iter().any(|t| body.contains(t)), "the limited view's notice");
 }
+
+#[test]
+fn the_panel_toggle_tells_open_from_collapsed() {
+	let open = fixture("maps_en_panel_open.html");
+	let collapsed = fixture("maps_en_panel_collapsed.html");
+	assert!(first(&open, sel::PANEL_OPEN).is_some() && first(&open, sel::PANEL_COLLAPSED).is_none());
+	assert!(first(&collapsed, sel::PANEL_COLLAPSED).is_some() && first(&collapsed, sel::PANEL_OPEN).is_none());
+}
