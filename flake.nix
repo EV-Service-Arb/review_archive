@@ -181,11 +181,12 @@
         # dashboard (its `grafana` feature). Dashboards are read from `grafana/` as they are edited.
         devGrafana = pkgs.writeShellApplication {
           name = "dev-grafana";
-          runtimeInputs = [ pkgs.git ];
+          runtimeInputs = [ pkgs.git pkgs.curl ];
           text = ''
             repo="$(git rev-parse --show-toplevel)"
             state="$repo/tmp/grafana"
-            mkdir -p "$state"
+            log="''${XDG_STATE_HOME:-$HOME/.local/state}/review_archive/grafana.log"
+            mkdir -p "$state" "$(dirname "$log")"
             export RA_GRAFANA="$repo/grafana"
             export GF_PATHS_DATA="$state" GF_PATHS_LOGS="$state/log"
             export GF_PATHS_PLUGINS="${pkgs.linkFarm "grafana-plugins" (map (p: { name = p.pname; path = p; }) (with pkgs.grafanaPlugins; [ yesoreyeram-infinity-datasource marcusolsson-dynamictext-panel ]))}"
@@ -195,7 +196,17 @@
             export GF_SECURITY_ALLOW_EMBEDDING=true
             export GF_PLUGINS_PREINSTALL_DISABLED=true # its plugin dir is the store's
             export GF_ANALYTICS_REPORTING_ENABLED=false GF_ANALYTICS_CHECK_FOR_UPDATES=false GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
-            exec ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana
+            ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana >"$log" 2>&1 &
+            pid=$!
+            trap 'kill "$pid" 2>/dev/null' EXIT
+            trap 'exit 130' INT TERM # a signal that kills bash runs no EXIT trap
+            until curl -sf -o /dev/null http://127.0.0.1:59111/api/health; do
+              kill -0 "$pid" 2>/dev/null || { tail -n 30 "$log" >&2; exit 1; }
+              sleep 0.5
+            done
+            echo "▶ grafana: http://127.0.0.1:59111  (log: $log)"
+            curl -sf -o /dev/null http://127.0.0.1:59110/health || echo "  nothing on :59110: its panels stay empty until \`nix run .#dev-mfe\`"
+            wait "$pid"
           '';
         };
 
