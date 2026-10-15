@@ -257,10 +257,10 @@
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
             nix run .#with-grafana [-- <held>]  dev-mfe, its locations overview drawn by Grafana
             nix run .#publish -- major|minor|patch [note]
-                                              tag the next vX.Y.Z and push it: CI ships the image
+                                              live tests, then tag the next vX.Y.Z and push it: CI ships the image
             nix run .#help                    this
             cargo test                        parser snapshots, repository, scheduler, gbp stub
-            cargo test -- --ignored live      one real scan; needs a browser and the network
+            cargo test -- --ignored live      the live scans; need a browser and the network
             the CLI itself: review_archive --help
             EOF
           '';
@@ -278,6 +278,7 @@
             [ -z "$(git status --porcelain)" ] || { echo "uncommitted changes — commit or stash first" >&2; exit 1; }
             shift
             note="$*"
+            nix develop -c cargo test --workspace -- --ignored
 
             git fetch --tags --force origin >/dev/null # not silenced: a stale tag list reuses a version
             last="$(git tag -l 'v*' --sort=-v:refname | head -n1)"
