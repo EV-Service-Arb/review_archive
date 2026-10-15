@@ -11,6 +11,8 @@ use crate::PlacesError;
 
 /// Places API (New) text search.
 pub const SEARCH_TEXT: &str = "https://places.googleapis.com/v1/places:searchText";
+/// Places API (New) place details, as `{PLACES}/{place_id}`.
+pub(crate) const PLACES: &str = "https://places.googleapis.com/v1/places";
 const FIELD_MASK: &str = "places.id,places.displayName,places.formattedAddress";
 
 /// What a search found.
@@ -94,7 +96,7 @@ pub async fn search(http: &reqwest::Client, endpoint: &str, key: &str, query: &s
 	let status = resp.status();
 	if !status.is_success() {
 		let body = resp.text().await.map_err(PlacesError::from)?;
-		return Err(PlacesError::new_api(query.to_owned(), status.as_u16(), body).into());
+		return Err(PlacesError::new_api(format!("text search for {query:?}"), status.as_u16(), body).into());
 	}
 	let resp: Resp = resp.json().await.map_err(PlacesError::from)?;
 	let place = resp.places.into_iter().next().ok_or_else(|| Rejected::invalid(format!("Places found nothing for {query:?}")))?;
@@ -103,5 +105,42 @@ pub async fn search(http: &reqwest::Client, endpoint: &str, key: &str, query: &s
 		name: place.display_name.map(|t| t.text),
 		address: place.formatted_address,
 		query: query.to_owned(),
+	})
+}
+
+/// The place with this id, from Places API (New) details: the id is checked, too.
+pub async fn details(http: &reqwest::Client, endpoint: &str, key: &str, place_id: &str) -> eyre::Result<Resolved> {
+	#[derive(Deserialize)]
+	#[serde(rename_all = "camelCase")]
+	struct Place {
+		display_name: Option<Text>,
+		formatted_address: Option<String>,
+	}
+	#[derive(Deserialize)]
+	struct Text {
+		text: String,
+	}
+
+	let resp = http
+		.get(format!("{endpoint}/{place_id}"))
+		.header("X-Goog-Api-Key", key)
+		.header("X-Goog-FieldMask", "displayName,formattedAddress")
+		.send()
+		.await
+		.map_err(PlacesError::from)?;
+	let status = resp.status();
+	if matches!(status, reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::BAD_REQUEST) {
+		return Err(Rejected::invalid(format!("Places knows no place {place_id:?}")).into());
+	}
+	if !status.is_success() {
+		let body = resp.text().await.map_err(PlacesError::from)?;
+		return Err(PlacesError::new_api(format!("details of {place_id}"), status.as_u16(), body).into());
+	}
+	let place: Place = resp.json().await.map_err(PlacesError::from)?;
+	Ok(Resolved {
+		place_id: place_id.to_owned(),
+		name: place.display_name.map(|t| t.text),
+		address: place.formatted_address,
+		query: place_id.to_owned(),
 	})
 }

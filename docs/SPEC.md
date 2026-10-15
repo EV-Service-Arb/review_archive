@@ -97,7 +97,7 @@ blob dir. Everything under one data dir (`/data` in the container).
 
 - `targets(id, label, name, address, kind[maps|gbp], place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at, cut_after)`
   — `lang` is a language tag (`fr`, `pt-BR`); anything else is refused.
-  — `label` is a person's, `name` and `address` the place's (a Places search when added, then every walk);
+  — `label` is a person's, `name` and `address` the place's (Places when added: its search, or its details by id with a key; then every walk);
   a target is shown as `label`, else `name`, else `place_id`.
 - `reviews(id, target_id, source_review_id, author, author_url, rating, text, reply, published_raw, published_est, first_seen, last_seen, gone_at, content_hash, capture_pending)`
   — unique `(target_id, source_review_id)`.

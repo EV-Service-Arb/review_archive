@@ -247,13 +247,13 @@ pub enum GbpError {
 #[wrap_err]
 #[derive(Debug, miette::Diagnostic, thiserror::Error)]
 pub enum PlacesError {
-	/// It refused the search.
+	/// It refused a request.
 	#[leaf]
-	#[error("Places text search for {query:?}: {status}: {body}")]
+	#[error("Places API, {asked}: {status}: {body}")]
 	#[diagnostic(code(review_archive::places::api), help("check GOOGLE_MAPS_KEY, and that the Places API (New) is enabled for its project"))]
 	Api {
-		/// What was searched for.
-		query: String,
+		/// What was asked of it.
+		asked: String,
 		/// Its status.
 		status: u16,
 		/// What it said.

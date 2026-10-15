@@ -345,7 +345,7 @@ impl Archive {
 		})
 	}
 
-	/// `resolved`: when a Places search already found the place.
+	/// `resolved`: when a Places search already found the place; else, with a key, Places is asked by id.
 	async fn insert_target(
 		&self,
 		place_id: String,
@@ -361,6 +361,14 @@ impl Archive {
 		self.check_interval(interval)?;
 		let lang = lang.unwrap_or_else(|| self.inner.defaults.lang.clone());
 		check_lang(&lang)?;
+		let looked_up;
+		let resolved = match (resolved, self.inner.secrets.google_maps_key.as_deref()) {
+			(None, Some(key)) => {
+				looked_up = crate::places::details(&self.inner.http, crate::places::PLACES, key, &place_id).await?;
+				Some(&looked_up)
+			}
+			(resolved, _) => resolved,
+		};
 		let target = InsertTarget {
 			label,
 			name: resolved.and_then(|r| r.name.clone()),
