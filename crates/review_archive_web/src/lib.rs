@@ -7,6 +7,7 @@
 #![allow(clippy::useless_format)] // rsx! lowers every "{x}" to a format!
 
 mod board;
+mod filter;
 mod telegram;
 mod tokens;
 
@@ -23,7 +24,7 @@ use ev_lib::{
 };
 use review_archive_client::{
 	Client,
-	dto::{BalanceChange, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, RunStatus, ScanState, TokensChange, TokensDto},
+	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, RunStatus, ScanState, TokensChange, TokensDto},
 };
 use sa_auth::{Members, Permission, PermissionSet, Tokens};
 use sa_ui::TokenCost;
@@ -528,6 +529,7 @@ fn Workspace(view: Route) -> Element {
 		})
 	});
 	let refresh = use_context_provider(|| Refresh(Signal::new(0)));
+	use_context_provider(|| Signal::new(filter::Filter::default()));
 	let failure = use_context_provider(|| Failure(Signal::new(None)));
 	let overview = use_resource(move || {
 		let client = client.clone();
@@ -597,8 +599,8 @@ fn Workspace(view: Route) -> Element {
 		View::Gmail(gmail) => (Some(gmail), None),
 		View::Place { gmail, target } => (Some(gmail), Some(target)),
 	};
-	// the first gmail until one is picked; a removed one falls back the same way
-	let current = picked.filter(|id| gmails.iter().any(|g| g.gmail.id == *id)).or_else(|| gmails.first().map(|g| g.gmail.id));
+	// a removed gmail's URL shows them all, as home does
+	let current = picked.filter(|id| gmails.iter().any(|g| g.gmail.id == *id));
 	let scope = current.and_then(|id| gmails.iter().find(|g| g.gmail.id == id)).cloned();
 	let acting = tab.map(|m| {
 		let who = match whom {
@@ -626,14 +628,21 @@ fn Workspace(view: Route) -> Element {
 					(View::Tokens, _) => rsx! {
 						tokens::Ledger { gmails: gmails.clone(), tokens, tab }
 					},
-					(_, None) => rsx! {
+					(_, None) if gmails.is_empty() => rsx! {
 						div { class: "p-6 text-ink-soft", "Add the gmail your places are managed from, on the left." }
 					},
+					(_, None) => {
+						let mut cards: Vec<_> = gmails.iter().flat_map(|g| g.locations.iter().map(|l| (g.gmail.clone(), l.clone()))).collect();
+						cards.sort_by_key(|(_, l)| (std::cmp::Reverse(l.snapshots_7d), l.target.id));
+						rsx! { Places { cards, gmail: None, tab } }
+					}
 					(_, Some(g)) => match target.and_then(|t| g.locations.iter().find(|l| l.target.id == t)) {
 						Some(loc) => rsx! {
 							board::Board { gmail: g.gmail.clone(), location: loc.clone(), tab }
 						},
-						None => rsx! { Places { scope: g, tab } },
+						None => rsx! {
+							Places { cards: g.locations.iter().map(|l| (g.gmail.clone(), l.clone())).collect::<Vec<_>>(), gmail: Some(g.gmail), tab }
+						},
 					},
 				}
 			}
@@ -661,8 +670,12 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 					}
 				}
 			}
-			div { class: "flex items-center gap-1.5 pl-4 pr-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-soft",
-				"Managing gmails"
+			div { class: "flex items-center gap-1.5 pl-2 pr-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-soft",
+				Link {
+					class: if at == View::Home { "rounded-md px-2 py-0.5 bg-hover text-ink" } else { "rounded-md px-2 py-0.5 hover:bg-hover" },
+					to: Route::at(tab, View::Home),
+					"Managing gmails"
+				}
 				InfoTip {
 					InfoTipTrigger { label: "What a managing gmail is" }
 					InfoTipContent { class: "normal-case font-normal tracking-normal flex flex-col gap-2",
@@ -733,46 +746,59 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 	}
 }
 
-/// The gmail's places as cards, most screenshots over the last week first.
+/// Places as cards, as given: one gmail's (`gmail`), else every gmail's. A place tracked under
+/// two gmails is a card under each: its counts are that gmail's.
 #[component]
-fn Places(scope: GmailOverview, tab: Option<i64>) -> Element {
+fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab: Option<i64>) -> Element {
 	let mut place = use_signal(String::new);
-	let gmail = scope.gmail.id;
+	let filter: Signal<filter::Filter> = use_context();
+	let total = cards.len();
+	let shown = filter.read().keep(cards);
 	rsx! {
 		header { class: "flex h-14 shrink-0 items-center gap-3 border-b border-border px-6",
-			span { class: "text-ink-soft", "{scope.gmail.gmail}" }
+			span { class: "text-ink-soft", {gmail.as_ref().map_or("All gmails", |g| g.gmail.as_str())} }
 			span { class: "text-ink-soft", "/" }
 			span { class: "font-medium", "Locations" }
 			div { class: "flex-1" }
-			form {
-				class: "flex gap-2",
-				onsubmit: move |e| {
-					e.prevent_default();
-					let req = NewTrack { place: place(), ..Default::default() };
-					act(move |c| async move { c.track(gmail, &req).await.map(drop) });
-					place.set(String::new());
-				},
-				Input {
-					class: "w-80",
-					placeholder: "Place id or Google Maps URL",
-					value: place(),
-					oninput: move |e: FormEvent| place.set(e.value()),
+			if let Some(g) = &gmail {
+				form {
+					class: "flex gap-2",
+					onsubmit: {
+						let id = g.id;
+						move |e: FormEvent| {
+							e.prevent_default();
+							let req = NewTrack { place: place(), ..Default::default() };
+							act(move |c| async move { c.track(id, &req).await.map(drop) });
+							place.set(String::new());
+						}
+					},
+					Input {
+						class: "w-80",
+						placeholder: "Place id or Google Maps URL",
+						value: place(),
+						oninput: move |e: FormEvent| place.set(e.value()),
+					}
+					Button { "+ Track place" }
 				}
-				Button { "+ Track place" }
 			}
 		}
+		filter::Bar { shown: shown.len(), total }
 		main { class: "min-h-0 flex-1 overflow-y-auto p-6",
-			if scope.locations.is_empty() {
-				div { class: "text-ink-soft", "No places tracked under this gmail yet." }
+			if total == 0 {
+				div { class: "text-ink-soft",
+					if gmail.is_some() { "No places tracked under this gmail yet." } else { "No places tracked yet." }
+				}
+			} else if shown.is_empty() {
+				div { class: "text-ink-soft", "No place matches the filters." }
 			}
 			div { class: "grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4",
-				for loc in scope.locations {
+				for (g, loc) in shown {
 					LocationCard {
-						key: "{loc.target.id}",
-						gmail,
-						gmail_on: scope.gmail.enabled,
-						loc: loc.clone(),
-						to: Route::at(tab, View::Place { gmail, target: loc.target.id }),
+						key: "{g.id}-{loc.target.id}",
+						to: Route::at(tab, View::Place { gmail: g.id, target: loc.target.id }),
+						gmail: g,
+						all: gmail.is_none(),
+						loc,
 					}
 				}
 			}
@@ -781,7 +807,8 @@ fn Places(scope: GmailOverview, tab: Option<i64>) -> Element {
 }
 
 #[component]
-fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> Element {
+/// `all`: among every gmail's cards, so it names its gmail.
+fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route) -> Element {
 	let (dot, status) = match loc.last_run_status {
 		Some(RunStatus::Ok) => ("bg-positive", "ok"),
 		Some(RunStatus::Partial) => ("bg-accent-warn", "partial"),
@@ -796,13 +823,21 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 		None => (dot, String::new()),
 	};
 	let target = loc.target.id;
+	let (gmail_on, gmail) = (gmail.enabled, gmail);
+	let id = gmail.id;
 	rsx! {
 		div { class: "relative",
 		Link { class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" }, to,
 			Card { class: "h-full gap-3 rounded-lg p-4 py-4 hover:border-ink-soft",
 				div { class: "pr-12",
 					div { class: "truncate text-[14px] font-semibold", "{loc.target.label}" }
+					if let Some(address) = &loc.target.address {
+						div { class: "truncate text-ink-soft", title: "{address}", "{address}" }
+					}
 					div { class: "truncate font-mono text-[11px] text-ink-soft", "{loc.target.place_id}" }
+					if all {
+						div { class: "truncate text-[11px] text-ink-soft", "{gmail.gmail}" }
+					}
 				}
 				div { class: "flex items-baseline gap-3",
 					span { class: "text-[28px] font-semibold leading-none", "{loc.snapshots_7d}" }
@@ -854,7 +889,7 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 			class: "absolute top-4 right-4",
 			checked: loc.enabled,
 			disabled: !gmail_on,
-			on_checked_change: move |on: bool| act(move |c| async move { c.set_track_enabled(gmail, target, on).await }),
+			on_checked_change: move |on: bool| act(move |c| async move { c.set_track_enabled(id, target, on).await }),
 		}
 		div { class: "absolute right-2 bottom-2",
 			if loc.scan.is_some() {
@@ -866,7 +901,7 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 						size: Size::Sm,
 						icon: true,
 						r#type: "button",
-						onclick: move |_| act(move |c| async move { c.scan_tracked(gmail, target).await.map(drop) }),
+						onclick: move |_| act(move |c| async move { c.scan_tracked(id, target).await.map(drop) }),
 						span { title: "scan now, on top of the schedule", "↻" }
 					}
 				}
