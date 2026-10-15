@@ -106,7 +106,11 @@ blob dir. Everything under one data dir (`/data` in the container).
 - `review_versions(review_id, seen_at, content_hash, rating, text, reply)` — a
   row whenever `content_hash` changes; history is never overwritten.
 - `posts(id, target_id, content_hash, text, published_raw, published_est, first_seen, last_seen)`
-- `captures(id, review_id, captured_at, sha256, width, height, page_url, scanner_version)`
+- `captures(id, review_id, captured_at, sha256, width, height, page_url, scanner_version, corrupted)`
+  — `corrupted`: the card was shot shifted, its left part cut off (#36), told by its right edge
+  being Maps' panel edge or map rather than the card; NULL until checked (`serve` checks the
+  older ones once). It is kept, its review stays `capture_pending`, and the first capture that
+  is not corrupted is the one shown.
 - `runs(id, target_id, started_at, finished_at, status[ok|partial|failed], error, n_seen, n_new, n_changed, n_gone, ad_hoc, tokens)`
   — `ad_hoc` marks the runs of ad-hoc captures; `tokens` is what its walk cost (see Tokens), a failed one's too. A run a stopped process left open is
   failed ("interrupted") on the next start of `serve` — a hand-run `scan` still going at

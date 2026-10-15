@@ -201,12 +201,14 @@ impl Archive {
 		Self::open_inner(config, browser).await
 	}
 
-	/// The PNG and AVIF captures from before WebP, converted one by one; `serve` runs it beside
-	/// its worker, so a large backlog never holds up the boot.
+	/// The PNG and AVIF captures from before WebP converted, then the captures from before #36's
+	/// check checked, one by one; `serve` runs it beside its worker, so a large backlog never
+	/// holds up the boot.
 	#[cfg(feature = "store")]
-	pub async fn convert_legacy_blobs(&self) -> eyre::Result<()> {
+	pub async fn backfill_blobs(&self) -> eyre::Result<()> {
 		let stored = self.stored()?;
-		stored.store.convert_legacy_blobs(&stored.blobs).await
+		stored.store.convert_legacy_blobs(&stored.blobs).await?;
+		stored.store.check_unchecked_captures(&stored.blobs).await
 	}
 
 	async fn open_inner(config: Config, #[cfg(feature = "maps")] browser: Browser) -> eyre::Result<Self> {

@@ -206,7 +206,7 @@ with its own platform implements `sources::ReviewSource` and records through
   (`review_archive --print-required-vars` lists what a profile needs).
 - **A capture is the review as it first appeared.** Cards are screenshotted when new (or while
   `capture_pending`), after "More" is expanded. It is kept as WebP, its provenance in Exif,
-  under its SHA-256.
+  under its SHA-256. A corrupted one (cut off, #36) is kept too, and the review stays pending.
 
 ## Memory
 

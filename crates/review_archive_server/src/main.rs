@@ -407,9 +407,9 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		r
 	};
 	// resumable per blob: a shutdown midway leaves the rest for the next boot
-	let convert = async {
+	let backfill = async {
 		tokio::select! {
-			r = archive.convert_legacy_blobs() => r,
+			r = archive.backfill_blobs() => r,
 			_ = stop.wait_for(|stopped| *stopped) => Ok(()),
 		}
 	};
@@ -442,7 +442,7 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		if logged {
 			tracing::info!("took over the data dir");
 		}
-		tokio::try_join!(work, deliver, convert)?;
+		tokio::try_join!(work, deliver, backfill)?;
 		drop(lock);
 		Ok(())
 	};

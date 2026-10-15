@@ -92,12 +92,15 @@ pub struct ReviewDto {
 	pub gone_at: Option<String>,
 	/// No screenshot of it yet.
 	pub capture_pending: bool,
-	/// The first capture's hash; the one that shows the review as it first appeared.
+	/// The first capture's hash, the one that shows the review as it first appeared; the first
+	/// corrupted one only while no other was taken.
 	pub capture_sha256: Option<String>,
 	/// When that capture was taken.
 	pub captured_at: Option<String>,
 	/// Where the API serves that capture: `/captures/<sha256>.webp`.
 	pub capture_url: Option<String>,
+	/// See [`CaptureDto::corrupted`].
+	pub capture_corrupted: Option<bool>,
 }
 
 /// Where the API serves a capture.
@@ -406,6 +409,8 @@ pub struct CaptureDto {
 	pub page_url: String,
 	/// What took it.
 	pub scanner_version: String,
+	/// The card was shot shifted, its left part cut off; `None` until the archive has looked.
+	pub corrupted: Option<bool>,
 	/// `/captures/<sha256>.webp`.
 	pub url: String,
 }

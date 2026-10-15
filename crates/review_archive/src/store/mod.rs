@@ -7,6 +7,7 @@
 //! another writer got in between.
 
 pub mod blobs;
+mod corrupted;
 mod events;
 pub mod export;
 mod jobs;
@@ -91,6 +92,8 @@ pub struct StoredCapture {
 	pub captured_at: Timestamp,
 	/// The page it was taken on.
 	pub page_url: String,
+	/// See [`crate::webp::Webp::corrupted`].
+	pub corrupted: bool,
 }
 
 /// A run's row id.
@@ -156,6 +159,7 @@ struct ReviewRow {
 	capture_pending: bool,
 	capture_sha256: Option<String>,
 	captured_at: Option<String>,
+	capture_corrupted: Option<bool>,
 }
 
 impl From<ReviewRow> for ReviewDto {
@@ -179,16 +183,17 @@ impl From<ReviewRow> for ReviewDto {
 			capture_url: r.capture_sha256.as_deref().map(capture_url),
 			capture_sha256: r.capture_sha256,
 			captured_at: r.captured_at,
+			capture_corrupted: r.capture_corrupted,
 		}
 	}
 }
 
-/// Every column a [`ReviewDto`] needs, the first capture joined in; filter with `WHERE`.
+/// Every column a [`ReviewDto`] needs, the first capture that is not corrupted (else the first) joined in; filter with `WHERE`.
 const REVIEW_SELECT: &str = "SELECT r.id, r.target_id, r.source_review_id, r.author, r.author_url, r.rating, r.text, r.reply, r.photo_count,
         r.published_raw, r.published_est, r.first_seen, r.last_seen, r.gone_at, r.capture_pending,
-        c.sha256 AS capture_sha256, c.captured_at AS captured_at
+        c.sha256 AS capture_sha256, c.captured_at AS captured_at, c.corrupted AS capture_corrupted
  FROM reviews r
- LEFT JOIN captures c ON c.id = (SELECT MIN(id) FROM captures WHERE review_id = r.id)";
+ LEFT JOIN captures c ON c.id = (SELECT id FROM captures WHERE review_id = r.id ORDER BY corrupted IS 1, id LIMIT 1)";
 
 #[derive(FromRow)]
 struct RunRow {
@@ -237,6 +242,7 @@ struct CaptureRow {
 	height: i64,
 	page_url: String,
 	scanner_version: String,
+	corrupted: Option<bool>,
 }
 
 impl From<CaptureRow> for CaptureDto {
@@ -249,6 +255,7 @@ impl From<CaptureRow> for CaptureDto {
 			height: c.height,
 			page_url: c.page_url,
 			scanner_version: c.scanner_version,
+			corrupted: c.corrupted,
 		}
 	}
 }
@@ -840,7 +847,7 @@ impl Store {
 		let Some(review) = review_by_id(&self.pool, id).await? else {
 			return Ok(None);
 		};
-		let captures: Vec<CaptureRow> = sqlx::query_as("SELECT sha256, captured_at, width, height, page_url, scanner_version FROM captures WHERE review_id = ? ORDER BY id")
+		let captures: Vec<CaptureRow> = sqlx::query_as("SELECT sha256, captured_at, width, height, page_url, scanner_version, corrupted FROM captures WHERE review_id = ? ORDER BY id")
 			.bind(id.0)
 			.fetch_all(&self.pool)
 			.await
@@ -1089,7 +1096,7 @@ async fn record_capture(tx: &mut SqliteConnection, review: ReviewId, capture: Op
 	let Some(c) = capture else {
 		return Ok(());
 	};
-	sqlx::query("INSERT INTO captures (review_id, captured_at, sha256, width, height, page_url, scanner_version) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	sqlx::query("INSERT INTO captures (review_id, captured_at, sha256, width, height, page_url, scanner_version, corrupted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
 		.bind(review.0)
 		.bind(fmt_ts(c.captured_at))
 		.bind(&c.sha256)
@@ -1097,9 +1104,13 @@ async fn record_capture(tx: &mut SqliteConnection, review: ReviewId, capture: Op
 		.bind(c.height)
 		.bind(&c.page_url)
 		.bind(scanner_version)
+		.bind(c.corrupted)
 		.execute(&mut *tx)
 		.await
 		.wrap_err("inserting capture")?;
+	if c.corrupted {
+		return Ok(()); // still pending: the next walk shoots it again
+	}
 	sqlx::query("UPDATE reviews SET capture_pending = 0 WHERE id = ?")
 		.bind(review.0)
 		.execute(&mut *tx)

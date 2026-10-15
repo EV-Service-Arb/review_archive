@@ -60,11 +60,21 @@ impl ReviewSource for Scripted {
 	}
 }
 
+/// A card: white to its edges.
 fn png() -> Vec<u8> {
+	png_of(&[255; 36])
+}
+
+/// A card shot shifted (#36): its right edge is Maps' map.
+fn cut_png() -> Vec<u8> {
+	png_of(&[[255; 9].as_slice(), &[243, 239, 234]].concat().repeat(3))
+}
+
+fn png_of(rgb: &[u8]) -> Vec<u8> {
 	let mut out = Vec::new();
 	let mut enc = png::Encoder::new(&mut out, 4, 3);
 	enc.set_color(png::ColorType::Rgb);
-	enc.write_header().unwrap().write_image_data(&[90; 36]).unwrap();
+	enc.write_header().unwrap().write_image_data(rgb).unwrap();
 	out
 }
 
@@ -493,6 +503,55 @@ async fn a_capture_of_named_reviews_returns_those() {
 	assert_eq!(job.reviews.unwrap().iter().map(|r| r.source_review_id.as_str()).collect::<Vec<_>>(), ["b"]);
 }
 
+/// #36: a card shot shifted is kept and flagged, and shot again on the next walk; the clean shot is the one shown.
+#[tokio::test]
+async fn a_corrupted_capture_is_retaken() {
+	let e = env().await;
+	let mut cut = review("a", 5, "Great", None, true);
+	cut.capture.as_mut().unwrap().png = cut_png();
+	let src = Scripted(Mutex::new(scan(vec![cut], Coverage::DownTo(None))));
+	e.archive().run(&src, &e.target).await.unwrap();
+	let a = e.by_source_id().await.remove("a").unwrap();
+	assert!(a.capture_pending);
+	assert_eq!(a.capture_corrupted, Some(true));
+
+	e.clock.set("2026-09-02T10:00:00Z");
+	src.set(scan(vec![review("a", 5, "Great", None, true)], Coverage::DownTo(None)));
+	e.archive().run(&src, &e.target).await.unwrap();
+	let retaken = e.by_source_id().await.remove("a").unwrap();
+	assert!(!retaken.capture_pending);
+	assert_eq!(retaken.capture_corrupted, Some(false));
+	assert_ne!(retaken.capture_sha256, a.capture_sha256);
+	assert_eq!(e.store.capture_count(ReviewId(a.id)).await.unwrap(), 2, "the corrupted one is kept");
+}
+
+/// Captures from before #36's check are checked once, and a review shown only cut goes back to pending.
+#[tokio::test]
+async fn unchecked_captures_are_checked() {
+	let e = env().await;
+	let mut cut = review("a", 5, "Great", None, true);
+	cut.capture.as_mut().unwrap().png = cut_png();
+	let src = Scripted(Mutex::new(scan(vec![cut, review("b", 4, "Fine", None, true)], Coverage::DownTo(None))));
+	e.archive().run(&src, &e.target).await.unwrap();
+	let db = sqlx::SqlitePool::connect(&format!("sqlite://{}", e.dir.path().join("review_archive.db").display()))
+		.await
+		.unwrap();
+	sqlx::query("UPDATE captures SET corrupted = NULL").execute(&db).await.unwrap();
+	sqlx::query("UPDATE reviews SET capture_pending = 0").execute(&db).await.unwrap();
+	db.close().await;
+
+	let config = review_archive::config::Config {
+		data_dir: Some(e.dir.path().to_owned()),
+		..Default::default()
+	};
+	let archive = review_archive::Archive::open(config).await.unwrap();
+	archive.backfill_blobs().await.unwrap();
+	archive.close().await;
+	let rows = e.by_source_id().await;
+	assert_eq!((rows["a"].capture_corrupted, rows["a"].capture_pending), (Some(true), true));
+	assert_eq!((rows["b"].capture_corrupted, rows["b"].capture_pending), (Some(false), false));
+}
+
 /// A run the process died in is failed on the next start, not left open forever.
 #[tokio::test]
 async fn an_interrupted_run_is_failed_on_start() {
@@ -569,7 +628,7 @@ async fn legacy_capture_becomes_webp(ext: &str, old_blob: Vec<u8>) {
 			..Default::default()
 		};
 		let archive = review_archive::Archive::open(config).await.unwrap();
-		archive.convert_legacy_blobs().await.unwrap();
+		archive.backfill_blobs().await.unwrap();
 		archive.close().await;
 	};
 	open().await;

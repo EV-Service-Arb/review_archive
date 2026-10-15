@@ -179,6 +179,7 @@ impl Recorder<'_> {
 			height: webp.height,
 			captured_at: c.captured_at,
 			page_url: c.page_url.clone(),
+			corrupted: webp.corrupted,
 		})
 	}
 }

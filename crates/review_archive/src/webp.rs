@@ -21,6 +21,8 @@ pub struct Webp {
 	pub width: u32,
 	/// In pixels.
 	pub height: u32,
+	/// The card was shot shifted, its left part cut off (#36).
+	pub corrupted: bool,
 }
 
 /// The capture's PNG as WebP, its provenance written in: when, where, of what, by what.
@@ -68,6 +70,7 @@ pub(crate) async fn encode(image: Vec<u8>, format: image::ImageFormat, exif: Vec
 	let webp = tokio::task::spawn_blocking(move || {
 		let rgb = image::load_from_memory_with_format(&image, format)?.into_rgb8();
 		let (width, height) = rgb.dimensions();
+		let corrupted = corrupted(&rgb);
 		let encoded = libwebp::Encoder::from_rgb(&rgb, width, height)
 			.encode_simple(false, QUALITY)
 			.map_err(|e| eyre::eyre!("encoding WebP: {e:?}"))?;
@@ -75,11 +78,26 @@ pub(crate) async fn encode(image: Vec<u8>, format: image::ImageFormat, exif: Vec
 			bytes: with_exif(&encoded, width, height, &exif),
 			width,
 			height,
+			corrupted,
 		})
 	})
 	.await?;
 	drop(lease);
 	webp
+}
+
+/// A card shot shifted right ends in Maps' panel edge or map, a uniform non-white column; a
+/// card's own right edge is its white background, or a photo, which is not uniform.
+pub(crate) fn corrupted(rgb: &image::RgbImage) -> bool {
+	let (w, h) = rgb.dimensions();
+	let column: Vec<[u8; 3]> = (0..h).map(|y| rgb.get_pixel(w - 1, y).0).collect();
+	let median: [u8; 3] = std::array::from_fn(|c| {
+		let mut v: Vec<u8> = column.iter().map(|p| p[c]).collect();
+		v.sort_unstable();
+		v[v.len() / 2]
+	});
+	let near = column.iter().filter(|p| p.iter().zip(median).all(|(a, b)| a.abs_diff(b) <= 8)).count();
+	median.iter().any(|&c| c < 250) && near * 10 >= column.len() * 8
 }
 
 /// libwebp's simple file (`RIFF … WEBP VP8 …`) extended with an `EXIF` chunk, which the format
@@ -116,6 +134,13 @@ mod tests {
 		let mut out = std::io::Cursor::new(Vec::new());
 		img.write_to(&mut out, image::ImageFormat::Png).unwrap();
 		out.into_inner()
+	}
+
+	#[test]
+	fn a_card_cut_off_is_corrupted() {
+		let rgb = |png: &[u8]| image::load_from_memory_with_format(png, image::ImageFormat::Png).unwrap().into_rgb8();
+		assert!(corrupted(&rgb(include_bytes!("../tests/fixtures/capture_cut_off.png"))));
+		assert!(!corrupted(&rgb(include_bytes!("../tests/fixtures/capture_whole.png"))));
 	}
 
 	#[tokio::test]

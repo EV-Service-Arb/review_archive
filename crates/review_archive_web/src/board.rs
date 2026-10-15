@@ -202,6 +202,9 @@ fn Card(card: BoardCard, column: Column, mut dragging: Signal<Option<(i64, Colum
 					if let Some(days) = reinstated {
 						Badge { tone: Tone::Ok, "reinstated after {days}d" }
 					}
+					if r.capture_corrupted == Some(true) {
+						Badge { tone: Tone::Warn, span { title: "the screenshot is cut off; the next scan retakes it", "corrupted" } }
+					}
 					if r.reply.is_some() {
 						Badge { tone: Tone::Ok, "responded" }
 					} else {
