@@ -210,6 +210,11 @@ with its own platform implements `sources::ReviewSource` and records through
   The walk scrolls the feed vertically only, with the side panel open; a corrupted shot is
   marked, never retaken in the same pass.
 
+## Testing
+
+Live tests never sign in to Google, nor reuse a signed-in profile: a signed-out Maps shows a
+place's first 5 reviews, which is enough to test a walk and its shots.
+
 ## Memory
 
 The Pi gives Chromium a 1Gi burst. The walk needs one Maps page, scrolled and screenshotted card

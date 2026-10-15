@@ -3,8 +3,8 @@
 //!
 //! `REVIEW_ARCHIVE_CHROME` points at the browser (the devShell sets it),
 //! `REVIEW_ARCHIVE_HEADFUL=1` opens a window, and `REVIEW_ARCHIVE_PROFILE` reuses a browser
-//! profile instead of a fresh one. Google may answer with a "limited view" of Maps that
-//! has no reviews (headless, or a fresh profile), and a profile signed out of Google fails;
+//! profile instead of a fresh one, never a signed-in one (ARCHITECTURE.md § Testing). Google
+//! may answer with a "limited view" of Maps that has no reviews (headless, or a fresh profile);
 //! the scan then says so with the page saved.
 
 use review_archive::{
