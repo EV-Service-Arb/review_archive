@@ -32,7 +32,6 @@ use crate::config::Secrets;
 use crate::config::{Config, Defaults};
 #[cfg(feature = "store")]
 use crate::{
-	places::Resolved,
 	record::{Recorded, Recorder},
 	sources::ReviewSource,
 	store::{
@@ -164,7 +163,7 @@ pub struct Added {
 	/// The target.
 	pub target: Target,
 	/// Set when the input was a URL without a place id.
-	pub resolved: Option<Resolved>,
+	pub resolved: Option<review_archive_core::dto::PlaceDto>,
 }
 
 impl Archive {
@@ -351,7 +350,7 @@ impl Archive {
 	async fn insert_target(
 		&self,
 		place_id: String,
-		resolved: Option<&crate::places::Resolved>,
+		resolved: Option<&review_archive_core::dto::PlaceDto>,
 		label: Option<String>,
 		lang: Option<String>,
 		interval: Option<Timeframe>,

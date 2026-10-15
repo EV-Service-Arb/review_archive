@@ -36,8 +36,15 @@ pub fn parse(input: &str) -> eyre::Result<Parsed> {
 		}
 	}
 
-	// /maps/place/<Name>/@<lat>,<lng>,<zoom>z/...
+	// /maps/place/<Name>/@<lat>,<lng>,<zoom>z/data=...!1s0x<hex>:0x<hex>!...
 	let segments: Vec<String> = url.path_segments().map(|s| s.map(percent_decode).collect()).unwrap_or_default();
+	let mut features: Vec<(u64, u64)> = segments.iter().filter_map(|s| s.strip_prefix("data=")).flat_map(feature_ids).collect();
+	features.dedup();
+	match features[..] {
+		[] => {}
+		[(cell, cid)] => return Ok(Parsed::PlaceId(place_id_of_feature(cell, cid))),
+		_ => eyre::bail!("{input:?} names more than one place: {features:x?}"),
+	}
 	let name = segments
 		.iter()
 		.position(|s| s == "place")
@@ -55,6 +62,30 @@ pub fn parse(input: &str) -> eyre::Result<Parsed> {
 /// Place ids are URL-safe base64-ish tokens, `ChIJ…` for most places.
 pub fn looks_like_place_id(s: &str) -> bool {
 	s.len() >= 16 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// The `!1s0x<hex>:0x<hex>` entries of a Maps URL's `data=` segment.
+fn feature_ids(data: &str) -> impl Iterator<Item = (u64, u64)> + '_ {
+	data.split('!').filter_map(|e| {
+		let (cell, cid) = e.strip_prefix("1s0x")?.split_once(":0x")?;
+		Some((u64::from_str_radix(cell, 16).ok()?, u64::from_str_radix(cid, 16).ok()?))
+	})
+}
+
+/// A `ChIJ…` place id is the feature id itself: `{1: {1: fixed64 cell, 2: fixed64 cid}}`, base64url.
+fn place_id_of_feature(cell: u64, cid: u64) -> String {
+	const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+	let mut bytes = vec![0x0a, 0x12, 0x09];
+	bytes.extend(cell.to_le_bytes());
+	bytes.push(0x11);
+	bytes.extend(cid.to_le_bytes());
+	let bits = bytes.len() * 8;
+	(0..bits.div_ceil(6))
+		.map(|i| {
+			let at = |b: usize| bytes.get(b / 8).map_or(0, |byte| (byte >> (7 - b % 8)) & 1);
+			B64[(0..6).fold(0, |acc, k| acc << 1 | at(i * 6 + k)) as usize] as char
+		})
+		.collect()
 }
 
 /// Form decoding: `+` is a space, `%2B` a plus.

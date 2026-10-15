@@ -34,3 +34,14 @@ fn a_lang_cannot_add_query_parameters_to_the_place_url() {
 	let q: Vec<String> = url.query_pairs().filter(|(k, _)| k == "q").map(|(_, v)| v.into_owned()).collect();
 	assert_eq!(q, ["place_id:ChIJLU7jZClu5kcR4PcOOO6p3I0"], "{url}");
 }
+
+/// A Maps share link expands to a URL whose only id is the feature id in `data=` (#37). It must
+/// become that place's id: a search by name took Shiny Maids Queens for Shiny Maids of Hicksville.
+#[test]
+fn a_maps_url_names_its_place_by_the_feature_id() {
+	let got = place::parse(
+		"https://www.google.com/maps/place/Shiny+Maids+House+Cleaning+Services+of+Hicksville/@40.7837389,-73.5036176,17z/data=!3m1!4b1!4m6!3m5!1s0x89c281e03866d8f3:0xa74f91a21ce5b00e!8m2!3d40.7837389!4d-73.5036176!16s%2Fg%2F11zy58lwft?entry=tts",
+	)
+	.unwrap();
+	assert_eq!(got, place::Parsed::PlaceId("ChIJ89hmOOCBwokRDrDlHKKRT6c".into()));
+}

@@ -260,7 +260,7 @@ async fn target_cmd(archive: &Archive, cmd: TargetCmd) -> eyre::Result<()> {
 		TargetCmd::Add { place, label, lang, interval, gbp } => {
 			let added = archive
 				.add_target(&NewTarget {
-					place: Some(place),
+					place: Some(place.clone()),
 					label,
 					lang,
 					interval,
@@ -270,8 +270,7 @@ async fn target_cmd(archive: &Archive, cmd: TargetCmd) -> eyre::Result<()> {
 				.await?;
 			if let Some(r) = &added.resolved {
 				println!(
-					"resolved {:?} → {} ({})",
-					r.query,
+					"resolved {place:?} → {} ({})",
 					r.place_id,
 					[r.name.as_deref(), r.address.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(", ")
 				);

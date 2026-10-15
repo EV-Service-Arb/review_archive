@@ -24,8 +24,8 @@ use review_archive_core::{
 	PersonId, ReviewId, TargetId,
 	dto::{
 		Board, CaptureRequest, DayStats, ErrorBody, EventPayload, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LedgerEntry, Me, MemberDto, NewGmail, NewTarget, NewTgChannel,
-		NewTrack, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail, TargetDto, TargetPatch, TgChannelDto,
-		TokensChange, TokensDto, Usage, WaitQuery, WebhookDto, stats_csv,
+		NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail, TargetDto, TargetPatch,
+		TgChannelDto, TokensChange, TokensDto, Usage, WaitQuery, WebhookDto, stats_csv,
 	},
 };
 use serde::{Deserialize, Serialize};
@@ -107,6 +107,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		.route("/me/overview", get(overview))
 		.route("/me/gmails", post(add_gmail))
 		.route("/me/gmails/{gmail}", axum::routing::delete(delete_gmail).patch(set_gmail_enabled))
+		.route("/me/places", get(places))
 		.route("/me/gmails/{gmail}/tracks", post(track))
 		.route("/me/gmails/{gmail}/tracks/{target}", axum::routing::delete(untrack).patch(set_track_enabled))
 		.route("/me/gmails/{gmail}/tracks/{target}/scan", post(scan_tracked))
@@ -515,6 +516,13 @@ async fn delete_gmail(State(s): State<AppState>, Member(m): Member, Path(gmail):
 async fn set_gmail_enabled(State(s): State<AppState>, Member(m): Member, Path(gmail): Path<i64>, JsonBody(req): JsonBody<Switch>) -> ApiResult<StatusCode> {
 	s.archive.set_gmail_enabled(m, gmail, req.enabled).await?;
 	Ok(StatusCode::NO_CONTENT)
+}
+
+/// Every place a pasted place id or Maps URL may mean: the one its id names, else each place
+/// bearing the URL's name. Tracking takes one of them by its id.
+#[utoipa::path(get, path = "/me/places", tag = "me", params(PlaceQuery), responses((status = 200, body = [PlaceDto]), (status = 400, body = ErrorBody)))]
+async fn places(State(s): State<AppState>, Member(_): Member, Query(q): Query<PlaceQuery>) -> ApiResult<Json<Vec<PlaceDto>>> {
+	Ok(Json(s.archive.places(&q.place).await?))
 }
 
 /// Tracks a place under the gmail. A place already watched (same place, language and

@@ -3,6 +3,7 @@
 
 use review_archive_core::{
 	Rejected,
+	dto::PlaceDto,
 	place::{self, Parsed},
 };
 use serde::Deserialize;
@@ -15,37 +16,52 @@ pub const SEARCH_TEXT: &str = "https://places.googleapis.com/v1/places:searchTex
 pub(crate) const PLACES: &str = "https://places.googleapis.com/v1/places";
 const FIELD_MASK: &str = "places.id,places.displayName,places.formattedAddress";
 
-/// What a search found.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Resolved {
-	/// The Google place id.
-	pub place_id: String,
-	/// Its display name.
-	pub name: Option<String>,
-	/// Its address.
-	pub address: Option<String>,
-	/// What was searched for.
-	pub query: String,
+/// The place id in `input`, and the place when a search found it: one place only, an
+/// ambiguous name is refused with what it may mean. `key` is the Places API key, needed
+/// only for a search.
+pub async fn resolve(http: &reqwest::Client, key: Option<&str>, input: &str) -> eyre::Result<(String, Option<PlaceDto>)> {
+	match parsed(input).await? {
+		Parsed::PlaceId(id) => Ok((id, None)),
+		Parsed::Search { query, near } => match <[PlaceDto; 1]>::try_from(search(http, SEARCH_TEXT, needed(key)?, &query, near).await?) {
+			Ok([one]) => Ok((one.place_id.clone(), Some(one))),
+			Err(many) => {
+				let each = many
+					.iter()
+					.map(|p| [Some(p.place_id.as_str()), p.address.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(", "));
+				Err(Rejected::invalid(format!("{} places are named {query:?}; add one by its id: {}", many.len(), each.collect::<Vec<_>>().join("; "))).into())
+			}
+		},
+	}
 }
 
-/// The place id in `input`, searching for it when the input has only a name. `Some`
-/// resolution when a search happened. `key` is the Places API key, needed only then.
-pub async fn resolve(http: &reqwest::Client, key: Option<&str>, input: &str) -> eyre::Result<(String, Option<Resolved>)> {
-	let expanded;
-	let input = if input.trim().starts_with("https://maps.app.goo.gl/") {
-		expanded = expand_short_link(input.trim()).await?;
-		expanded.as_str()
-	} else {
-		input
-	};
-	match place::parse(input).map_err(|e| Rejected::invalid(format!("{e:#}")))? {
-		Parsed::PlaceId(id) => Ok((id, None)),
-		Parsed::Search { query, near } => {
-			let key = key.ok_or_else(|| Rejected::invalid("the URL has no place id; resolving it needs GOOGLE_MAPS_KEY"))?;
-			let found = search(http, SEARCH_TEXT, key, &query, near).await?;
-			Ok((found.place_id.clone(), Some(found)))
-		}
+/// Every place `input` may mean: the one its id names, else each Places hit bearing the
+/// name in the URL. Named and addressed when `key` is set.
+pub async fn candidates(http: &reqwest::Client, key: Option<&str>, input: &str) -> eyre::Result<Vec<PlaceDto>> {
+	match parsed(input).await? {
+		Parsed::PlaceId(id) => Ok(vec![match key {
+			Some(key) => details(http, PLACES, key, &id).await?,
+			None => PlaceDto {
+				place_id: id,
+				name: None,
+				address: None,
+			},
+		}]),
+		Parsed::Search { query, near } => search(http, SEARCH_TEXT, needed(key)?, &query, near).await,
 	}
+}
+
+fn needed(key: Option<&str>) -> Result<&str, Rejected> {
+	key.ok_or_else(|| Rejected::invalid("the URL has no place id; resolving it needs GOOGLE_MAPS_KEY"))
+}
+
+async fn parsed(input: &str) -> eyre::Result<Parsed> {
+	let input = input.trim();
+	let expanded = if input.starts_with("https://maps.app.goo.gl/") {
+		expand_short_link(input).await?
+	} else {
+		input.to_owned()
+	};
+	Ok(place::parse(&expanded).map_err(|e| Rejected::invalid(format!("{e:#}")))?)
 }
 
 /// One hop only: following further can land on consent.google.com instead of the place.
@@ -62,8 +78,8 @@ async fn expand_short_link(url: &str) -> eyre::Result<String> {
 		.to_owned())
 }
 
-/// Places API (New) text search, first hit.
-pub async fn search(http: &reqwest::Client, endpoint: &str, key: &str, query: &str, near: Option<(f64, f64)>) -> eyre::Result<Resolved> {
+/// Places API (New) text search: every hit bearing the name searched for, best first.
+pub async fn search(http: &reqwest::Client, endpoint: &str, key: &str, query: &str, near: Option<(f64, f64)>) -> eyre::Result<Vec<PlaceDto>> {
 	#[derive(Deserialize)]
 	struct Resp {
 		#[serde(default)]
@@ -81,7 +97,7 @@ pub async fn search(http: &reqwest::Client, endpoint: &str, key: &str, query: &s
 		text: String,
 	}
 
-	let mut body = serde_json::json!({ "textQuery": query, "pageSize": 1 });
+	let mut body = serde_json::json!({ "textQuery": query, "pageSize": 20 });
 	if let Some((lat, lng)) = near {
 		body["locationBias"] = serde_json::json!({ "circle": { "center": { "latitude": lat, "longitude": lng }, "radius": 500.0 } });
 	}
@@ -99,17 +115,24 @@ pub async fn search(http: &reqwest::Client, endpoint: &str, key: &str, query: &s
 		return Err(PlacesError::new_api(format!("text search for {query:?}"), status.as_u16(), body).into());
 	}
 	let resp: Resp = resp.json().await.map_err(PlacesError::from)?;
-	let place = resp.places.into_iter().next().ok_or_else(|| Rejected::invalid(format!("Places found nothing for {query:?}")))?;
-	Ok(Resolved {
-		place_id: place.id,
-		name: place.display_name.map(|t| t.text),
-		address: place.formatted_address,
-		query: query.to_owned(),
-	})
+	let named: Vec<PlaceDto> = resp
+		.places
+		.into_iter()
+		.filter(|p| p.display_name.as_ref().is_some_and(|t| t.text.eq_ignore_ascii_case(query)))
+		.map(|p| PlaceDto {
+			place_id: p.id,
+			name: p.display_name.map(|t| t.text),
+			address: p.formatted_address,
+		})
+		.collect();
+	if named.is_empty() {
+		return Err(Rejected::invalid(format!("Places found no place named {query:?}; paste a URL with its id")).into());
+	}
+	Ok(named)
 }
 
 /// The place with this id, from Places API (New) details: the id is checked, too.
-pub async fn details(http: &reqwest::Client, endpoint: &str, key: &str, place_id: &str) -> eyre::Result<Resolved> {
+pub async fn details(http: &reqwest::Client, endpoint: &str, key: &str, place_id: &str) -> eyre::Result<PlaceDto> {
 	#[derive(Deserialize)]
 	#[serde(rename_all = "camelCase")]
 	struct Place {
@@ -137,10 +160,9 @@ pub async fn details(http: &reqwest::Client, endpoint: &str, key: &str, place_id
 		return Err(PlacesError::new_api(format!("details of {place_id}"), status.as_u16(), body).into());
 	}
 	let place: Place = resp.json().await.map_err(PlacesError::from)?;
-	Ok(Resolved {
+	Ok(PlaceDto {
 		place_id: place_id.to_owned(),
 		name: place.display_name.map(|t| t.text),
 		address: place.formatted_address,
-		query: place_id.to_owned(),
 	})
 }
