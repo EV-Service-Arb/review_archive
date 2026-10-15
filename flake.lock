@@ -7,16 +7,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1791939406,
-        "narHash": "sha256-2Zq5nuWWHDGqYIH6bX27h3sduLQ72IlPw1ClPcKBesE=",
+        "lastModified": 1792072461,
+        "narHash": "sha256-XbySzH0mR+7kY5eVpv+Wqe4G7V1kj9l7Y6oITxWLLzY=",
         "owner": "valeratrades",
         "repo": "browser_manipulation",
-        "rev": "3464ffee79446cfaa43c1b52bf79715b3cff4686",
+        "rev": "c1a014d00faf027740c41e8508ab3d29222d8111",
         "type": "github"
       },
       "original": {
         "owner": "valeratrades",
-        "ref": "v0.4.2",
+        "ref": "v0.4.3",
         "repo": "browser_manipulation",
         "type": "github"
       }
