@@ -1,0 +1,147 @@
+{
+  "uid": "ra-location",
+  "title": "review_archive · location",
+  "tags": ["review_archive"],
+  "schemaVersion": 41,
+  "editable": true,
+  "time": { "from": "now-30d", "to": "now" },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      { "name": "target", "label": "target id", "type": "textbox", "query": "", "current": { "text": "", "value": "" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "state-timeline",
+      "title": "Runs",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 5 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/targets/${target}/runs",
+          "url_options": { "method": "GET", "params": [{ "key": "limit", "value": "500" }] },
+          "columns": [
+            { "selector": "started_at", "text": "time", "type": "timestamp" },
+            { "selector": "status", "text": "status", "type": "string" }
+          ]
+        }
+      ],
+      "transformations": [{ "id": "sortBy", "options": { "sort": [{ "field": "time" }] } }],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "ok": { "color": "green", "index": 0 },
+                "partial": { "color": "orange", "index": 1 },
+                "failed": { "color": "red", "index": 2 }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": { "showValue": "never", "mergeValues": false, "rowHeight": 0.8, "legend": { "showLegend": false } }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Reviews per run",
+      "gridPos": { "x": 0, "y": 5, "w": 18, "h": 9 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/targets/${target}/runs",
+          "url_options": { "method": "GET", "params": [{ "key": "limit", "value": "500" }] },
+          "columns": [
+            { "selector": "started_at", "text": "time", "type": "timestamp" },
+            { "selector": "new", "text": "new", "type": "number" },
+            { "selector": "gone", "text": "gone", "type": "number" },
+            { "selector": "changed", "text": "changed", "type": "number" },
+            { "selector": "seen", "text": "seen", "type": "number" }
+          ]
+        }
+      ],
+      "transformations": [{ "id": "sortBy", "options": { "sort": [{ "field": "time" }] } }],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1 }, "decimals": 0 },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "seen" },
+            "properties": [
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          },
+          { "matcher": { "id": "byName", "options": "new" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "gone" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      },
+      "options": { "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Last run",
+      "gridPos": { "x": 18, "y": 5, "w": 6, "h": 9 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/targets/${target}/runs",
+          "url_options": { "method": "GET", "params": [{ "key": "limit", "value": "1" }] },
+          "columns": [
+            { "selector": "status", "text": "status", "type": "string" },
+            { "selector": "seen", "text": "seen", "type": "number" },
+            { "selector": "tokens", "text": "tokens", "type": "number" }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "text" },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "ok": { "color": "green", "index": 0 },
+                "partial": { "color": "orange", "index": 1 },
+                "failed": { "color": "red", "index": 2 }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "vertical"
+      }
+    }
+  ]
+}

@@ -7,6 +7,8 @@
 #![allow(clippy::useless_format)] // rsx! lowers every "{x}" to a format!
 
 mod board;
+#[cfg(feature = "grafana")]
+mod grafana;
 mod telegram;
 mod tokens;
 
@@ -127,7 +129,12 @@ fn may(p: impl Permission) -> bool {
 enum View {
 	Home,
 	Gmail(i64),
-	Place { gmail: i64, target: i64 },
+	#[cfg(feature = "grafana")]
+	Grafana(i64),
+	Place {
+		gmail: i64,
+		target: i64,
+	},
 	Telegram,
 	Tokens,
 }
@@ -137,6 +144,8 @@ impl dioxus::router::ToRouteSegments for View {
 		match self {
 			Self::Home => write!(f, "/"), // an empty path would be no URL at all: a link to it goes nowhere
 			Self::Gmail(g) => write!(f, "/gmails/{g}"),
+			#[cfg(feature = "grafana")]
+			Self::Grafana(g) => write!(f, "/gmails/{g}/grafana"),
 			Self::Place { gmail, target } => write!(f, "/gmails/{gmail}/places/{target}"),
 			Self::Telegram => write!(f, "/telegram"),
 			Self::Tokens => write!(f, "/tokens"),
@@ -152,6 +161,8 @@ impl dioxus::router::FromRouteSegments for View {
 		match segments {
 			[] | [""] => Ok(Self::Home),
 			["gmails", g] => Ok(Self::Gmail(id(g)?)),
+			#[cfg(feature = "grafana")]
+			["gmails", g, "grafana"] => Ok(Self::Grafana(id(g)?)),
 			["gmails", g, "places", t] => Ok(Self::Place { gmail: id(g)?, target: id(t)? }),
 			["telegram"] => Ok(Self::Telegram),
 			["tokens"] => Ok(Self::Tokens),
@@ -595,6 +606,8 @@ fn Workspace(view: Route) -> Element {
 	let (picked, target) = match at {
 		View::Home | View::Telegram | View::Tokens => (None, None),
 		View::Gmail(gmail) => (Some(gmail), None),
+		#[cfg(feature = "grafana")]
+		View::Grafana(gmail) => (Some(gmail), None),
 		View::Place { gmail, target } => (Some(gmail), Some(target)),
 	};
 	// the first gmail until one is picked; a removed one falls back the same way
@@ -625,6 +638,10 @@ fn Workspace(view: Route) -> Element {
 					},
 					(View::Tokens, _) => rsx! {
 						tokens::Ledger { gmails: gmails.clone(), tokens, tab }
+					},
+					#[cfg(feature = "grafana")]
+					(View::Grafana(_), Some(g)) => rsx! {
+						grafana::Overview { gmail: g.gmail, tab }
 					},
 					(_, None) => rsx! {
 						div { class: "p-6 text-ink-soft", "Add the gmail your places are managed from, on the left." }
@@ -738,12 +755,17 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 fn Places(scope: GmailOverview, tab: Option<i64>) -> Element {
 	let mut place = use_signal(String::new);
 	let gmail = scope.gmail.id;
+	#[cfg(feature = "grafana")]
+	let grafana = rsx! { Link { class: "text-ink-soft hover:text-ink", to: Route::at(tab, View::Grafana(gmail)), "Grafana" } };
+	#[cfg(not(feature = "grafana"))]
+	let grafana = rsx! {};
 	rsx! {
 		header { class: "flex h-14 shrink-0 items-center gap-3 border-b border-border px-6",
 			span { class: "text-ink-soft", "{scope.gmail.gmail}" }
 			span { class: "text-ink-soft", "/" }
 			span { class: "font-medium", "Locations" }
 			div { class: "flex-1" }
+			{grafana}
 			form {
 				class: "flex gap-2",
 				onsubmit: move |e| {
