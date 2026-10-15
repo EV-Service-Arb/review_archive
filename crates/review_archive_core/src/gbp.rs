@@ -266,6 +266,7 @@ mod tests {
 				png: card_id.as_bytes().to_vec(),
 				captured_at: "2026-09-26T12:00:00Z".parse().unwrap(),
 				page_url: String::new(),
+				geometry: String::new(),
 			}),
 		)
 	}

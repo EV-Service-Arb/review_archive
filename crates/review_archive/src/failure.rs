@@ -40,7 +40,7 @@ pub fn remedy(e: &eyre::Report) -> Remedy {
 				// a slow start is `LaunchTimeout` by then: what is left is the setup
 				ErrorKind::Launch(_) | ErrorKind::DriverMismatch { .. } | ErrorKind::ProfileInUse(_) => Remedy::Fatal,
 				ErrorKind::Navigation { .. } | ErrorKind::Timeout { .. } => Remedy::Retry,
-				ErrorKind::Io { .. } | ErrorKind::Selector { .. } | ErrorKind::Eval { .. } | ErrorKind::Driver { .. } => Remedy::Unknown,
+				ErrorKind::Io { .. } | ErrorKind::Selector { .. } | ErrorKind::Eval { .. } | ErrorKind::OutOfView { .. } | ErrorKind::Driver { .. } => Remedy::Unknown,
 			},
 			SessionError::Other(_) => Remedy::Unknown,
 		};

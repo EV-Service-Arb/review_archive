@@ -149,6 +149,7 @@ mod tests {
 			png: png(5, 3),
 			captured_at: "2026-09-26T12:00:00Z".parse().unwrap(),
 			page_url: "https://maps.google.com/?cid=1".into(),
+			geometry: String::new(),
 		};
 		let webp = provenance(&c, "Café ☕", "r1").await.unwrap();
 		assert_eq!((webp.width, webp.height), (5, 3));

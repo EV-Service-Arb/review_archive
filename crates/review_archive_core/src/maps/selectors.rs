@@ -72,6 +72,11 @@ pub const REVIEWS_TAB: &[&str] = &[
 	r#"button[jsaction*="reviewChart.moreReviews"]"#,
 ];
 
+/// The side panel's toggle while the panel is open. Its action, not its label, which is translated.
+pub const PANEL_OPEN: &[&str] = &[r#"button[jsaction^="drawer.close"]"#];
+/// The same toggle while the panel is collapsed.
+pub const PANEL_COLLAPSED: &[&str] = &[r#"button[jsaction^="drawer.open"]"#];
+
 /// The place's name heading: present once the place panel has rendered.
 pub const PLACE_TITLE: &[&str] = &["h1.DUwDvf", r#"[role="main"] h1"#];
 /// The address line of the overview. Service-area businesses hide it.
@@ -227,14 +232,22 @@ pub mod js {
 		return true;
 	}"#;
 
-	/// `([cardSel, idAttr, id]) => bool`: tags the outermost card with this id for a screenshot.
+	/// `([cardSel, idAttr, id]) => bool`: tags the outermost card with this id for a screenshot, and centres it in the feed
+	/// (`SCROLL_FEED`'s scroller). Only `scrollTop` is written: a sideways scroll shifts the shot (#36).
 	pub const MARK_CARD: &str = r#"([cardSel, idAttr, id]) => {
 		for (const el of document.querySelectorAll("[data-ra-capture]")) el.removeAttribute("data-ra-capture");
 		for (const el of document.querySelectorAll(cardSel)) {
 			if (el.getAttribute(idAttr) !== id) continue;
 			if (el.parentElement && el.parentElement.closest(cardSel)) continue;
 			el.setAttribute("data-ra-capture", "1");
-			el.scrollIntoView({ block: "center", behavior: "instant" });
+			let feed = el.parentElement;
+			while (feed && !(feed.scrollHeight > feed.clientHeight && /(auto|scroll)/.test(getComputedStyle(feed).overflowY))) {
+				feed = feed.parentElement;
+			}
+			if (feed) {
+				const r = el.getBoundingClientRect(), f = feed.getBoundingClientRect();
+				feed.scrollTop += r.top + r.height / 2 - (f.top + f.height / 2);
+			}
 			return true;
 		}
 		return false;

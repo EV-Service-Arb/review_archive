@@ -173,6 +173,9 @@ impl Recorder<'_> {
 	async fn store_capture(&self, target: &Target, source_review_id: &str, c: &Capture) -> eyre::Result<StoredCapture> {
 		let webp = webp::provenance(c, &target.to_string(), source_review_id).await?;
 		let sha256 = self.blobs.put(&webp.bytes).await?;
+		if webp.corrupted {
+			tracing::warn!(card = source_review_id, %target, geometry = %c.geometry, %sha256, "corrupted capture (#36)");
+		}
 		Ok(StoredCapture {
 			sha256,
 			width: webp.width,

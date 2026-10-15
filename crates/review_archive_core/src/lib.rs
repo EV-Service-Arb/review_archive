@@ -23,7 +23,7 @@
 //!   <div class="MyEned"><span class="wiI7pd">Lovely</span></div></div>"#;
 //! let now = "2026-09-26T12:00:00Z".parse().unwrap();
 //! let reviews = maps::parse::cards(html).into_iter().map(|c| maps::observed(c, now)).collect();
-//! let scan = Scan { reviews, coverage: Coverage::DownTo(None), warnings: vec![], cut_after: None, listed: None, post: None };
+//! let scan = Scan { reviews, coverage: Coverage::DownTo(None), warnings: vec![], cut_after: None, listed: None, post: None, name: None, address: None };
 //! let plan = reconcile::plan(&Known::default(), &scan);
 //! assert_eq!(plan.new.len(), 1);
 //! assert_eq!(plan.new[0].rating, Some(5));
@@ -223,6 +223,8 @@ pub struct Capture {
 	pub captured_at: Timestamp,
 	/// The page it was taken on.
 	pub page_url: String,
+	/// Where the card was on that page when shot, for the logs.
+	pub geometry: String,
 }
 
 /// How much of a target's review list a scan is known to have walked.
