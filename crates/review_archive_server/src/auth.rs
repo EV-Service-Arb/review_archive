@@ -38,7 +38,7 @@ pub enum Auth {
 	/// The panel's.
 	Panel(sa_auth::Keys),
 	/// `serve --dev-member`: every request is this one person, for a local dashboard.
-	Dev { sub: String, permissions: PermissionSet },
+	Dev { person: PersonId, email: String, permissions: PermissionSet },
 }
 
 /// Test-posts to Telegram, one per person per [`TEST_GAP`].
@@ -77,6 +77,14 @@ fn unauthorized() -> Response {
 /// Every authenticated route: puts the [`Caller`] in the request.
 pub async fn authenticate(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
 	let seen = match &*state.auth {
+		Auth::Dev { person, email, permissions } => {
+			req.extensions_mut().insert(Caller {
+				person: *person,
+				email: email.clone(),
+				permissions: permissions.clone(),
+			});
+			return next.run(req).await;
+		}
 		Auth::Panel(keys) => {
 			let Some(token) = req.headers().get(sa_auth::HEADER).and_then(|v| v.to_str().ok()) else {
 				return unauthorized();
@@ -90,17 +98,6 @@ pub async fn authenticate(State(state): State<AppState>, mut req: Request, next:
 				}
 			}
 		}
-		Auth::Dev { sub, permissions } => sa_auth::Assertion {
-			aud: Service::ReviewArchive,
-			sub: sub.clone(),
-			email: format!("{sub}@localhost"),
-			email_verified: true,
-			name: sub.clone(),
-			permissions: permissions.clone(),
-			method: req.method().to_string(),
-			path: req.uri().path().to_owned(),
-			exp: 0,
-		},
 	};
 	let claim = state
 		.archive

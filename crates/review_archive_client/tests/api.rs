@@ -10,7 +10,7 @@ use review_archive::{
 	Archive,
 	config::Config,
 	core::{
-		Coverage, Known, Observed, OwnerPost, Scan, Target,
+		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
 		dto::{BalanceChange, CaptureRequest, Event, JobStatus, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, TargetPatch, TokenKind, TokensChange, TokensDto},
 		tokens::Meter,
 	},
@@ -1007,7 +1007,8 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	};
 	archive.add_gmail(test, &review_archive::core::dto::NewGmail { gmail: "ops@gmail.com".into() }).await.unwrap();
 	let auth = Auth::Dev {
-		sub: "test".into(),
+		person: test,
+		email: "test@localhost".into(),
 		permissions: Vec::<String>::new().into_iter().collect(),
 	};
 	let mfe = tempfile::tempdir().unwrap();
@@ -1069,7 +1070,8 @@ async fn grafana_answers_under_the_archives_own_origin() {
 	.await
 	.unwrap();
 	let auth = Auth::Dev {
-		sub: "test".into(),
+		person: PersonId(1),
+		email: "test@localhost".into(),
 		permissions: Vec::<String>::new().into_iter().collect(),
 	};
 	let app = router(AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()), None, None, Some(&socket));
@@ -1122,7 +1124,8 @@ async fn a_new_bundle_is_never_answered_from_an_old_ones_cache() {
 		.await
 		.unwrap();
 		let auth = Auth::Dev {
-			sub: "test".into(),
+			person: PersonId(1),
+			email: "test@localhost".into(),
 			permissions: Vec::<String>::new().into_iter().collect(),
 		};
 		let app = router(

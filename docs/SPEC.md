@@ -321,8 +321,9 @@ the service.
 - `POST /me/tg-channels/{id}/test` posts at most once a minute per person (429).
 - CSRF is the panel's: it checks its own header on every write before forwarding.
 - `serve --dev-member <alias | permissions | none>` (loopback, outside production): every
-  request is one made-up person holding that, without the panel, for a local dashboard
-  (`nix run .#dev-mfe`).
+  request is one person holding that, without the panel, for a local dashboard
+  (`nix run .#dev-mfe`): the member with gmails, so it shows what the worker scans; with
+  several, the one `--dev-as <person id>` names; before anyone has one, a made-up `dev`.
 
 ### Telegram
 

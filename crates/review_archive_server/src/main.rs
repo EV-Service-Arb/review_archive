@@ -13,9 +13,15 @@ use std::{
 use clap::{Args, Parser, Subcommand};
 use ev_lib::{alerts, error_monitoring};
 use eyre::WrapErr;
-use review_archive::{Archive, SCANNER_VERSION, store::export::Destination};
+use review_archive::{
+	Archive, SCANNER_VERSION,
+	store::{
+		export::Destination,
+		people::{Claim, Seen},
+	},
+};
 use review_archive_core::{
-	TargetId,
+	PersonId, TargetId,
 	dto::{ExportQuery, NewGmail, NewTarget, StatsQuery, TargetPatch},
 	schedule::Schedule,
 };
@@ -110,6 +116,9 @@ struct ServeArgs {
 	/// local dashboard; loopback binds outside production only.
 	#[arg(long)]
 	dev_member: Option<String>,
+	/// Who `--dev-member` is (their person id, `GET /members`); needed only when several members have gmails.
+	#[arg(long, requires = "dev_member")]
+	dev_as: Option<i64>,
 }
 
 #[derive(Subcommand)]
@@ -233,7 +242,7 @@ async fn run(cli: Cli, config: AppConfig, settings: Settings) -> eyre::Result<()
 		Cmd::Scan(args) => scan(&archive, &config.schedule, args).await,
 		Cmd::Serve(args) => serve(archive, &config, &settings, args).await,
 		Cmd::Gmail(GmailCmd::Add { member, gmail }) => {
-			let added = archive.add_gmail(review_archive_core::PersonId(member), &NewGmail { gmail }).await?;
+			let added = archive.add_gmail(PersonId(member), &NewGmail { gmail }).await?;
 			println!("added gmail {} ({})", added.id, added.gmail);
 			Ok(())
 		}
@@ -380,13 +389,17 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 	let signals = std::sync::Arc::new(worker::Signals::default());
 	// the page at `/` is the dev member's only: behind the panel, the panel's page mounts the bundle
 	let (auth, sign_in) = match &args.dev_member {
-		Some(held) => (
-			Auth::Dev {
-				sub: "dev".into(),
-				permissions: dev_permissions(held)?,
-			},
-			Some("/".to_owned()),
-		),
+		Some(held) => {
+			let (person, email) = dev_person(&archive, args.dev_as).await?;
+			(
+				Auth::Dev {
+					person,
+					email,
+					permissions: dev_permissions(held)?,
+				},
+				Some("/".to_owned()),
+			)
+		}
 		None => (Auth::Panel(settings.panel_keys()?), None),
 	};
 	let app = http::router(
@@ -504,6 +517,41 @@ async fn shutdown_signal() {
 	tokio::select! {
 		() = ctrl_c => {}
 		() = term => {}
+	}
+}
+
+/// `--dev-member`'s person: the one member with gmails, so the dashboard shows what the worker
+/// scans; before anyone has one, a made-up `dev`.
+async fn dev_person(archive: &Archive, named: Option<i64>) -> eyre::Result<(PersonId, String)> {
+	let all = archive.members().await?;
+	if let Some(id) = named {
+		let m = all.into_iter().find(|m| m.id == id).ok_or_else(|| eyre::eyre!("--dev-as: nobody has person id {id}"))?;
+		return Ok((PersonId(m.id), m.email));
+	}
+	let mut managing = Vec::new();
+	for m in all {
+		if !archive.overview(PersonId(m.id)).await?.is_empty() {
+			managing.push(m);
+		}
+	}
+	match managing.as_slice() {
+		[] => {
+			let seen = Seen {
+				sub: "dev",
+				email: "dev@localhost",
+				email_verified: true,
+				name: "dev",
+			};
+			match archive.person(&seen).await? {
+				Claim::Person(p) => Ok((p, seen.email.to_owned())),
+				Claim::Refused(why) => eyre::bail!("--dev-member: dev@localhost's rows wait for another owner: {why}"),
+			}
+		}
+		[m] => Ok((PersonId(m.id), m.email.clone())),
+		many => eyre::bail!(
+			"--dev-member: {} have gmails; name one with --dev-as <person id>",
+			many.iter().map(|m| format!("{} (#{})", m.email, m.id)).collect::<Vec<_>>().join(", ")
+		),
 	}
 }
 
