@@ -595,12 +595,24 @@ pub struct GmailDto {
 	pub created_at: String,
 }
 
-/// `PATCH /me/gmails/{gmail}` and `PATCH /me/gmails/{gmail}/tracks/{target}`.
+/// `PATCH /me/gmails/{gmail}`.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Switch {
 	/// On or off.
 	pub enabled: bool,
+}
+
+/// `PATCH /me/gmails/{gmail}/tracks/{target}`: what to change; absent fields stay.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(default)]
+pub struct TrackPatch {
+	/// Switch the track on or off.
+	pub enabled: Option<bool>,
+	/// Mark the place a favorite of this gmail, or unmark it.
+	pub favorite: Option<bool>,
 }
 
 /// `POST /me/gmails`.
@@ -619,6 +631,8 @@ pub struct LocationSummary {
 	pub target: TargetDto,
 	/// This gmail's track of it is on; it is scanned while any member's is, under a gmail that is on.
 	pub enabled: bool,
+	/// This gmail marked it a favorite.
+	pub favorite: bool,
 	/// Reviews posted over the last 7 days, as their dates are estimated; gone ones too.
 	pub new_7d: i64,
 	/// Owner's posts published over the last 7 days, as their dates are estimated.

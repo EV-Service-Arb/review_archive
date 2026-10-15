@@ -25,7 +25,7 @@ use review_archive_core::{
 	dto::{
 		Board, CaptureRequest, DayStats, ErrorBody, EventPayload, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LedgerEntry, Me, MemberDto, NewGmail, NewTarget, NewTgChannel,
 		NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail, TargetDto, TargetPatch,
-		TgChannelDto, TokensChange, TokensDto, Usage, WaitQuery, WebhookDto, stats_csv,
+		TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto, stats_csv,
 	},
 };
 use serde::{Deserialize, Serialize};
@@ -109,7 +109,8 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		.route("/me/gmails/{gmail}", axum::routing::delete(delete_gmail).patch(set_gmail_enabled))
 		.route("/me/places", get(places))
 		.route("/me/gmails/{gmail}/tracks", post(track))
-		.route("/me/gmails/{gmail}/tracks/{target}", axum::routing::delete(untrack).patch(set_track_enabled))
+		.route("/me/gmails/{gmail}/tracks/{target}", axum::routing::delete(untrack).patch(patch_track))
+		.route("/me/gmails/{gmail}/tracks/{target}/relink", post(relink))
 		.route("/me/gmails/{gmail}/tracks/{target}/scan", post(scan_tracked))
 		.route("/me/gmails/{gmail}/locations/{target}/board", get(board))
 		.route("/me/gmails/{gmail}/reinstatements/{review}", axum::routing::put(reinstate).delete(withdraw))
@@ -541,12 +542,19 @@ async fn untrack(State(s): State<AppState>, Member(m): Member, Path((gmail, targ
 	Ok(StatusCode::NO_CONTENT)
 }
 
-/// Switches the gmail's track of a place on or off; the place's target stays as it is.
-#[utoipa::path(patch, path = "/me/gmails/{gmail}/tracks/{target}", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)), request_body = Switch,
+/// Switches the gmail's track of a place on or off, or marks it a favorite; the place's target stays as it is.
+#[utoipa::path(patch, path = "/me/gmails/{gmail}/tracks/{target}", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)), request_body = TrackPatch,
 	responses((status = 204), (status = 404, body = ErrorBody)))]
-async fn set_track_enabled(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>, JsonBody(req): JsonBody<Switch>) -> ApiResult<StatusCode> {
-	s.archive.set_track_enabled(m, gmail, TargetId(target), req.enabled).await?;
+async fn patch_track(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>, JsonBody(req): JsonBody<TrackPatch>) -> ApiResult<StatusCode> {
+	s.archive.patch_track(m, gmail, TargetId(target), &req).await?;
 	Ok(StatusCode::NO_CONTENT)
+}
+
+/// Asks Google about a tracked place again: its id, name and address become what Google gives now.
+#[utoipa::path(post, path = "/me/gmails/{gmail}/tracks/{target}/relink", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)),
+	responses((status = 200, body = TargetDto), (status = 400, body = ErrorBody), (status = 404, body = ErrorBody)))]
+async fn relink(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>) -> ApiResult<Json<TargetDto>> {
+	Ok(Json(s.archive.relink(m, gmail, TargetId(target)).await?))
 }
 
 /// Queues a scan of a tracked place, on top of its schedule; the member who asks pays for it.

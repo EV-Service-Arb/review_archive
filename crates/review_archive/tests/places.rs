@@ -41,7 +41,8 @@ async fn search_text(State(s): State<Stub>, headers: HeaderMap, Json(body): Json
 async fn place_details(State(s): State<Stub>, headers: HeaderMap, Path(id): Path<String>) -> Response {
 	s.got.lock().unwrap().push((headers, json!(id)));
 	match id.as_str() {
-		"ChIJprocopeprocopeproc" => Json(json!({ "displayName": { "text": "Le Procope" }, "formattedAddress": "13 Rue de l'Ancienne Comédie, Paris" })).into_response(),
+		"ChIJprocopeprocopeproc" | "ChIJmovedmovedmovedmo" =>
+			Json(json!({ "id": "ChIJprocopeprocopeproc", "displayName": { "text": "Le Procope" }, "formattedAddress": "13 Rue de l'Ancienne Comédie, Paris" })).into_response(),
 		_ => (StatusCode::NOT_FOUND, "not found").into_response(),
 	}
 }
@@ -95,12 +96,14 @@ async fn a_place_added_by_its_id_is_named_and_an_unknown_id_refused() {
 	let http = reqwest::Client::new();
 	let got = details(&http, &url, "key-123", "ChIJprocopeprocopeproc").await.unwrap();
 	let unknown = details(&http, &url, "key-123", "ChIJunknownunknownunk").await.unwrap_err();
+	let moved = details(&http, &url, "key-123", "ChIJmovedmovedmovedmo").await.unwrap();
 	server.abort();
+	assert_eq!(moved.place_id, "ChIJprocopeprocopeproc", "a moved place comes back under the id Google gives it now");
 	assert_eq!((got.name.as_deref(), got.address.as_deref()), (Some("Le Procope"), Some("13 Rue de l'Ancienne Comédie, Paris")));
 	assert!(matches!(unknown.downcast_ref::<Rejected>(), Some(Rejected::Invalid(_))), "{unknown:#}");
 	let (headers, _) = s.got.lock().unwrap()[0].clone();
 	assert_eq!(
 		(&headers["x-goog-api-key"], &headers["x-goog-fieldmask"]),
-		(&"key-123".parse().unwrap(), &"displayName,formattedAddress".parse().unwrap())
+		(&"key-123".parse().unwrap(), &"id,displayName,formattedAddress".parse().unwrap())
 	);
 }

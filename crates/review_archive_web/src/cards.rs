@@ -1,8 +1,8 @@
 //! The locations overview as the kit draws it: a card per place.
 
 use dioxus::prelude::*;
-use ev_lib::uikit::{Button, ButtonVariant, Card, Size, Spinner, Switch};
-use review_archive_client::dto::{GmailDto, LocationSummary, RunStatus, ScanState};
+use ev_lib::uikit::{Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuItemVariant, DropdownMenuTrigger, Size, Spinner, Switch};
+use review_archive_client::dto::{GmailDto, LocationSummary, RunStatus, ScanState, TrackPatch};
 use sa_ui::TokenCost;
 
 use crate::{Badge, Route, Tone, act, ago};
@@ -26,11 +26,12 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 	let target = loc.target.id;
 	let (gmail_on, gmail) = (gmail.enabled, gmail);
 	let id = gmail.id;
+	let favorite = loc.favorite;
 	rsx! {
 		div { class: "relative",
 		Link { class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" }, to,
-			Card { class: "h-full gap-3 rounded-lg p-4 py-4 hover:border-ink-soft",
-				div { class: "pr-12",
+			Card { class: if loc.favorite { "h-full gap-3 rounded-lg p-4 py-4 border-accent-warn" } else { "h-full gap-3 rounded-lg p-4 py-4 hover:border-ink-soft" },
+				div { class: "pr-24",
 					div { class: "truncate text-[14px] font-semibold", "{loc.target.label}" }
 					if let Some(address) = &loc.target.address {
 						div { class: "truncate text-ink-soft", title: "{address}", "{address}" }
@@ -91,11 +92,39 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 				}
 			}
 		}
-		Switch {
-			class: "absolute top-4 right-4",
-			checked: loc.enabled,
-			disabled: !gmail_on,
-			on_checked_change: move |on: bool| act(move |c| async move { c.set_track_enabled(id, target, on).await }),
+		div { class: "absolute top-3 right-3 flex items-center gap-1",
+			Switch {
+				checked: loc.enabled,
+				disabled: !gmail_on,
+				on_checked_change: move |on: bool| act(move |c| async move { c.patch_track(id, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
+			}
+			DropdownMenu {
+				DropdownMenuTrigger { class: "inline-flex size-7 items-center justify-center rounded-md text-ink-soft hover:text-ink",
+					span { title: "more", "⋯" }
+				}
+				DropdownMenuContent { class: "left-auto right-0 z-50",
+					DropdownMenuItem {
+						onclick: move |_| act(move |c| async move { c.patch_track(id, target, &TrackPatch { enabled: None, favorite: Some(!favorite) }).await }),
+						if favorite {
+							span { class: "text-accent-warn", "★" }
+							"unfavorite"
+						} else {
+							span { "☆" }
+							"favorite"
+						}
+					}
+					DropdownMenuItem { onclick: move |_| act(move |c| async move { c.relink(id, target).await.map(drop) }),
+						span { "⟳" }
+						span { title: "ask Google for the place's id, name and address again", "re-link" }
+					}
+					DropdownMenuItem {
+						variant: DropdownMenuItemVariant::Destructive,
+						onclick: move |_| act(move |c| async move { c.untrack(id, target).await }),
+						span { "🗑" }
+						span { title: "stop tracking under this gmail; the archive stays", "delete" }
+					}
+				}
+			}
 		}
 		div { class: "absolute right-2 bottom-2",
 			if loc.scan.is_some() {

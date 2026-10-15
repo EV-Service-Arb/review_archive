@@ -101,7 +101,7 @@ fn Framed(member: i64, gmail: Option<i64>, keys: String, tab: Option<i64>) -> El
 				Some("ra-enable") => {
 					let (g, t) = (id("gmail"), id("target"));
 					let on = field("on").as_bool().unwrap_or_else(|| panic!("ra-enable's on is not a bool: {:?}", field("on")));
-					act(move |c| async move { c.set_track_enabled(g, t, on).await });
+					act(move |c| async move { c.patch_track(g, t, &review_archive_client::dto::TrackPatch { enabled: Some(on), favorite: None }).await });
 				}
 				_ => {}
 			});

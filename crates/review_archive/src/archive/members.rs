@@ -6,7 +6,7 @@ use review_archive_core::{
 	GbpLocation, PersonId, Rejected, ReviewId, TargetId, check_lang,
 	dto::{
 		Board, GmailDto, GmailOverview, JobKind, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, PlaceDto, ReinstatementDto, TargetDto, TargetPatch, TgChannelDto, TokensChange,
-		TokensDto, Usage,
+		TokensDto, TrackPatch, Usage,
 	},
 	maps::cost,
 };
@@ -105,9 +105,31 @@ impl Archive {
 		self.store()?.set_gmail_enabled(member, gmail, on).await
 	}
 
-	/// Switches the member's gmail's track of a place on or off.
-	pub async fn set_track_enabled(&self, member: PersonId, gmail: i64, target: TargetId, on: bool) -> eyre::Result<()> {
-		self.store()?.set_track_enabled(member, gmail, target, on).await
+	/// Changes the member's gmail's track of a place: on or off, favorite or not.
+	pub async fn patch_track(&self, member: PersonId, gmail: i64, target: TargetId, patch: &TrackPatch) -> eyre::Result<()> {
+		self.store()?.patch_track(member, gmail, target, patch).await
+	}
+
+	/// Asks Google about a tracked place again and takes its id, name and address as Google
+	/// gives them now. Refused when the newer id is another target's already.
+	pub async fn relink(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<TargetDto> {
+		let store = self.store()?;
+		store.check_track(member, gmail, target).await?;
+		let key = self
+			.inner
+			.secrets
+			.google_maps_key
+			.as_deref()
+			.ok_or_else(|| Rejected::invalid("re-linking a place needs GOOGLE_MAPS_KEY"))?;
+		let t = store.target(target).await?;
+		let place = crate::places::details(&self.inner.http, crate::places::PLACES, key, &t.place_id).await?;
+		if place.place_id != t.place_id
+			&& let Some(other) = store.find_target(&place.place_id, &t.lang, t.gbp.as_ref()).await?
+		{
+			return Err(Rejected::invalid(format!("Google now knows {t} as {}, which is target {} already", place.place_id, other.id)).into());
+		}
+		store.relink(target, &place).await?;
+		Ok(store.target(target).await?.into())
 	}
 
 	/// The member's gmails and each one's places.

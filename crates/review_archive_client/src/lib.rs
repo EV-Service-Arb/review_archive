@@ -32,7 +32,7 @@ pub use review_archive_core::dto;
 use review_archive_core::dto::{
 	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LedgerEntry, MEMBER_HEADER, Me, MemberDto, NewGmail, NewTarget, NewTgChannel,
 	NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail, TargetDto, TargetPatch,
-	TgChannelDto, TokensChange, TokensDto, Usage, WaitQuery, WebhookDto,
+	TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto,
 };
 use serde::de::DeserializeOwned;
 
@@ -311,10 +311,15 @@ impl Client {
 		Ok(())
 	}
 
-	/// `PATCH /me/gmails/{gmail}/tracks/{target}`: on or off.
-	pub async fn set_track_enabled(&self, gmail: i64, target: i64, enabled: bool) -> Result<(), Error> {
-		Self::send(self.request(Method::PATCH, &format!("me/gmails/{gmail}/tracks/{target}"))?.json(&Switch { enabled })).await?;
+	/// `PATCH /me/gmails/{gmail}/tracks/{target}`: on or off, favorite or not.
+	pub async fn patch_track(&self, gmail: i64, target: i64, patch: &TrackPatch) -> Result<(), Error> {
+		Self::send(self.request(Method::PATCH, &format!("me/gmails/{gmail}/tracks/{target}"))?.json(patch)).await?;
 		Ok(())
+	}
+
+	/// `POST /me/gmails/{gmail}/tracks/{target}/relink`: the place as Google knows it now.
+	pub async fn relink(&self, gmail: i64, target: i64) -> Result<TargetDto, Error> {
+		Self::json(self.request(Method::POST, &format!("me/gmails/{gmail}/tracks/{target}/relink"))?).await
 	}
 
 	/// `POST /me/gmails/{gmail}/tracks/{target}/scan`: scan a tracked place now. Returns the job id.

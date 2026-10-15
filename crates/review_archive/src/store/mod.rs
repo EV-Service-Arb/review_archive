@@ -27,7 +27,7 @@ use jiff::{Timestamp, civil::Date};
 pub use jobs::ClaimedJob;
 use review_archive_core::{
 	GbpLocation, Known, KnownReview, Observed, OwnerPost, PersonId, Rejected, ReviewId, Target, TargetId, TargetKind, check_lang, content_hash,
-	dto::{CaptureDto, Counts, DayStats, Event, JobStatus, ReviewDetail, ReviewDto, RunDto, RunStatus, TargetPatch, VersionDto, capture_url},
+	dto::{CaptureDto, Counts, DayStats, Event, JobStatus, PlaceDto, ReviewDetail, ReviewDto, RunDto, RunStatus, TargetPatch, VersionDto, capture_url},
 	fmt_ts, parse_interval,
 	reconcile::Plan,
 	schedule::{Breaker, LastRun, Schedule},
@@ -505,6 +505,22 @@ impl Store {
 		.await
 		.wrap_err("looking up a target by place")?;
 		row.map(Target::try_from).transpose()
+	}
+
+	/// Points a target at the place Google now knows it as.
+	pub async fn relink(&self, target: TargetId, place: &PlaceDto) -> eyre::Result<()> {
+		let done = sqlx::query("UPDATE targets SET place_id = ?, name = ?, address = ? WHERE id = ?")
+			.bind(&place.place_id)
+			.bind(&place.name)
+			.bind(&place.address)
+			.bind(target.0)
+			.execute(&self.pool)
+			.await
+			.wrap_err_with(|| format!("re-linking target {target}"))?;
+		if done.rows_affected() != 1 {
+			return Err(no_target(target).into());
+		}
+		Ok(())
 	}
 
 	/// What the archive holds for a target, for reconciling and for where to walk.

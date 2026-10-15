@@ -6,7 +6,7 @@ use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, Target, TargetId,
-	dto::{Board, BoardCard, GmailDto, GmailOverview, LocationSummary, NewTgChannel, PostDto, ReinstatementDto, ReviewDto, ScanState, TgChannelDto},
+	dto::{Board, BoardCard, GmailDto, GmailOverview, LocationSummary, NewTgChannel, PostDto, ReinstatementDto, ReviewDto, ScanState, TgChannelDto, TrackPatch},
 	fmt_ts,
 	maps::cost,
 	tokens::Tokens,
@@ -40,6 +40,7 @@ struct LocationRow {
 	#[sqlx(flatten)]
 	target: TargetRow,
 	track_enabled: bool,
+	favorite: bool,
 	new_7d: i64,
 	posts_7d: i64,
 	post_text: Option<String>,
@@ -180,16 +181,20 @@ impl Store {
 		Ok(())
 	}
 
-	/// Switches a member's track on or off.
-	pub async fn set_track_enabled(&self, member: PersonId, gmail: i64, target: TargetId, on: bool) -> eyre::Result<()> {
-		let done = sqlx::query("UPDATE tracks SET enabled = ? WHERE managing_gmail_id = (SELECT id FROM managing_gmails WHERE id = ? AND person_id = ?) AND target_id = ?")
-			.bind(on)
-			.bind(gmail)
-			.bind(member.0)
-			.bind(target.0)
-			.execute(&self.pool)
-			.await
-			.wrap_err("switching a track")?;
+	/// Changes a member's track; absent fields stay.
+	pub async fn patch_track(&self, member: PersonId, gmail: i64, target: TargetId, patch: &TrackPatch) -> eyre::Result<()> {
+		let done = sqlx::query(
+			"UPDATE tracks SET enabled = COALESCE(?, enabled), favorite = COALESCE(?, favorite)
+			 WHERE managing_gmail_id = (SELECT id FROM managing_gmails WHERE id = ? AND person_id = ?) AND target_id = ?",
+		)
+		.bind(patch.enabled)
+		.bind(patch.favorite)
+		.bind(gmail)
+		.bind(member.0)
+		.bind(target.0)
+		.execute(&self.pool)
+		.await
+		.wrap_err("patching a track")?;
 		if done.rows_affected() != 1 {
 			return Err(Rejected::not_found(format!("gmail {gmail} does not track target {target}")).into());
 		}
@@ -209,7 +214,7 @@ impl Store {
 		let rows: Vec<LocationRow> = sqlx::query_as(
 			"SELECT k.managing_gmail_id AS gmail_id,
 			        t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang, t.interval_secs, t.enabled, t.created_at,
-			        k.enabled AS track_enabled,
+			        k.enabled AS track_enabled, k.favorite,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.published_est >= ?2) AS new_7d,
 			        (SELECT COUNT(*) FROM posts p WHERE p.target_id = t.id AND p.published_est >= ?2) AS posts_7d,
 			        p.text AS post_text, p.published_est AS post_published_est, p.first_seen AS post_first_seen,
@@ -261,6 +266,7 @@ impl Store {
 			g.locations.push(LocationSummary {
 				target: Target::try_from(r.target)?.into(),
 				enabled: r.track_enabled,
+				favorite: r.favorite,
 				new_7d: r.new_7d,
 				posts_7d: r.posts_7d,
 				latest_post: match (r.post_text, r.post_first_seen) {

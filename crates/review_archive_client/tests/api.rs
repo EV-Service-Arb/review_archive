@@ -11,7 +11,7 @@ use review_archive::{
 	config::Config,
 	core::{
 		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
-		dto::{BalanceChange, CaptureRequest, Event, JobStatus, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, TargetPatch, TokenKind, TokensChange, TokensDto},
+		dto::{BalanceChange, CaptureRequest, Event, JobStatus, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, TargetPatch, TokenKind, TokensChange, TokensDto, TrackPatch},
 		tokens::Meter,
 	},
 	sources::ReviewSource,
@@ -1253,12 +1253,33 @@ async fn members_share_places_but_see_only_their_own() {
 	assert!(e.client.capture_webp(&url).await.is_ok(), "the operator sees everything");
 	assert_eq!(bob.board(a.id, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 
+	let favorite = |on| TrackPatch {
+		favorite: Some(on),
+		..Default::default()
+	};
+	alice.patch_track(a.id, t.id, &favorite(true)).await.unwrap();
+	let loc = alice.overview().await.unwrap()[0].locations[0].clone();
+	assert!(loc.favorite && loc.enabled, "a favorite leaves the switch as it was");
+	assert!(!bob.overview().await.unwrap()[0].locations[0].favorite, "alice's favorite is not bob's");
+	assert_eq!(bob.patch_track(a.id, t.id, &favorite(true)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	alice.patch_track(a.id, t.id, &favorite(false)).await.unwrap();
+	assert!(!alice.overview().await.unwrap()[0].locations[0].favorite);
+
+	assert_eq!(
+		alice.relink(a.id, t.id).await.unwrap_err().status(),
+		Some(StatusCode::BAD_REQUEST),
+		"no GOOGLE_MAPS_KEY to ask Places with"
+	);
+	assert_eq!(bob.relink(a.id, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+
 	// once bob stops tracking the place, its screenshots are no longer his to see
 	assert!(bob.capture_webp(&url).await.is_ok());
 	bob.untrack(b.id, t.id).await.unwrap();
 	assert_eq!(bob.capture_webp(&url).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	assert_eq!(bob.overview().await.unwrap()[0].locations, vec![]);
 	assert_eq!(alice.overview().await.unwrap()[0].locations.len(), 1, "alice's track stays");
+	alice.untrack(a.id, t.id).await.unwrap();
+	assert_eq!(e.client.targets().await.unwrap().len(), 1, "untracked by all, the target and its archive stay");
 	e.server.abort();
 }
 
@@ -1352,7 +1373,11 @@ async fn a_place_is_scanned_while_anyone_has_it_on() {
 	let overview = alice.overview().await.unwrap();
 	assert!(overview[0].gmail.enabled && overview[0].locations[0].enabled, "on by default");
 
-	alice.set_track_enabled(a.id, t, false).await.unwrap();
+	let switch = |on| TrackPatch {
+		enabled: Some(on),
+		..Default::default()
+	};
+	alice.patch_track(a.id, t, &switch(false)).await.unwrap();
 	assert!(!alice.overview().await.unwrap()[0].locations[0].enabled);
 	assert!(scanned().await, "bob still has it on");
 	bob.set_gmail_enabled(b.id, false).await.unwrap();
@@ -1361,7 +1386,7 @@ async fn a_place_is_scanned_while_anyone_has_it_on() {
 	assert!(e.client.target(t).await.unwrap().target.enabled, "the shared target is untouched");
 
 	assert_eq!(
-		bob.set_track_enabled(a.id, t, true).await.unwrap_err().status(),
+		bob.patch_track(a.id, t, &switch(true)).await.unwrap_err().status(),
 		Some(StatusCode::NOT_FOUND),
 		"alice's gmail is not bob's"
 	);

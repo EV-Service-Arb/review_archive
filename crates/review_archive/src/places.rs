@@ -131,11 +131,13 @@ pub async fn search(http: &reqwest::Client, endpoint: &str, key: &str, query: &s
 	Ok(named)
 }
 
-/// The place with this id, from Places API (New) details: the id is checked, too.
+/// The place with this id, from Places API (New) details, under the id Google now gives it:
+/// a moved or merged place answers with its newer one.
 pub async fn details(http: &reqwest::Client, endpoint: &str, key: &str, place_id: &str) -> eyre::Result<PlaceDto> {
 	#[derive(Deserialize)]
 	#[serde(rename_all = "camelCase")]
 	struct Place {
+		id: String,
 		display_name: Option<Text>,
 		formatted_address: Option<String>,
 	}
@@ -147,7 +149,7 @@ pub async fn details(http: &reqwest::Client, endpoint: &str, key: &str, place_id
 	let resp = http
 		.get(format!("{endpoint}/{place_id}"))
 		.header("X-Goog-Api-Key", key)
-		.header("X-Goog-FieldMask", "displayName,formattedAddress")
+		.header("X-Goog-FieldMask", "id,displayName,formattedAddress")
 		.send()
 		.await
 		.map_err(PlacesError::from)?;
@@ -161,7 +163,7 @@ pub async fn details(http: &reqwest::Client, endpoint: &str, key: &str, place_id
 	}
 	let place: Place = resp.json().await.map_err(PlacesError::from)?;
 	Ok(PlaceDto {
-		place_id: place_id.to_owned(),
+		place_id: place.id,
 		name: place.display_name.map(|t| t.text),
 		address: place.formatted_address,
 	})
