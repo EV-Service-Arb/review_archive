@@ -76,14 +76,16 @@ async fn the_first_place_is_taken_and_the_search_is_biased_to_the_map() {
 }
 
 #[tokio::test]
-async fn nothing_found_is_the_callers_mistake_and_a_refusal_is_not() {
+async fn nothing_or_another_place_found_is_the_callers_mistake_and_a_refusal_is_not() {
 	let (_s, url, server) = stub().await;
 	let http = reqwest::Client::new();
 	let url = format!("{url}:searchText");
 	let nothing = search(&http, &url, "k", "Nowhere", None).await.unwrap_err();
 	let refused = search(&http, &url, "k", "Broken", None).await.unwrap_err();
+	let another = search(&http, &url, "k", "Le Procope of Hicksville", None).await.unwrap_err(); // #37: the first hit was a namesake
 	server.abort();
 	assert!(matches!(nothing.downcast_ref::<Rejected>(), Some(Rejected::Invalid(_))), "{nothing:#}");
+	assert!(matches!(another.downcast_ref::<Rejected>(), Some(Rejected::Invalid(_))), "{another:#}");
 	assert!(refused.downcast_ref::<Rejected>().is_none(), "{refused:#}");
 	assert!(format!("{refused:#}").contains("403"), "{refused:#}");
 }

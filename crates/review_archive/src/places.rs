@@ -62,7 +62,7 @@ async fn expand_short_link(url: &str) -> eyre::Result<String> {
 		.to_owned())
 }
 
-/// Places API (New) text search, first hit.
+/// Places API (New) text search: the first hit, which must bear the name searched for.
 pub async fn search(http: &reqwest::Client, endpoint: &str, key: &str, query: &str, near: Option<(f64, f64)>) -> eyre::Result<Resolved> {
 	#[derive(Deserialize)]
 	struct Resp {
@@ -100,6 +100,10 @@ pub async fn search(http: &reqwest::Client, endpoint: &str, key: &str, query: &s
 	}
 	let resp: Resp = resp.json().await.map_err(PlacesError::from)?;
 	let place = resp.places.into_iter().next().ok_or_else(|| Rejected::invalid(format!("Places found nothing for {query:?}")))?;
+	let name = place.display_name.as_ref().map(|t| t.text.as_str());
+	if !name.is_some_and(|n| n.eq_ignore_ascii_case(query)) {
+		return Err(Rejected::invalid(format!("Places found {name:?} ({}) for {query:?}, not the place; paste a URL with its id", place.id)).into());
+	}
 	Ok(Resolved {
 		place_id: place.id,
 		name: place.display_name.map(|t| t.text),
