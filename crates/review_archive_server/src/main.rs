@@ -356,6 +356,28 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		eyre::ensure!(bind.ip().is_loopback(), "--dev-member signs everyone in: it serves on a loopback address only, not {bind}");
 		eyre::ensure!(settings.app_env != "production", "--dev-member is for development, and APP_ENV is production");
 	}
+	// Grafana carries no member identity: every request it makes is the dev member's
+	eyre::ensure!(config.grafana.is_none() || args.dev_member.is_some(), "grafana is served with --dev-member only");
+	let grafana = match &config.grafana {
+		Some(bin) => {
+			let dir = std::path::absolute(config.data_dir.join("grafana")).wrap_err("resolving the data dir")?;
+			std::fs::create_dir_all(&dir).wrap_err_with(|| format!("creating {}", dir.display()))?;
+			let socket = dir.join("grafana.sock");
+			eyre::ensure!(socket.as_os_str().len() < 108, "{} is past a unix socket path's 107 bytes: move the data dir", socket.display());
+			let child = tokio::process::Command::new(bin)
+				.env("GF_SERVER_PROTOCOL", "socket")
+				.env("GF_SERVER_SOCKET", &socket)
+				.env("GF_PATHS_DATA", &dir)
+				.env("GF_SERVER_ROOT_URL", format!("http://{bind}/grafana/"))
+				.env("GF_SERVER_SERVE_FROM_SUB_PATH", "true")
+				.env("RA_API", format!("http://{bind}"))
+				.kill_on_drop(true)
+				.spawn()
+				.wrap_err_with(|| format!("starting {}", bin.display()))?;
+			Some((child, socket))
+		}
+		None => None,
+	};
 	let signals = std::sync::Arc::new(worker::Signals::default());
 	// the page at `/` is the dev member's only: behind the panel, the panel's page mounts the bundle
 	let (auth, sign_in) = match &args.dev_member {
@@ -372,6 +394,7 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		http::AppState::new(archive.clone(), auth, signals.clone(), config.http.clone()),
 		config.mfe_dir.as_deref(),
 		sign_in.as_deref(),
+		grafana.as_ref().map(|(_, socket)| socket.as_path()),
 	);
 	let listener = tokio::net::TcpListener::bind(bind).await.wrap_err_with(|| format!("binding {bind}"))?;
 	tracing::info!(%bind, "serving");
@@ -382,6 +405,7 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 
 	let (tx, rx) = watch::channel(false);
 	let mut http_rx = rx.clone();
+	let mut grafana_stop = rx.clone();
 	let http = async move {
 		axum::serve(listener, app)
 			.with_graceful_shutdown(async move {
@@ -446,7 +470,14 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		drop(lock);
 		Ok(())
 	};
-	tokio::try_join!(http, background, signal)?;
+	let grafana = async move {
+		let Some((mut child, _)) = grafana else { return Ok(()) };
+		tokio::select! {
+			status = child.wait() => Err(eyre::eyre!("grafana exited ({})", status.wrap_err("waiting on grafana")?)),
+			_ = grafana_stop.wait_for(|stopped| *stopped) => Ok(()), // dropping `child` kills it
+		}
+	};
+	tokio::try_join!(http, background, signal, grafana)?;
 	Ok(())
 }
 

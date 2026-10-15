@@ -133,7 +133,7 @@ async fn env() -> Env {
 		})
 	};
 	let auth = Auth::Panel(signer.public().parse().unwrap());
-	let app = router(AppState::new(archive.clone(), auth, signals.clone(), HttpConfig::default()), None, None).layer(panel);
+	let app = router(AppState::new(archive.clone(), auth, signals.clone(), HttpConfig::default()), None, None, None).layer(panel);
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let base = format!("http://{}", listener.local_addr().unwrap());
 	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -906,7 +906,7 @@ async fn members_need_act_as_and_their_balances_tokens_grant() {
 }
 
 /// Who may act as others does, through `X-Member`: their overview, their writes; `/me` is
-/// still who signed in. No one else may.
+/// still who signed in. No one else may, except to name themselves.
 #[tokio::test]
 async fn acting_as_a_member_needs_members_act_as() {
 	let e = env().await;
@@ -924,6 +924,7 @@ async fn acting_as_a_member_needs_members_act_as() {
 	for c in [e.client.clone(), e.member(BOB)] {
 		assert_eq!(c.as_member(a).overview().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 	}
+	assert_eq!(alice.clone().as_member(a).overview().await.unwrap(), alice.overview().await.unwrap());
 	e.server.abort();
 }
 
@@ -1009,7 +1010,12 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 		permissions: Vec::<String>::new().into_iter().collect(),
 	};
 	let mfe = tempfile::tempdir().unwrap();
-	let app = router(AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()), Some(mfe.path()), Some("/"));
+	let app = router(
+		AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()),
+		Some(mfe.path()),
+		Some("/"),
+		None,
+	);
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let base = format!("http://{}", listener.local_addr().unwrap());
 	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1032,7 +1038,63 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 		assert_eq!(page.status(), StatusCode::OK, "{view} is the dashboard's page");
 		assert!(page.text().await.unwrap().contains("mfe-review-archive-dashboard"));
 	}
+	assert_eq!(reqwest::get(format!("{base}/grafana/")).await.unwrap().status(), StatusCode::NOT_FOUND, "no grafana configured");
 	server.abort();
+}
+
+/// `/grafana/` is the Grafana on a unix socket, on the page's own origin: requests and answers
+/// pass as they are, redirects included.
+#[tokio::test]
+async fn grafana_answers_under_the_archives_own_origin() {
+	use axum::response::IntoResponse;
+	let dir = tempfile::tempdir().unwrap();
+	let socket = dir.path().join("grafana.sock");
+	let grafana = axum::Router::new().fallback(|req: axum::extract::Request| async move {
+		let (parts, body) = req.into_parts();
+		if parts.uri.path() == "/grafana/login" {
+			return axum::response::Redirect::to("/grafana/").into_response();
+		}
+		let body = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+		let probe = parts.headers.get("x-probe").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+		let echo = format!("{} {} {probe} {}", parts.method, parts.uri, String::from_utf8_lossy(&body));
+		(StatusCode::CREATED, [("x-from", "grafana")], echo).into_response()
+	});
+	let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+	let grafana = tokio::spawn(async move { axum::serve(listener, grafana).await.unwrap() });
+	let archive = Archive::open(Config {
+		data_dir: Some(dir.path().to_owned()),
+		..Config::default()
+	})
+	.await
+	.unwrap();
+	let auth = Auth::Dev {
+		sub: "test".into(),
+		permissions: Vec::<String>::new().into_iter().collect(),
+	};
+	let app = router(AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()), None, None, Some(&socket));
+	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let base = format!("http://{}", listener.local_addr().unwrap());
+	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+	let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
+	let r = http
+		.post(format!("{base}/grafana/api/ds/query?ds_type=infinity"))
+		.header("x-probe", "p")
+		.body("{\"q\":1}")
+		.send()
+		.await
+		.unwrap();
+	assert_eq!(r.status(), StatusCode::CREATED);
+	assert_eq!(r.headers()["x-from"], "grafana");
+	assert_eq!(r.text().await.unwrap(), "POST /grafana/api/ds/query?ds_type=infinity p {\"q\":1}");
+	let r = http.get(format!("{base}/grafana/login")).send().await.unwrap();
+	assert_eq!(
+		(r.status(), &r.headers()["location"]),
+		(StatusCode::SEE_OTHER, &"/grafana/".parse::<reqwest::header::HeaderValue>().unwrap())
+	);
+	assert_eq!(http.get(format!("{base}/grafana/")).send().await.unwrap().text().await.unwrap(), "GET /grafana/  ");
+	server.abort();
+	grafana.abort();
 }
 
 /// Two builds of the bundle share their file names and, from the nix store, their mtime: what a
@@ -1062,7 +1124,12 @@ async fn a_new_bundle_is_never_answered_from_an_old_ones_cache() {
 			sub: "test".into(),
 			permissions: Vec::<String>::new().into_iter().collect(),
 		};
-		let app = router(AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()), Some(mfe.path()), Some("/"));
+		let app = router(
+			AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()),
+			Some(mfe.path()),
+			Some("/"),
+			None,
+		);
 		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let base = format!("http://{}", listener.local_addr().unwrap());
 		(dir, base, tokio::spawn(async move { axum::serve(listener, app).await.unwrap() }))

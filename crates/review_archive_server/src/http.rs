@@ -1,5 +1,5 @@
 //! The HTTP API: everything the CLI does, for other services, and `/me` for members; at `/`,
-//! the dashboard's page. Everything but `/`, `/health`, `/openapi.json` and the MFE's files
+//! the dashboard's page. Everything but `/`, `/health`, `/openapi.json`, `/grafana/` and the MFE's files
 //! wants a caller (see [`crate::auth`]): the operator's routes refuse members, `/me` refuses
 //! the operator's token unless it names a member.
 //! JSON in and out — errors included, the ones axum's extractors raise too — with the
@@ -81,8 +81,9 @@ impl AppState {
 }
 
 /// `mfe`: the built dashboard bundle, served under `/mfe/`. `sign_in`: where the page sends a
-/// browser on a 401; with both, `/` is the dashboard's page.
-pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&str>) -> Router {
+/// browser on a 401; with both, `/` is the dashboard's page. `grafana`: the socket of the Grafana
+/// `/grafana/` passes through to, unauthenticated.
+pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&str>, grafana: Option<&std::path::Path>) -> Router {
 	let admin = Router::new()
 		.route("/targets", get(targets).post(add_target))
 		.route("/targets/{id}", get(target).patch(patch_target).delete(delete_target))
@@ -158,7 +159,32 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 				.route("/members/{member}", get(page));
 		}
 	}
+	if let Some(socket) = grafana {
+		let client = reqwest::Client::builder()
+			.unix_socket(socket)
+			.redirect(reqwest::redirect::Policy::none())
+			.build()
+			.expect("a unix-socket client takes no setup that can fail");
+		let pass = axum::routing::any(move |req| to_grafana(client.clone(), req));
+		app = app.route("/grafana/", pass.clone()).route("/grafana/{*rest}", pass);
+	}
 	app.with_state(state)
+}
+
+/// A request to Grafana as it came, and its answer as it comes.
+async fn to_grafana(client: reqwest::Client, req: axum::extract::Request) -> Response {
+	let (parts, body) = req.into_parts();
+	let path = parts.uri.path_and_query().expect("routed by its path").as_str();
+	let sent = client
+		.request(parts.method, format!("http://grafana{path}"))
+		.headers(parts.headers)
+		.body(reqwest::Body::wrap_stream(body.into_data_stream()))
+		.send()
+		.await;
+	match sent {
+		Ok(r) => axum::http::Response::from(r).map(axum::body::Body::new),
+		Err(e) => (StatusCode::BAD_GATEWAY, Json(ErrorBody { error: format!("grafana: {e}") })).into_response(),
+	}
 }
 
 /// The whole bundle's digest, for every file in it: the nix store dates each file 1970, so a

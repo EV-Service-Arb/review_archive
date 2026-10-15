@@ -1,37 +1,60 @@
 {
   "uid": "ra-overview",
   "title": "review_archive · overview",
-  "tags": ["review_archive"],
+  "tags": [
+    "review_archive"
+  ],
   "schemaVersion": 41,
   "editable": true,
-  "time": { "from": "now-30d", "to": "now" },
-  "refresh": "1m",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
+        "name": "member",
+        "type": "textbox",
+        "hide": 2,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      },
+      {
         "name": "gmail",
-        "label": "gmail",
-        "type": "query",
-        "refresh": 1,
-        "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
-        "query": {
-          "refId": "variable",
-          "queryType": "infinity",
-          "query": "",
-          "infinityQuery": {
-            "refId": "variable",
-            "type": "json",
-            "source": "url",
-            "format": "table",
-            "parser": "backend",
-            "url": "/me/overview",
-            "url_options": { "method": "GET" },
-            "columns": [
-              { "selector": "gmail", "text": "__text", "type": "string" },
-              { "selector": "id", "text": "__value", "type": "string" }
-            ]
-          }
-        }
+        "type": "textbox",
+        "hide": 2,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      },
+      {
+        "name": "keys",
+        "type": "textbox",
+        "hide": 2,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      },
+      {
+        "name": "rev",
+        "type": "textbox",
+        "hide": 2,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
       }
     ]
   },
@@ -40,51 +63,184 @@
       "id": 1,
       "type": "stat",
       "title": "Across locations",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 4 },
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
           "type": "json",
           "source": "url",
           "format": "table",
           "parser": "backend",
           "url": "/me/overview",
-          "url_options": { "method": "GET" },
-          "root_selector": "$[id=${gmail}].locations[]",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
+            ]
+          },
+          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
           "columns": [
-            { "selector": "live", "text": "live", "type": "number" },
-            { "selector": "new_7d", "text": "new 7d", "type": "number" },
-            { "selector": "responded", "text": "responded", "type": "number" },
-            { "selector": "removed", "text": "removed", "type": "number" },
-            { "selector": "reinstating", "text": "reinstating", "type": "number" }
+            {
+              "selector": "live",
+              "text": "live",
+              "type": "number"
+            },
+            {
+              "selector": "new_7d",
+              "text": "new 7d",
+              "type": "number"
+            },
+            {
+              "selector": "responded",
+              "text": "responded",
+              "type": "number"
+            },
+            {
+              "selector": "removed",
+              "text": "removed",
+              "type": "number"
+            },
+            {
+              "selector": "reinstating",
+              "text": "reinstating",
+              "type": "number"
+            }
           ]
         }
       ],
       "transformations": [
-        { "id": "reduce", "options": { "mode": "reduceFields", "reducers": ["sum"], "includeTimeField": false } },
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "reduceFields",
+            "reducers": [
+              "sum"
+            ],
+            "includeTimeField": false
+          }
+        },
         {
           "id": "calculateField",
           "options": {
             "mode": "binary",
             "alias": "responded %",
-            "binary": { "left": { "matcher": { "id": "byName", "options": "responded" } }, "operator": "/", "right": { "matcher": { "id": "byName", "options": "live" } } },
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "responded"
+                }
+              },
+              "operator": "/",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "live"
+                }
+              }
+            },
             "replaceFields": false
           }
         },
-        { "id": "organize", "options": { "excludeByName": { "responded": true }, "indexByName": { "live": 0, "new 7d": 1, "responded %": 2, "removed": 3, "reinstating": 4 } } }
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "responded": true
+            },
+            "indexByName": {
+              "live": 0,
+              "new 7d": 1,
+              "responded %": 2,
+              "removed": 3,
+              "reinstating": 4
+            }
+          }
+        }
       ],
       "fieldConfig": {
-        "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "text" } },
+        "defaults": {
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "responded %" }, "properties": [{ "id": "unit", "value": "percentunit" }] },
-          { "matcher": { "id": "byName", "options": "removed" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
-          { "matcher": { "id": "byName", "options": "reinstating" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "responded %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "removed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reinstating"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
         ]
       },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "value",
         "graphMode": "none",
         "textMode": "value_and_name",
@@ -96,101 +252,359 @@
       "id": 2,
       "type": "marcusolsson-dynamictext-panel",
       "title": "Locations",
-      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 16 },
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 18
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
           "type": "json",
           "source": "url",
           "format": "table",
           "parser": "backend",
           "url": "/me/overview",
-          "url_options": { "method": "GET" },
-          "root_selector": "$[id=${gmail}].locations[]",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
+            ]
+          },
+          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
           "columns": [
-            { "selector": "target.id", "text": "target", "type": "number" },
-            { "selector": "target.label", "text": "label", "type": "string" },
-            { "selector": "target.place_id", "text": "place_id", "type": "string" },
-            { "selector": "enabled", "text": "enabled", "type": "boolean" },
-            { "selector": "snapshots_7d", "text": "snapshots_7d", "type": "number" },
-            { "selector": "snapshots_30d", "text": "snapshots_30d", "type": "number" },
-            { "selector": "live", "text": "live", "type": "number" },
-            { "selector": "listed", "text": "listed", "type": "number" },
-            { "selector": "new_7d", "text": "new_7d", "type": "number" },
-            { "selector": "responded", "text": "responded", "type": "number" },
-            { "selector": "removed", "text": "removed", "type": "number" },
-            { "selector": "reinstating", "text": "reinstating", "type": "number" },
-            { "selector": "held", "text": "held", "type": "boolean" },
-            { "selector": "last_run_at", "text": "last_run_at", "type": "string" },
-            { "selector": "last_run_status", "text": "last_run_status", "type": "string" },
-            { "selector": "last_run_error", "text": "last_run_error", "type": "string" }
+            {
+              "selector": "gmail",
+              "text": "gmail",
+              "type": "number"
+            },
+            {
+              "selector": "gmail_name",
+              "text": "gmail_name",
+              "type": "string"
+            },
+            {
+              "selector": "gmail_on",
+              "text": "gmail_on",
+              "type": "boolean"
+            },
+            {
+              "selector": "target",
+              "text": "target",
+              "type": "number"
+            },
+            {
+              "selector": "label",
+              "text": "label",
+              "type": "string"
+            },
+            {
+              "selector": "address",
+              "text": "address",
+              "type": "string"
+            },
+            {
+              "selector": "place_id",
+              "text": "place_id",
+              "type": "string"
+            },
+            {
+              "selector": "enabled",
+              "text": "enabled",
+              "type": "boolean"
+            },
+            {
+              "selector": "snapshots_7d",
+              "text": "snapshots_7d",
+              "type": "number"
+            },
+            {
+              "selector": "snapshots_30d",
+              "text": "snapshots_30d",
+              "type": "number"
+            },
+            {
+              "selector": "live",
+              "text": "live",
+              "type": "number"
+            },
+            {
+              "selector": "listed",
+              "text": "listed",
+              "type": "number"
+            },
+            {
+              "selector": "new_7d",
+              "text": "new_7d",
+              "type": "number"
+            },
+            {
+              "selector": "posts_7d",
+              "text": "posts_7d",
+              "type": "number"
+            },
+            {
+              "selector": "post",
+              "text": "post",
+              "type": "string"
+            },
+            {
+              "selector": "post_at",
+              "text": "post_at",
+              "type": "string"
+            },
+            {
+              "selector": "responded",
+              "text": "responded",
+              "type": "number"
+            },
+            {
+              "selector": "removed",
+              "text": "removed",
+              "type": "number"
+            },
+            {
+              "selector": "reinstating",
+              "text": "reinstating",
+              "type": "number"
+            },
+            {
+              "selector": "held",
+              "text": "held",
+              "type": "boolean"
+            },
+            {
+              "selector": "last_run_at",
+              "text": "last_run_at",
+              "type": "string"
+            },
+            {
+              "selector": "last_run_status",
+              "text": "last_run_status",
+              "type": "string"
+            },
+            {
+              "selector": "last_run_error",
+              "text": "last_run_error",
+              "type": "string"
+            },
+            {
+              "selector": "scan",
+              "text": "scan",
+              "type": "string"
+            },
+            {
+              "selector": "scan_since",
+              "text": "scan_since",
+              "type": "string"
+            },
+            {
+              "selector": "scan_ahead",
+              "text": "scan_ahead",
+              "type": "number"
+            },
+            {
+              "selector": "scan_cost",
+              "text": "scan_cost",
+              "type": "number"
+            }
           ]
         }
       ],
       "options": {
         "renderMode": "allRows",
         "wrap": false,
-        "editors": ["afterRender", "styles"],
+        "editors": [
+          "helpers",
+          "afterRender",
+          "styles"
+        ],
         "contentPartials": [],
-        "helpers": "",
-        "defaultContent": "No places tracked under this gmail yet.",
-        "content": "<div class=\"ra-grid\">\n{{#each data}}\n<div class=\"ra-card{{#unless enabled}} ra-off{{/unless}}\">\n  <div class=\"ra-label\">{{label}}</div>\n  <div class=\"ra-pid\">{{place_id}}</div>\n  <div class=\"ra-big\"><b>{{snapshots_7d}}</b> snapshots 7d <span>{{snapshots_30d}} 30d</span></div>\n  <div class=\"ra-badges\">\n    <span class=\"ok\">live {{live}}{{#if listed}}/{{listed}}{{/if}}</span>\n    <span class=\"ok\">new 7d +{{new_7d}}</span>\n    <span class=\"{{#if (lt responded live)}}warn{{else}}ok{{/if}}\">responded {{responded}}/{{live}}</span>\n    {{#if removed}}<span class=\"bad\">removed {{removed}}</span>{{/if}}\n    {{#if reinstating}}<span class=\"warn\">reinstating {{reinstating}}</span>{{/if}}\n    {{#if held}}<span class=\"warn\">out of tokens</span>{{/if}}\n  </div>\n  <div class=\"ra-run ra-{{last_run_status}}\" title=\"{{last_run_error}}\">{{#if last_run_status}}{{last_run_status}} · {{last_run_at}}{{else}}never scanned{{/if}}</div>\n</div>\n{{/each}}\n</div>",
-        "afterRender": "const gmail = Number(context.grafana.replaceVariables('${gmail}'));\nconst cards = context.element.querySelectorAll('.ra-card');\ncontext.data.forEach((row, i) => cards[i].addEventListener('click', () => window.parent.postMessage({ kind: 'ra-open', gmail, target: row.target }, '*')));",
-        "styles": ".ra-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }\n.ra-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; cursor: pointer; }\n.ra-card:hover { border-color: rgba(128,128,128,.7); }\n.ra-off { opacity: .5; }\n.ra-label { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-pid { font-family: monospace; font-size: 11px; opacity: .6; overflow: hidden; text-overflow: ellipsis; }\n.ra-big b { font-size: 26px; }\n.ra-big span { opacity: .6; margin-left: 8px; }\n.ra-badges { display: flex; flex-wrap: wrap; gap: 6px; }\n.ra-badges span { font-size: 11px; padding: 1px 8px; border-radius: 999px; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }\n.bad { background: rgba(242,73,92,.15); color: #f2495c; }\n.ra-run { margin-top: auto; padding-top: 8px; border-top: 1px solid rgba(128,128,128,.3); font-size: 11px; opacity: .7; }\n.ra-ok::before, .ra-partial::before, .ra-failed::before { content: '●'; margin-right: 6px; }\n.ra-ok::before { color: #73bf69; }\n.ra-partial::before { color: #ff9830; }\n.ra-failed::before { color: #f2495c; }"
+        "helpers": "const h = context.handlebars;\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('lt', (a, b) => a < b);\nh.registerHelper('allGmails', () => context.grafana.replaceVariables('${gmail}') === '');\nh.registerHelper('on', (r) => r.enabled && r.gmail_on);\nh.registerHelper('dot', (r) => r.scan === 'queued' ? 'warn' : r.scan === 'running' ? 'run' : (r.last_run_status || 'never'));\nh.registerHelper('scanline', (r) => r.scan === 'queued'\n  ? 'queued · ' + (r.scan_ahead ? r.scan_ahead + ' ahead' : 'next') + ' · since ' + ago(r.scan_since) + ' · '\n  : r.scan === 'running' ? 'scanning · started ' + ago(r.scan_since) + ' · ' : '');\nh.registerHelper('lastline', (r) => r.last_run_at ? 'last run ' + ago(r.last_run_at) + ' · ' : '');",
+        "defaultContent": "No place to show.",
+        "content": "<div class=\"ra-grid\">\n{{#each data}}\n<div class=\"ra-card{{#unless (on this)}} ra-off{{/unless}}\" data-i=\"{{@index}}\">\n  <div class=\"ra-head\">\n    <div class=\"ra-label\">{{label}}</div>\n    {{#if address}}<div class=\"ra-soft ra-cut\" title=\"{{address}}\">{{address}}</div>{{/if}}\n    <div class=\"ra-pid\">{{place_id}}</div>\n    {{#if (allGmails)}}<div class=\"ra-soft ra-cut ra-small\">{{gmail_name}}</div>{{/if}}\n  </div>\n  <button class=\"ra-switch{{#if enabled}} on{{/if}}\" data-act=\"enable\" title=\"scanned on the schedule\" {{#unless gmail_on}}disabled{{/unless}}></button>\n  <div class=\"ra-big\"><b>{{snapshots_7d}}</b> snapshots 7d <span>{{snapshots_30d}}</span> 30d</div>\n  <div class=\"ra-badges\">\n    <span class=\"ok\" title=\"archived and still listed / listed on Google\">live {{live}}{{#if listed}}/{{listed}}{{/if}}</span>\n    <span class=\"ok\" title=\"posted over the last 7 days, removed ones included\">new 7d +{{new_7d}}</span>\n    {{#if post}}<span class=\"ok\" title=\"owner's latest post, {{ago post_at}}:&#10;{{post}}\">posts 7d {{posts_7d}}</span>{{/if}}\n    <span class=\"{{#if (lt responded live)}}warn{{else}}ok{{/if}}\" title=\"replied to by the owner / live\">responded {{responded}}/{{live}}</span>\n    {{#if removed}}<span class=\"bad\">removed {{removed}}</span>{{/if}}\n    {{#if reinstating}}<span class=\"warn\">reinstating {{reinstating}}</span>{{/if}}\n    {{#if held}}<span class=\"warn\" title=\"not scanned: every member tracking it is out of tokens\">out of tokens</span>{{/if}}\n  </div>\n  <div class=\"ra-run\">\n    <i class=\"ra-dot ra-dot-{{dot this}}\"></i>{{scanline this}}{{lastline this}}<span title=\"{{last_run_error}}\">{{#if last_run_status}}{{last_run_status}}{{else}}never scanned{{/if}}</span>\n    {{#if scan}}<span class=\"ra-spin\"></span>{{else}}<button class=\"ra-scan\" data-act=\"scan\" title=\"scan now, on top of the schedule: {{scan_cost}} tokens\">↻ {{scan_cost}}</button>{{/if}}\n  </div>\n</div>\n{{/each}}\n</div>",
+        "afterRender": "const up = (m) => window.parent.postMessage(m, window.location.origin);\ncontext.element.querySelectorAll('.ra-card').forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  const ids = { gmail: row.gmail, target: row.target };\n  card.addEventListener('click', () => up({ kind: 'ra-open', ...ids }));\n  card.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', (e) => {\n    e.stopPropagation();\n    up(b.dataset.act === 'scan' ? { kind: 'ra-scan', ...ids } : { kind: 'ra-enable', ...ids, on: !row.enabled });\n  }));\n});\nconst vars = (e) => {\n  if (e.source !== window.parent || e.origin !== window.location.origin || !e.data || e.data.kind !== 'ra-vars') return;\n  const g = context.grafana;\n  if (g.replaceVariables('${keys}') !== e.data.keys || g.replaceVariables('${rev}') !== e.data.rev) {\n    g.locationService.partial({ 'var-keys': e.data.keys, 'var-rev': e.data.rev }, true);\n  }\n};\nwindow.addEventListener('message', vars);\nup({ kind: 'ra-ready' });\nreturn () => window.removeEventListener('message', vars);",
+        "styles": ".ra-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }\n.ra-card { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; cursor: pointer; }\n.ra-card:hover { border-color: rgba(128,128,128,.7); }\n.ra-off { opacity: .5; }\n.ra-head { padding-right: 48px; min-width: 0; }\n.ra-label { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-soft { opacity: .65; }\n.ra-cut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-small { font-size: 11px; }\n.ra-pid { font-family: monospace; font-size: 11px; opacity: .65; overflow: hidden; text-overflow: ellipsis; }\n.ra-big b { font-size: 28px; line-height: 1; }\n.ra-big span { font-size: 15px; opacity: .65; margin-left: 12px; }\n.ra-badges { display: flex; flex-wrap: wrap; gap: 6px; }\n.ra-badges span { font-size: 11px; padding: 1px 8px; border-radius: 999px; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }\n.bad { background: rgba(242,73,92,.15); color: #f2495c; }\n.ra-run { margin-top: auto; display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,.3); font-size: 11px; opacity: .8; }\n.ra-dot { width: 6px; height: 6px; border-radius: 999px; background: #8e8e8e; flex-shrink: 0; }\n.ra-dot-ok { background: #73bf69; } .ra-dot-partial, .ra-dot-warn { background: #ff9830; } .ra-dot-failed { background: #f2495c; }\n.ra-dot-run { background: #73bf69; animation: ra-pulse 1.5s ease-in-out infinite; }\n@keyframes ra-pulse { 50% { opacity: .3; } }\n.ra-scan { margin-left: auto; padding: 2px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }\n.ra-scan:hover { background: rgba(128,128,128,.2); }\n.ra-spin { margin-left: auto; width: 12px; height: 12px; border: 2px solid rgba(128,128,128,.4); border-top-color: currentColor; border-radius: 999px; animation: ra-turn 1s linear infinite; }\n@keyframes ra-turn { to { transform: rotate(360deg); } }\n.ra-switch { position: absolute; top: 16px; right: 16px; width: 32px; height: 18px; border: 0; border-radius: 999px; background: rgba(128,128,128,.4); cursor: pointer; }\n.ra-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 999px; background: #fff; transition: left .15s; }\n.ra-switch.on { background: #73bf69; }\n.ra-switch.on::after { left: 16px; }\n.ra-switch:disabled { cursor: not-allowed; opacity: .5; }"
       }
     },
     {
       "id": 3,
       "type": "table",
       "title": "All locations",
-      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 10 },
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
           "type": "json",
           "source": "url",
           "format": "table",
           "parser": "backend",
           "url": "/me/overview",
-          "url_options": { "method": "GET" },
-          "root_selector": "$[id=${gmail}].locations[]",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
+            ]
+          },
+          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
           "columns": [
-            { "selector": "target.label", "text": "location", "type": "string" },
-            { "selector": "enabled", "text": "on", "type": "boolean" },
-            { "selector": "snapshots_7d", "text": "snapshots 7d", "type": "number" },
-            { "selector": "snapshots_30d", "text": "snapshots 30d", "type": "number" },
-            { "selector": "live", "text": "live", "type": "number" },
-            { "selector": "listed", "text": "listed", "type": "number" },
-            { "selector": "new_7d", "text": "new 7d", "type": "number" },
-            { "selector": "posts_7d", "text": "posts 7d", "type": "number" },
-            { "selector": "responded", "text": "responded", "type": "number" },
-            { "selector": "removed", "text": "removed", "type": "number" },
-            { "selector": "reinstating", "text": "reinstating", "type": "number" },
-            { "selector": "last_run_at", "text": "last run", "type": "timestamp" },
-            { "selector": "last_run_status", "text": "status", "type": "string" }
+            {
+              "selector": "label",
+              "text": "location",
+              "type": "string"
+            },
+            {
+              "selector": "enabled",
+              "text": "on",
+              "type": "boolean"
+            },
+            {
+              "selector": "snapshots_7d",
+              "text": "snapshots 7d",
+              "type": "number"
+            },
+            {
+              "selector": "snapshots_30d",
+              "text": "snapshots 30d",
+              "type": "number"
+            },
+            {
+              "selector": "live",
+              "text": "live",
+              "type": "number"
+            },
+            {
+              "selector": "listed",
+              "text": "listed",
+              "type": "number"
+            },
+            {
+              "selector": "new_7d",
+              "text": "new 7d",
+              "type": "number"
+            },
+            {
+              "selector": "posts_7d",
+              "text": "posts 7d",
+              "type": "number"
+            },
+            {
+              "selector": "responded",
+              "text": "responded",
+              "type": "number"
+            },
+            {
+              "selector": "removed",
+              "text": "removed",
+              "type": "number"
+            },
+            {
+              "selector": "reinstating",
+              "text": "reinstating",
+              "type": "number"
+            },
+            {
+              "selector": "last_run_at",
+              "text": "last run",
+              "type": "timestamp"
+            },
+            {
+              "selector": "last_run_status",
+              "text": "status",
+              "type": "string"
+            }
           ]
         }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "align": "auto", "filterable": true } },
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "status" },
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
             "properties": [
-              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
               {
                 "id": "mappings",
-                "value": [{ "type": "value", "options": { "ok": { "color": "green", "index": 0 }, "partial": { "color": "orange", "index": 1 }, "failed": { "color": "red", "index": 2 } } }]
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "ok": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "partial": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }
         ]
       },
-      "options": { "showHeader": true, "sortBy": [{ "displayName": "snapshots 7d", "desc": true }] }
+      "options": {
+        "showHeader": true
+      }
     }
   ]
 }

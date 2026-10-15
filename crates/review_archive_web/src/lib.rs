@@ -7,6 +7,8 @@
 #![allow(clippy::useless_format)] // rsx! lowers every "{x}" to a format!
 
 mod board;
+#[cfg(not(feature = "grafana"))]
+mod cards;
 mod filter;
 #[cfg(feature = "grafana")]
 mod grafana;
@@ -20,16 +22,15 @@ use ev_lib::{
 	i18n::{Locale, Messages, Translator},
 	t,
 	uikit::{
-		self, BadgeVariant, Button, ButtonVariant, Card, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Size, Spinner,
-		Switch, Tabs, TabsList, TabsTrigger,
+		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Size, Switch, Tabs,
+		TabsList, TabsTrigger,
 	},
 };
 use review_archive_client::{
 	Client,
-	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, RunStatus, ScanState, TokensChange, TokensDto},
+	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, TokensChange, TokensDto},
 };
 use sa_auth::{Members, Permission, PermissionSet, Tokens};
-use sa_ui::TokenCost;
 use wasm_bindgen::{JsCast, prelude::*};
 
 const TAG: &str = "mfe-review-archive-dashboard";
@@ -130,12 +131,7 @@ fn may(p: impl Permission) -> bool {
 enum View {
 	Home,
 	Gmail(i64),
-	#[cfg(feature = "grafana")]
-	Grafana(i64),
-	Place {
-		gmail: i64,
-		target: i64,
-	},
+	Place { gmail: i64, target: i64 },
 	Telegram,
 	Tokens,
 }
@@ -145,8 +141,6 @@ impl dioxus::router::ToRouteSegments for View {
 		match self {
 			Self::Home => write!(f, "/"), // an empty path would be no URL at all: a link to it goes nowhere
 			Self::Gmail(g) => write!(f, "/gmails/{g}"),
-			#[cfg(feature = "grafana")]
-			Self::Grafana(g) => write!(f, "/gmails/{g}/grafana"),
 			Self::Place { gmail, target } => write!(f, "/gmails/{gmail}/places/{target}"),
 			Self::Telegram => write!(f, "/telegram"),
 			Self::Tokens => write!(f, "/tokens"),
@@ -162,8 +156,6 @@ impl dioxus::router::FromRouteSegments for View {
 		match segments {
 			[] | [""] => Ok(Self::Home),
 			["gmails", g] => Ok(Self::Gmail(id(g)?)),
-			#[cfg(feature = "grafana")]
-			["gmails", g, "grafana"] => Ok(Self::Grafana(id(g)?)),
 			["gmails", g, "places", t] => Ok(Self::Place { gmail: id(g)?, target: id(t)? }),
 			["telegram"] => Ok(Self::Telegram),
 			["tokens"] => Ok(Self::Tokens),
@@ -249,11 +241,14 @@ fn session() -> web_sys::Storage {
 		.expect("a page has sessionStorage")
 }
 
+/// The API's base URL: `api` resolved against the page.
+fn base() -> reqwest::Url {
+	let page = web_sys::window().expect("a browser").location().href().expect("a page has a URL");
+	reqwest::Url::parse(&page).and_then(|p| p.join(&host().api)).expect("`api` resolves against the page")
+}
+
 fn api() -> Client {
-	let Host { api, csrf_cookie, .. } = host();
 	let window = web_sys::window().expect("a browser");
-	let page = window.location().href().expect("a page has a URL");
-	let base = reqwest::Url::parse(&page).and_then(|p| p.join(api)).expect("`api` resolves against the page");
 	let cookies = window
 		.document()
 		.expect("a page")
@@ -263,14 +258,14 @@ fn api() -> Client {
 		.expect("the page's cookies are readable");
 	let mut headers = reqwest::header::HeaderMap::new();
 	// absent, the panel refuses a write with its own answer
-	if let Some(token) = cookies.split("; ").find_map(|c| c.strip_prefix(csrf_cookie.as_str())?.strip_prefix('=')) {
+	if let Some(token) = cookies.split("; ").find_map(|c| c.strip_prefix(host().csrf_cookie.as_str())?.strip_prefix('=')) {
 		headers.insert("x-sa-csrf", reqwest::header::HeaderValue::from_str(token).expect("a cookie value is a valid header value"));
 	}
 	let http = reqwest::Client::builder()
 		.default_headers(headers)
 		.build()
 		.expect("a browser client takes no setup that can fail");
-	Client::ambient(http, base.as_str()).expect("resolved to an absolute URL")
+	Client::ambient(http, base().as_str()).expect("resolved to an absolute URL")
 }
 
 /// A failed call, as shown. A 401 means the panel's session is gone: the whole page goes to
@@ -618,8 +613,6 @@ fn Workspace(view: Route) -> Element {
 	let (picked, target) = match at {
 		View::Home | View::Telegram | View::Tokens => (None, None),
 		View::Gmail(gmail) => (Some(gmail), None),
-		#[cfg(feature = "grafana")]
-		View::Grafana(gmail) => (Some(gmail), None),
 		View::Place { gmail, target } => (Some(gmail), Some(target)),
 	};
 	// a removed gmail's URL shows them all, as home does
@@ -650,10 +643,6 @@ fn Workspace(view: Route) -> Element {
 					},
 					(View::Tokens, _) => rsx! {
 						tokens::Ledger { gmails: gmails.clone(), tokens, tab }
-					},
-					#[cfg(feature = "grafana")]
-					(View::Grafana(_), Some(g)) => rsx! {
-						grafana::Overview { gmail: g.gmail, tab }
 					},
 					(_, None) if gmails.is_empty() => rsx! {
 						div { class: "p-6 text-ink-soft", "Add the gmail your places are managed from, on the left." }
@@ -793,19 +782,44 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab:
 	let filter: Signal<filter::Filter> = use_context();
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
+	let count = shown.len();
 	#[cfg(feature = "grafana")]
-	let grafana = gmail
-		.as_ref()
-		.map(|g| rsx! { Link { class: "text-ink-soft hover:text-ink", to: Route::at(tab, View::Grafana(g.id)), "Grafana" } });
+	let overview = rsx! {
+		grafana::Overview {
+			gmail: gmail.as_ref().map(|g| g.id),
+			keys: shown.iter().map(|(g, l)| format!("{}:{}", g.id, l.target.id)).collect::<Vec<_>>().join(","),
+			tab,
+		}
+	};
 	#[cfg(not(feature = "grafana"))]
-	let grafana = None::<Element>;
+	let overview = rsx! {
+		main { class: "min-h-0 flex-1 overflow-y-auto p-6",
+			if total == 0 {
+				div { class: "text-ink-soft",
+					if gmail.is_some() { "No places tracked under this gmail yet." } else { "No places tracked yet." }
+				}
+			} else if shown.is_empty() {
+				div { class: "text-ink-soft", "No place matches the filters." }
+			}
+			div { class: "grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4",
+				for (g, loc) in shown {
+					cards::LocationCard {
+						key: "{g.id}-{loc.target.id}",
+						to: Route::at(tab, View::Place { gmail: g.id, target: loc.target.id }),
+						gmail: g,
+						all: gmail.is_none(),
+						loc,
+					}
+				}
+			}
+		}
+	};
 	rsx! {
 		header { class: "flex h-14 shrink-0 items-center gap-3 border-b border-border px-6",
 			span { class: "text-ink-soft", {gmail.as_ref().map_or("All gmails", |g| g.gmail.as_str())} }
 			span { class: "text-ink-soft", "/" }
 			span { class: "font-medium", "Locations" }
 			div { class: "flex-1" }
-			{grafana}
 			if let Some(g) = &gmail {
 				form {
 					class: "flex gap-2",
@@ -828,138 +842,15 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab:
 				}
 			}
 		}
-		filter::Bar { shown: shown.len(), total }
-		main { class: "min-h-0 flex-1 overflow-y-auto p-6",
-			if total == 0 {
-				div { class: "text-ink-soft",
-					if gmail.is_some() { "No places tracked under this gmail yet." } else { "No places tracked yet." }
-				}
-			} else if shown.is_empty() {
-				div { class: "text-ink-soft", "No place matches the filters." }
-			}
-			div { class: "grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4",
-				for (g, loc) in shown {
-					LocationCard {
-						key: "{g.id}-{loc.target.id}",
-						to: Route::at(tab, View::Place { gmail: g.id, target: loc.target.id }),
-						gmail: g,
-						all: gmail.is_none(),
-						loc,
-					}
-				}
-			}
-		}
-	}
-}
-
-#[component]
-/// `all`: among every gmail's cards, so it names its gmail.
-fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route) -> Element {
-	let (dot, status) = match loc.last_run_status {
-		Some(RunStatus::Ok) => ("bg-positive", "ok"),
-		Some(RunStatus::Partial) => ("bg-accent-warn", "partial"),
-		Some(RunStatus::Failed) => ("bg-accent-error", "failed"),
-		None => ("bg-ink-soft", "never scanned"),
-	};
-	let last = loc.last_run_at.as_deref().map(|t| format!("last run {} · ", ago(t))).unwrap_or_default();
-	let (dot, scan) = match &loc.scan {
-		Some(ScanState::Queued { since, ahead: 0 }) => ("bg-accent-warn", format!("queued · next · since {} · ", ago(since))),
-		Some(ScanState::Queued { since, ahead }) => ("bg-accent-warn", format!("queued · {ahead} ahead · since {} · ", ago(since))),
-		Some(ScanState::Running { since }) => ("animate-pulse bg-positive", format!("scanning · started {} · ", ago(since))),
-		None => (dot, String::new()),
-	};
-	let target = loc.target.id;
-	let (gmail_on, gmail) = (gmail.enabled, gmail);
-	let id = gmail.id;
-	rsx! {
-		div { class: "relative",
-		Link { class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" }, to,
-			Card { class: "h-full gap-3 rounded-lg p-4 py-4 hover:border-ink-soft",
-				div { class: "pr-12",
-					div { class: "truncate text-[14px] font-semibold", "{loc.target.label}" }
-					if let Some(address) = &loc.target.address {
-						div { class: "truncate text-ink-soft", title: "{address}", "{address}" }
-					}
-					div { class: "truncate font-mono text-[11px] text-ink-soft", "{loc.target.place_id}" }
-					if all {
-						div { class: "truncate text-[11px] text-ink-soft", "{gmail.gmail}" }
-					}
-				}
-				div { class: "flex items-baseline gap-3",
-					span { class: "text-[28px] font-semibold leading-none", "{loc.snapshots_7d}" }
-					span { class: "text-ink-soft", "snapshots 7d" }
-					span { class: "text-[15px] text-ink-soft", "{loc.snapshots_30d}" }
-					span { class: "text-ink-soft", "30d" }
-				}
-				div { class: "flex flex-wrap gap-1.5",
-					Badge { tone: Tone::Ok,
-						match loc.listed {
-							Some(listed) => rsx! { span { title: "archived and still listed / listed on Google", "live {loc.live}/{listed}" } },
-							None => rsx! { "live {loc.live}" },
-						}
-					}
-					Badge { tone: Tone::Ok,
-						span { title: "posted over the last 7 days, removed ones included", "new 7d +{loc.new_7d}" }
-					}
-					if let Some(post) = &loc.latest_post {
-						Badge { tone: Tone::Ok,
-							span { title: "owner's latest post, {ago(post.published_est.as_deref().unwrap_or(&post.first_seen))}:\n{post.text}", "posts 7d {loc.posts_7d}" }
-						}
-					}
-					Badge { tone: if loc.responded < loc.live { Tone::Warn } else { Tone::Ok },
-						span { title: "replied to by the owner / live", "responded {loc.responded}/{loc.live}" }
-					}
-					if loc.removed > 0 {
-						Badge { tone: Tone::Bad, "removed {loc.removed}" }
-					}
-					if loc.reinstating > 0 {
-						Badge { tone: Tone::Warn, "reinstating {loc.reinstating}" }
-					}
-					if loc.held {
-						Badge { tone: Tone::Warn,
-							span { title: "not scanned: every member tracking it is out of tokens", "out of tokens" }
-						}
-					}
-				}
-				div { class: "mt-auto flex items-center gap-2 border-t border-border pt-3 text-[11px] text-ink-soft",
-					span { class: "size-1.5 rounded-full {dot}" }
-					"{scan}{last}"
-					match (&loc.last_run_status, &loc.last_run_error) {
-						(Some(RunStatus::Failed | RunStatus::Partial), Some(why)) => rsx! { span { title: "{why}", "{status}" } },
-						_ => rsx! { "{status}" },
-					}
-				}
-			}
-		}
-		Switch {
-			class: "absolute top-4 right-4",
-			checked: loc.enabled,
-			disabled: !gmail_on,
-			on_checked_change: move |on: bool| act(move |c| async move { c.set_track_enabled(id, target, on).await }),
-		}
-		div { class: "absolute right-2 bottom-2",
-			if loc.scan.is_some() {
-				Button { variant: ButtonVariant::Ghost, size: Size::Sm, icon: true, r#type: "button", disabled: true, Spinner {} }
-			} else {
-				TokenCost { tokens: loc.scan_cost,
-					Button {
-						variant: ButtonVariant::Ghost,
-						size: Size::Sm,
-						icon: true,
-						r#type: "button",
-						onclick: move |_| act(move |c| async move { c.scan_tracked(id, target).await.map(drop) }),
-						span { title: "scan now, on top of the schedule", "↻" }
-					}
-				}
-			}
-		}
-		}
+		filter::Bar { shown: count, total }
+		{overview}
 	}
 }
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tone {
 	Ok,
+	#[cfg(not(feature = "grafana"))]
 	Bad,
 	Warn,
 }
@@ -968,6 +859,7 @@ enum Tone {
 fn Badge(tone: Tone, children: Element) -> Element {
 	let (variant, class) = match tone {
 		Tone::Ok => (BadgeVariant::Success, ""),
+		#[cfg(not(feature = "grafana"))]
 		Tone::Bad => (BadgeVariant::Outline, "border-transparent bg-accent-error/15 text-accent-error"),
 		Tone::Warn => (BadgeVariant::Outline, "border-transparent bg-accent-warn/15 text-accent-warn"),
 	};

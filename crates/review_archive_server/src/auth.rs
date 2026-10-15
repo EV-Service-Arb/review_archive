@@ -152,7 +152,8 @@ pub async fn grants_tokens(req: Request, next: Next) -> Response {
 	require(sa_auth::Tokens::Grant, req, next).await
 }
 
-/// Whose `/me` this is: the caller, or the person `X-Member` names for one who may act as others.
+/// Whose `/me` this is: the caller, or the person `X-Member` names: the caller again, or anyone
+/// for one who may act as others.
 pub struct Member(pub PersonId);
 
 impl FromRequestParts<AppState> for Member {
@@ -163,15 +164,18 @@ impl FromRequestParts<AppState> for Member {
 		let Some(named) = parts.headers.get(MEMBER_HEADER) else {
 			return Ok(Self(caller.person));
 		};
-		if !caller.permissions.may(sa_auth::Members::ActAs) {
-			return Err(refuse(StatusCode::FORBIDDEN, "acting as another member needs sa:review_archive:members:act_as"));
-		}
 		let id = named
 			.to_str()
 			.ok()
 			.and_then(|v| v.trim().parse::<i64>().ok())
 			.map(PersonId)
 			.ok_or_else(|| refuse(StatusCode::BAD_REQUEST, "X-Member is not a person id"))?;
+		if id == caller.person {
+			return Ok(Self(id));
+		}
+		if !caller.permissions.may(sa_auth::Members::ActAs) {
+			return Err(refuse(StatusCode::FORBIDDEN, "acting as another member needs sa:review_archive:members:act_as"));
+		}
 		state.archive.check_person(id).await.map_err(|e| crate::http::ApiError::from(e).into_response())?;
 		Ok(Self(id))
 	}

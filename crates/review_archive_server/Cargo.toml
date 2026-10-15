@@ -26,7 +26,7 @@ ev_lib = { workspace = true, features = ["settings", "error_monitoring", "otel",
 eyre.workspace = true
 jiff.workspace = true
 rand.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["stream"] } # `/grafana/`'s request bodies
 review_archive = { workspace = true, features = ["maps", "settings", "store"] }
 review_archive_core = { workspace = true, features = ["openapi"] }
 sa_auth = { workspace = true, features = ["catalog"] }

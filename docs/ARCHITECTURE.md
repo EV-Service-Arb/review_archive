@@ -34,14 +34,17 @@ crates/review_archive/          the engine (features: maps, store)
     src/webhooks.rs               where a hook may point; delivering the outbox: signature, retries, the Telegram bot
   src/places.rs                 Places API search for URLs without an id
 crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, background loops; thin over `Archive`
-  src/http.rs                   the API and its OpenAPI document (utoipa, `GET /openapi.json`), `/mfe/`, the page at `/`
+  src/http.rs                   the API and its OpenAPI document (utoipa, `GET /openapi.json`), `/mfe/`, the page at `/`,
+                                `/grafana/` to the Grafana `serve` runs (`grafana`, `--dev-member` only)
   src/auth.rs                   who is calling: the panel's assertion (`sa_auth`), a person by `sub`; the
                                 permission guards; whose `/me` it is (`X-Member`)
   src/worker.rs                 the browser's worker (queued jobs, then due targets) and the deliverer
   src/settings.rs               the environment (ev_lib `settings!`): secrets, APP_ENV
   src/config.rs                 the config (v_utils `Settings`): data dir, bind, and every library and server section
 crates/review_archive_client/   typed async client of the HTTP API through the panel, on the core's DTOs; native and wasm
-crates/review_archive_web/      the dashboard MFE (dioxus, wasm), over the client; `package.sh` lays out /mfe/, `index.html` is `/`
+crates/review_archive_web/      the dashboard MFE (dioxus, wasm), over the client; `package.sh` lays out /mfe/, `index.html` is `/`;
+                                its `grafana` feature frames Grafana's overview and Stats tile (`nix run .#with-grafana`)
+grafana/                        those dashboards, over the API through the Infinity datasource
 ```
 
 ## Using the library

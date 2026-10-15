@@ -18,6 +18,9 @@ pub struct AppConfig {
 	pub bind: SocketAddr,
 	/// The dashboard's built bundle, served under `/mfe/`; not served when unset.
 	pub mfe_dir: Option<PathBuf>,
+	/// The Grafana server `serve --dev-member` runs and serves under `/grafana/`; the dashboard's
+	/// `grafana` build frames it.
+	pub grafana: Option<PathBuf>,
 	#[serde(default)]
 	#[settings(flatten)]
 	pub browser: BrowserConfig,
