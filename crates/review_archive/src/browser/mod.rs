@@ -133,14 +133,11 @@ impl Browser {
 		state.signed_out.insert(profile.to_owned());
 	}
 
-	/// Opens Maps on `profile`, which walks do not go to, and says whether it is signed in to Google.
+	/// Opens Maps on `profile` and says whether it is signed in to Google.
 	pub(crate) async fn touch(&self, profile: &Path) -> eyre::Result<bool> {
 		let mut state = self.inner.state.lock().await;
-		assert!(state.current(&self.inner.profiles).is_some_and(|p| p != profile), "a standby is behind the profile walks go to");
-		// one Chromium at a time, as the memory lease is sized for one
-		if let Some(s) = state.session.take() {
-			s.close().await;
-		}
+		// one Chromium at a time, as the memory lease is sized for one; and `profile` may be the one walks hold
+		state.release().await;
 		let _lock = ProfileLock::acquire(profile)?;
 		let session = Session::launch(&self.inner.cfg, profile).await?;
 		let signed_out = async {

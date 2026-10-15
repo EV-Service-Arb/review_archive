@@ -541,6 +541,53 @@ impl Archive {
 		Ok(())
 	}
 
+	/// At boot: Maps opened on the accounts walks would go to, in order, until one is signed in;
+	/// each found signed out is kept so. With none left it fails as `signed_out`, before any walk.
+	/// Nothing to walk, or Maps paused, and it waits for the walks to find out.
+	#[cfg(feature = "maps")]
+	pub async fn check_signed_in(&self, now: Timestamp) -> eyre::Result<()> {
+		if !self.targets().await?.iter().any(|t| t.enabled) {
+			return Ok(());
+		}
+		if let Some(why) = self.closed(TargetKind::Maps, now).await? {
+			tracing::warn!(why, "the Google accounts are not checked at boot");
+			return Ok(());
+		}
+		let browser = &self.inner.browser;
+		let store = self.store()?;
+		browser.sync(signed_out_rows(store).await?).await;
+		//LOOP: one turn per account, and they are finite
+		while let Some(current) = browser.current().await {
+			store.mark_used(&current, now).await?;
+			match browser.touch(&current).await {
+				Ok(true) => {
+					tracing::info!(profile = %current.display(), "the scanner's Google account is signed in");
+					return Ok(());
+				}
+				Ok(false) => {}
+				Err(e) if crate::remedy(&e) == crate::Remedy::Pause => return self.pause_maps(&e, now).await,
+				Err(e) => return Err(e.wrap_err(format!("checking {} is signed in to Google", current.display()))),
+			}
+			browser.sign_out(&current).await;
+			self.settle_signed_out(now).await?;
+		}
+		let rows = store.profiles().await?;
+		let accounts = browser
+			.profiles()
+			.iter()
+			.map(|p| {
+				let since = rows
+					.iter()
+					.find(|r| r.path == *p)
+					.and_then(|r| r.signed_out_at)
+					.expect("each was marked as it was found signed out");
+				format!("{} (since {since})", p.display())
+			})
+			.collect::<Vec<_>>()
+			.join(", ");
+		Err(eyre::Report::from(crate::SessionError::new_signed_out()).wrap_err(format!("at boot, every Google account is signed out: {accounts}")))
+	}
+
 	/// Opens Maps on the first signed-in profile after the one walks go to that has not been on
 	/// Google for `browser.standby_touch`, so an account signed out while it waits is alerted on
 	/// before a walk needs it. Whether one was opened.
@@ -575,17 +622,24 @@ impl Archive {
 			}
 			Err(e) => {
 				if crate::remedy(&e) == crate::Remedy::Pause {
-					let reason = e
-						.downcast_ref::<crate::SessionError>()
-						.and_then(miette::Diagnostic::code)
-						.expect("a pause is a SessionError, which has codes");
-					let b = store.trip_breaker(&reason.to_string(), now, &self.inner.schedule).await?;
-					tracing::error!(trips = b.trips, probe_after = %b.probe_after, "Maps cannot work now ({reason}): every Maps walk pauses until the probe");
+					self.pause_maps(&e, now).await?;
 				}
 				return Err(e.wrap_err(format!("touching the standby profile {}", standby.display())));
 			}
 		}
 		Ok(true)
+	}
+
+	/// `e` stops Maps for every target: the breaker trips.
+	#[cfg(feature = "maps")]
+	async fn pause_maps(&self, e: &eyre::Report, now: Timestamp) -> eyre::Result<()> {
+		let reason = e
+			.downcast_ref::<crate::SessionError>()
+			.and_then(miette::Diagnostic::code)
+			.expect("a pause is a SessionError, which has codes");
+		let b = self.store()?.trip_breaker(&reason.to_string(), now, &self.inner.schedule).await?;
+		tracing::error!(trips = b.trips, probe_after = %b.probe_after, error = crate::describe(e), "Maps cannot work now ({reason}): every Maps walk pauses until the probe");
+		Ok(())
 	}
 
 	/// Why scans of this kind cannot run at `now`: Maps paused while it cannot work, or a source

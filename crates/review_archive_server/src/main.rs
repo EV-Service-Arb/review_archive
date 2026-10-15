@@ -189,7 +189,7 @@ fn main() -> eyre::Result<()> {
 	if let Err(e) = &ended
 		&& review_archive::remedy(e) == review_archive::Remedy::Fatal
 	{
-		eprintln!("Error: {e:?}");
+		eprintln!("Error: {}", review_archive::describe(e));
 		drop((_otel, _sentry));
 		std::process::exit(78);
 	}
@@ -485,6 +485,7 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		if logged {
 			tracing::info!("took over the data dir");
 		}
+		archive.check_signed_in(jiff::Timestamp::now()).await?;
 		tokio::try_join!(work, deliver, backfill)?;
 		drop(lock);
 		Ok(())

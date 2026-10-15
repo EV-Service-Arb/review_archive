@@ -160,3 +160,61 @@ fn serve_whose_worker_cannot_go_on_exits_78() {
 	};
 	assert_eq!(status.code(), Some(78));
 }
+
+/// Every Google account signed out: `serve` exits 78 at boot, before a walk is due, and records no run.
+#[test]
+fn serve_with_every_account_signed_out_exits_78_at_boot() {
+	let dir = TempDir::new("serve-signed-out");
+	let data = dir.0.join("data");
+	let config = dir.0.join("config.toml");
+	std::fs::write(&config, format!("data_dir = {data:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\n")).unwrap();
+	let cli = |args: &[&str]| {
+		let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_review_archive"));
+		c.arg("--config").arg(&config).args(args).env("APP_ENV", "development");
+		c
+	};
+	assert!(cli(&["target", "add", PLACE, "--interval", "1d"]).status().unwrap().success());
+	let rt = tokio::runtime::Runtime::new().unwrap();
+	let target = rt.block_on(async {
+		let archive = Archive::open(Config {
+			data_dir: Some(data.clone()),
+			..Config::default()
+		})
+		.await
+		.unwrap();
+		archive.store().unwrap().mark_signed_out(&data.join("chromium-profile"), Timestamp::now()).await.unwrap();
+		let target = archive.targets().await.unwrap()[0].id;
+		archive.close().await;
+		target
+	});
+
+	let mut serve = cli(&["serve", "--dev-member", "none"]).stderr(std::process::Stdio::piped()).spawn().unwrap();
+	let deadline = std::time::Instant::now() + Duration::from_secs(60);
+	let status = loop {
+		if let Some(status) = serve.try_wait().unwrap() {
+			break status;
+		}
+		if std::time::Instant::now() > deadline {
+			serve.kill().unwrap();
+			panic!("serve went on with every account signed out");
+		}
+		std::thread::sleep(Duration::from_millis(100));
+	};
+	let mut stderr = String::new();
+	std::io::Read::read_to_string(&mut serve.stderr.take().unwrap(), &mut stderr).unwrap();
+	assert_eq!(status.code(), Some(78), "{stderr}");
+	assert!(
+		stderr.contains("at boot, every Google account is signed out: ") && stderr.contains("help: ") && stderr.contains("code: review_archive::google::signed_out"),
+		"{stderr}"
+	);
+	rt.block_on(async {
+		let archive = Archive::open(Config {
+			data_dir: Some(data.clone()),
+			..Config::default()
+		})
+		.await
+		.unwrap();
+		assert!(archive.runs(target, &Default::default()).await.unwrap().is_empty(), "no walk was tried");
+		archive.close().await;
+	});
+}

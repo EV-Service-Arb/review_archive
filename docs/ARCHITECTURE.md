@@ -93,9 +93,11 @@ with its own platform implements `sources::ReviewSource` and records through
   next signed-in profile (it is seen before any card is read), and the account is kept signed
   out (`profiles`, SQLite, so a restart keeps it) and logged at error level until a person signs
   it in again with `scripts/new_google_session.py`; the standby accounts are opened on Maps at
-  least every `browser.standby_touch`, to find one signed out before a walk needs it. With every
-  account signed out the walk fails (`signed_out`) and `serve` ends with exit 78, which devops
-  holds the deployment on until a person signs one in and resumes it. A failed walk saves the
+  least every `browser.standby_touch`, to find one signed out before a walk needs it. `serve` checks at
+  boot, before any walk: Maps opened on the accounts in order until one is signed in. With every
+  account signed out the boot or walk fails (`signed_out`, naming each account and since when) and
+  `serve` ends with exit 78, which devops holds the deployment on until a person signs one in and
+  resumes it. A failed walk saves the
   page as `<data_dir>/artifacts/browser_captures/<UTC time>-<step>.{png,html}` (kept `browser.artifacts_retention`),
   and its error names them as `[<path>]`s — which is what the server's alerts attach, from
   under `<data_dir>/artifacts/` only. A Chromium start that outran Playwright's 30 s fails
