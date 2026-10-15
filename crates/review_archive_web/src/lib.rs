@@ -798,8 +798,8 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 	let target = loc.target.id;
 	rsx! {
 		div { class: "relative",
-		Link { class: if loc.enabled && gmail_on { "block text-left" } else { "block text-left opacity-50" }, to,
-			Card { class: "gap-3 rounded-lg p-4 py-4 hover:border-ink-soft",
+		Link { class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" }, to,
+			Card { class: "h-full gap-3 rounded-lg p-4 py-4 hover:border-ink-soft",
 				div { class: "pr-12",
 					div { class: "truncate text-[14px] font-semibold", "{loc.target.label}" }
 					div { class: "truncate font-mono text-[11px] text-ink-soft", "{loc.target.place_id}" }
@@ -840,7 +840,7 @@ fn LocationCard(gmail: i64, gmail_on: bool, loc: LocationSummary, to: Route) -> 
 						}
 					}
 				}
-				div { class: "flex items-center gap-2 border-t border-border pt-3 text-[11px] text-ink-soft",
+				div { class: "mt-auto flex items-center gap-2 border-t border-border pt-3 text-[11px] text-ink-soft",
 					span { class: "size-1.5 rounded-full {dot}" }
 					"{scan}{last}"
 					match (&loc.last_run_status, &loc.last_run_error) {
