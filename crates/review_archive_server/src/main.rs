@@ -119,6 +119,10 @@ struct ServeArgs {
 	/// Who `--dev-member` is (their person id, `GET /members`); needed only when several members have gmails.
 	#[arg(long, requires = "dev_member")]
 	dev_as: Option<i64>,
+	/// Development only, never in production: no check at boot that a Google account is signed
+	/// in, and every account found signed out fails walks instead of ending `serve` with exit 78.
+	#[arg(long)]
+	no_login_check: bool,
 }
 
 #[derive(Subcommand)]
@@ -364,6 +368,10 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		eyre::ensure!(bind.ip().is_loopback(), "--dev-member signs everyone in: it serves on a loopback address only, not {bind}");
 		eyre::ensure!(settings.app_env != "production", "--dev-member is for development, and APP_ENV is production");
 	}
+	eyre::ensure!(
+		!(args.no_login_check && settings.app_env == "production"),
+		"--no-login-check is for development, and APP_ENV is production"
+	);
 	// Grafana carries no member identity: every request it makes is the dev member's
 	eyre::ensure!(config.grafana.is_none() || args.dev_member.is_some(), "grafana is served with --dev-member only");
 	let grafana = match &config.grafana {
@@ -445,7 +453,7 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 	let deliver = worker::deliver(&archive, &config.worker, rx.clone());
 	let mut stop = rx.clone();
 	let work = async {
-		let r = worker::run(&archive, &signals, &config.worker, &config.schedule, rx).await;
+		let r = worker::run(&archive, &signals, &config.worker, &config.schedule, !args.no_login_check, rx).await;
 		archive.close().await;
 		r
 	};
@@ -485,7 +493,12 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		if logged {
 			tracing::info!("took over the data dir");
 		}
-		archive.check_signed_in(jiff::Timestamp::now()).await?;
+		if !args.no_login_check {
+			match archive.check_signed_in(jiff::Timestamp::now()).await {
+				Err(e) if review_archive::remedy(&e) != review_archive::Remedy::Fatal => report(&e, "the boot check of the Google accounts failed"), // the walks find out again; a restart would only open Maps again
+				r => r?,
+			}
+		}
 		tokio::try_join!(work, deliver, backfill)?;
 		drop(lock);
 		Ok(())

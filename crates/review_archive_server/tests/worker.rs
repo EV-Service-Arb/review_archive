@@ -78,7 +78,7 @@ async fn a_restart_fails_the_interrupted_job_and_queued_jobs_go_before_due_targe
 	let (stop, stopped) = watch::channel(false);
 	let mut finished = signals.job_finished.subscribe();
 	let (cfg, schedule) = (WorkerConfig::default(), Schedule::default());
-	let worker = run(&archive, &signals, &cfg, &schedule, stopped);
+	let worker = run(&archive, &signals, &cfg, &schedule, true, stopped);
 	let observe = async {
 		tokio::time::timeout(Duration::from_secs(20), finished.changed()).await.expect("a job finished").unwrap();
 		let job = store.job(queued).await.unwrap().unwrap();
@@ -120,7 +120,7 @@ async fn a_browser_that_cannot_be_set_up_ends_the_worker() {
 	let signals = Signals::default();
 	let (_stop, stopped) = watch::channel(false);
 	let (cfg, schedule) = (WorkerConfig::default(), Schedule::default());
-	let ended = tokio::time::timeout(Duration::from_secs(20), run(&archive, &signals, &cfg, &schedule, stopped))
+	let ended = tokio::time::timeout(Duration::from_secs(20), run(&archive, &signals, &cfg, &schedule, true, stopped))
 		.await
 		.expect("the worker ended");
 
@@ -217,4 +217,56 @@ fn serve_with_every_account_signed_out_exits_78_at_boot() {
 		assert!(archive.runs(target, &Default::default()).await.unwrap().is_empty(), "no walk was tried");
 		archive.close().await;
 	});
+}
+
+/// `--no-login-check`: every account signed out fails the walk, and `serve` goes on serving.
+#[test]
+fn serve_without_the_login_check_outlives_every_account_signed_out() {
+	let dir = TempDir::new("serve-no-login-check");
+	let data = dir.0.join("data");
+	let config = dir.0.join("config.toml");
+	std::fs::write(&config, format!("data_dir = {data:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\n")).unwrap();
+	let cli = |args: &[&str]| {
+		let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_review_archive"));
+		c.arg("--config").arg(&config).args(args).env("APP_ENV", "development");
+		c
+	};
+	assert!(cli(&["target", "add", PLACE, "--interval", "1d"]).status().unwrap().success());
+	let rt = tokio::runtime::Runtime::new().unwrap();
+	let open = || async {
+		Archive::open(Config {
+			data_dir: Some(data.clone()),
+			..Config::default()
+		})
+		.await
+		.unwrap()
+	};
+	let target = rt.block_on(async {
+		let archive = open().await;
+		archive.store().unwrap().mark_signed_out(&data.join("chromium-profile"), Timestamp::now()).await.unwrap();
+		let target = archive.targets().await.unwrap()[0].id;
+		archive.close().await;
+		target
+	});
+
+	let mut serve = cli(&["serve", "--dev-member", "none", "--no-login-check"]).spawn().unwrap();
+	let deadline = std::time::Instant::now() + Duration::from_secs(60);
+	let run = loop {
+		assert_eq!(serve.try_wait().unwrap(), None, "serve ended");
+		let runs = rt.block_on(async {
+			let archive = open().await;
+			let runs = archive.runs(target, &Default::default()).await.unwrap();
+			archive.close().await;
+			runs
+		});
+		if let Some(run) = runs.into_iter().next() {
+			break run;
+		}
+		assert!(std::time::Instant::now() < deadline, "no walk was tried");
+		std::thread::sleep(Duration::from_millis(200));
+	};
+	assert!(run.error.as_deref().is_some_and(|e| e.contains("signed out of Google")), "{run:?}");
+	std::thread::sleep(Duration::from_secs(2));
+	assert_eq!(serve.try_wait().unwrap(), None, "serve ended after the walk");
+	serve.kill().unwrap();
 }

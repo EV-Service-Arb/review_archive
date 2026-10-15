@@ -190,7 +190,7 @@
             headful = true
             lean = []
             EOF
-            exec nix develop "$repo" --command cargo r -p review_archive_server -- --config "$out/config.toml" serve --dev-member "$member"
+            exec nix develop "$repo" --command cargo r -p review_archive_server -- --config "$out/config.toml" serve --dev-member "$member" --no-login-check
           '';
         };
 

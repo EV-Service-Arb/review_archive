@@ -324,6 +324,8 @@ the service.
   request is one person holding that, without the panel, for a local dashboard
   (`nix run .#dev-mfe`): the member with gmails, so it shows what the worker scans; with
   several, the one `--dev-as <person id>` names; before anyone has one, a made-up `dev`.
+  `--no-login-check` (outside production; `nix run .#with-grafana` passes it): no boot check of the
+  Google accounts, and every one signed out fails walks without ending `serve`.
 
 ### Telegram
 

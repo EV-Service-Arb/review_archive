@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use jiff::Timestamp;
 use rand::RngExt;
-use review_archive::{Archive, Remedy, describe, remedy};
+use review_archive::{Archive, Remedy, SessionError, describe, remedy};
 use review_archive_core::schedule::Schedule;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
@@ -56,8 +56,9 @@ impl Default for Signals {
 /// The browser's worker, until `shutdown` turns true. One scan at a time: a queued job
 /// goes first (but not more than a few in a row while a target is overdue), then the most
 /// overdue target; between two, a polite pause. A scan in flight at shutdown is
-/// abandoned; the next start fails its run and its job.
-pub async fn run(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, schedule: &Schedule, mut shutdown: watch::Receiver<bool>) -> eyre::Result<()> {
+/// abandoned; the next start fails its run and its job. Without `login_check` (`serve
+/// --no-login-check`), every account signed out fails walks but does not end it.
+pub async fn run(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, schedule: &Schedule, login_check: bool, mut shutdown: watch::Receiver<bool>) -> eyre::Result<()> {
 	let interrupted = archive.recover().await?;
 	if interrupted > 0 {
 		tracing::warn!(interrupted, "failed the jobs the previous process died running");
@@ -77,7 +78,7 @@ pub async fn run(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, sched
 			}
 		}
 		let step = tokio::select! {
-			r = step(archive, signals, cfg, &mut jobs_in_a_row) => r,
+			r = step(archive, signals, cfg, login_check, &mut jobs_in_a_row) => r,
 			_ = shutdown.changed() => return Ok(()),
 		};
 		let wait = match step {
@@ -111,9 +112,9 @@ enum Step {
 	Idle(Duration),
 }
 
-async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, jobs_in_a_row: &mut u32) -> eyre::Result<Step> {
+async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, login_check: bool, jobs_in_a_row: &mut u32) -> eyre::Result<Step> {
 	if *jobs_in_a_row < cfg.jobs_in_a_row
-		&& let Some(step) = run_job(archive, signals).await?
+		&& let Some(step) = run_job(archive, signals, login_check).await?
 	{
 		*jobs_in_a_row += 1;
 		return Ok(step);
@@ -123,11 +124,11 @@ async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, jobs_in_
 		let recorded = archive.scan(&target).await?;
 		tracing::info!("{}", recorded.summary);
 		return Ok(match recorded.failure {
-			Some(e) => failed(e.wrap_err(format!("scan of target {} ({target})", target.id)), "scan failed"),
+			Some(e) => failed(e.wrap_err(format!("scan of target {} ({target})", target.id)), "scan failed", login_check),
 			None => Step::Scanned,
 		});
 	}
-	if let Some(step) = run_job(archive, signals).await? {
+	if let Some(step) = run_job(archive, signals, login_check).await? {
 		*jobs_in_a_row = 1;
 		return Ok(step);
 	}
@@ -135,7 +136,7 @@ async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, jobs_in_
 	match archive.touch_standby(now).await {
 		Ok(true) => return Ok(Step::Scanned),
 		Ok(false) => {}
-		Err(e) => return Ok(failed(e, "standby touch failed")),
+		Err(e) => return Ok(failed(e, "standby touch failed", login_check)),
 	}
 	let max_idle = cfg.max_idle.duration();
 	Ok(Step::Idle(match archive.next_due(now).await? {
@@ -146,7 +147,7 @@ async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, jobs_in_
 }
 
 /// Runs the oldest queued job, if any.
-async fn run_job(archive: &Archive, signals: &Signals) -> eyre::Result<Option<Step>> {
+async fn run_job(archive: &Archive, signals: &Signals, login_check: bool) -> eyre::Result<Option<Step>> {
 	let job = archive.run_next_job().await;
 	if !matches!(job, Ok(None)) {
 		signals.job_finished.send_modify(|n| *n += 1);
@@ -154,14 +155,15 @@ async fn run_job(archive: &Archive, signals: &Signals) -> eyre::Result<Option<St
 	let Some((job, failure)) = job? else { return Ok(None) };
 	tracing::info!(job = job.id, kind = %job.kind, status = %job.status, "job finished");
 	Ok(Some(match failure {
-		Some(e) => failed(e.wrap_err(format!("job {} ({})", job.id, job.kind)), "job failed"),
+		Some(e) => failed(e.wrap_err(format!("job {} ({})", job.id, job.kind)), "job failed", login_check),
 		None => Step::Scanned,
 	}))
 }
 
 /// A failed scan or job: the end of the worker when it cannot go on, else reported.
-fn failed(e: eyre::Report, what: &str) -> Step {
-	if remedy(&e) == Remedy::Fatal {
+fn failed(e: eyre::Report, what: &str, login_check: bool) -> Step {
+	let signed_out = matches!(e.downcast_ref::<SessionError>(), Some(SessionError::SignedOut { .. }));
+	if remedy(&e) == Remedy::Fatal && (login_check || !signed_out) {
 		tracing::error!(error = describe(&e), "the worker cannot go on");
 		return Step::Fatal(e);
 	}
