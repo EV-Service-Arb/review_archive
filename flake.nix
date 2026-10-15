@@ -149,64 +149,48 @@
           auditable = false;
         };
 
-        # `nix run .#dev-mfe [-- <held>]`: the dashboard built (debug) into tmp/mfe-dev and
-        # served by a local `serve` at `/`, on the repo's `data/`, signed in holding `<held>`
-        # (`--dev-member`: an alias, permissions comma-separated, or `none`; no panel needed). Scans run in a Chromium window: a
-        # headless one gets Maps' limited view (#9).
-        devMfe = pkgs.writeShellApplication {
-          name = "dev-mfe";
+        # `serve`'s `grafana`: `serve` gives it its socket, data dir and `RA_API`; the rest is fixed here.
+        grafanaServer = pkgs.writeShellScript "grafana-server" ''
+          log="''${XDG_STATE_HOME:-$HOME/.local/state}/review_archive/grafana.log"
+          mkdir -p "$(dirname "$log")"
+          export RA_GRAFANA=${./grafana}
+          export GF_PATHS_LOGS="$GF_PATHS_DATA/log"
+          export GF_PATHS_PLUGINS="${pkgs.linkFarm "grafana-plugins" (map (p: { name = p.pname; path = p; }) (with pkgs.grafanaPlugins; [ yesoreyeram-infinity-datasource marcusolsson-dynamictext-panel ]))}"
+          export GF_PATHS_PROVISIONING="$RA_GRAFANA/provisioning"
+          export GF_AUTH_ANONYMOUS_ENABLED=true GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+          export GF_SECURITY_ALLOW_EMBEDDING=true
+          export GF_PLUGINS_PREINSTALL_DISABLED=true # its plugin dir is the store's
+          export GF_LIVE_MAX_CONNECTIONS=0
+          export GF_ANALYTICS_REPORTING_ENABLED=false GF_ANALYTICS_CHECK_FOR_UPDATES=false GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
+          exec ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana >>"$log" 2>&1
+        '';
+
+        # `nix run .#<name> [-- <held>]`: the dashboard built (debug) into tmp/<name> and served by a
+        # local `serve` at `/`, on the repo's `data/`, signed in holding `<held>` (`--dev-member`: an
+        # alias, permissions comma-separated, or `none`; no panel needed). Scans run in a Chromium
+        # window: a headless one gets Maps' limited view (#9). `grafana`: Grafana draws the locations overview.
+        devMfe = { name, grafana }: pkgs.writeShellApplication {
+          inherit name;
           runtimeInputs = [ pkgs.git ];
           text = ''
             member="''${1:-sa:admin}"
             repo="$(git rev-parse --show-toplevel)"
             cd "$repo"
-            out="$repo/tmp/mfe-dev"
+            out="$repo/tmp/${name}"
             RUSTFLAGS='${wasmFlags}' nix develop "$repo" --command bash -euc "
-              cargo build -p review_archive_web --target wasm32-unknown-unknown --features grafana
+              cargo build -p review_archive_web --target wasm32-unknown-unknown ${lib.optionalString grafana "--features grafana"}
               bash crates/review_archive_web/package.sh target/wasm32-unknown-unknown/debug/review_archive_web.wasm '$out'
             "
             cat >"$out/config.toml" <<EOF
             data_dir = "$repo/data"
             mfe_dir = "$out"
+            ${lib.optionalString grafana ''grafana = "${grafanaServer}"''}
             [browser]
             executable = "${pkgs.chromium}/bin/chromium"
             headful = true
             lean = []
             EOF
             exec nix develop "$repo" --command cargo r -p review_archive_server -- --config "$out/config.toml" serve --dev-member "$member"
-          '';
-        };
-
-        # `nix run .#dev-grafana`: Grafana at :59111 over dev-mfe's API, anonymous Viewer, framable by the
-        # dashboard (its `grafana` feature). Dashboards are read from `grafana/` as they are edited.
-        devGrafana = pkgs.writeShellApplication {
-          name = "dev-grafana";
-          runtimeInputs = [ pkgs.git pkgs.curl ];
-          text = ''
-            repo="$(git rev-parse --show-toplevel)"
-            state="$repo/tmp/grafana"
-            log="''${XDG_STATE_HOME:-$HOME/.local/state}/review_archive/grafana.log"
-            mkdir -p "$state" "$(dirname "$log")"
-            export RA_GRAFANA="$repo/grafana"
-            export GF_PATHS_DATA="$state" GF_PATHS_LOGS="$state/log"
-            export GF_PATHS_PLUGINS="${pkgs.linkFarm "grafana-plugins" (map (p: { name = p.pname; path = p; }) (with pkgs.grafanaPlugins; [ yesoreyeram-infinity-datasource marcusolsson-dynamictext-panel ]))}"
-            export GF_PATHS_PROVISIONING="$RA_GRAFANA/provisioning"
-            export GF_SERVER_HTTP_ADDR=127.0.0.1 GF_SERVER_HTTP_PORT=59111
-            export GF_AUTH_ANONYMOUS_ENABLED=true GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-            export GF_SECURITY_ALLOW_EMBEDDING=true
-            export GF_PLUGINS_PREINSTALL_DISABLED=true # its plugin dir is the store's
-            export GF_ANALYTICS_REPORTING_ENABLED=false GF_ANALYTICS_CHECK_FOR_UPDATES=false GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
-            ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana >"$log" 2>&1 &
-            pid=$!
-            trap 'kill "$pid" 2>/dev/null' EXIT
-            trap 'exit 130' INT TERM # a signal that kills bash runs no EXIT trap
-            until curl -sf -o /dev/null http://127.0.0.1:59111/api/health; do
-              kill -0 "$pid" 2>/dev/null || { tail -n 30 "$log" >&2; exit 1; }
-              sleep 0.5
-            done
-            echo "▶ grafana: http://127.0.0.1:59111  (log: $log)"
-            curl -sf -o /dev/null http://127.0.0.1:59110/health || echo "  nothing on :59110: its panels stay empty until \`nix run .#dev-mfe\`"
-            wait "$pid"
           '';
         };
 
@@ -273,7 +257,7 @@
             nix build .#${pname}-container    OCI image with chromium-headless-shell (Linux only)
             nix build .#mfe                   the dashboard bundle (served under /mfe/)
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
-            nix run .#dev-grafana             Grafana over dev-mfe's API at :59111, the dashboard's Grafana view
+            nix run .#with-grafana [-- <held>]  dev-mfe, its locations overview drawn by Grafana
             nix run .#publish -- major|minor|patch [note]
                                               tag the next vX.Y.Z and push it: CI ships the image
             nix run .#help                    this
@@ -322,8 +306,8 @@
       {
         apps = {
           help = { type = "app"; program = lib.getExe help; };
-          dev-mfe = { type = "app"; program = lib.getExe devMfe; };
-          dev-grafana = { type = "app"; program = lib.getExe devGrafana; };
+          dev-mfe = { type = "app"; program = lib.getExe (devMfe { name = "dev-mfe"; grafana = false; }); };
+          with-grafana = { type = "app"; program = lib.getExe (devMfe { name = "with-grafana"; grafana = true; }); };
           publish = { type = "app"; program = lib.getExe publish; };
         };
 

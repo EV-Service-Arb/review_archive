@@ -4,6 +4,6 @@ datasources:
   - name: review_archive
     uid: ra-api
     type: yesoreyeram-infinity-datasource
-    url: http://localhost:59110
+    url: $RA_API
     jsonData:
-      allowedHosts: [http://localhost:59110]
+      allowedHosts: [$RA_API]
