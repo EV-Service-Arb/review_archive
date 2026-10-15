@@ -287,7 +287,7 @@ async fn target_cmd(archive: &Archive, cmd: TargetCmd) -> eyre::Result<()> {
 					t.id,
 					t.kind.as_ref(),
 					if t.enabled { "enabled" } else { "disabled" },
-					t.label,
+					t.to_string(),
 					t.place_id,
 					t.lang,
 					t.interval,
@@ -335,7 +335,7 @@ async fn scan(archive: &Archive, schedule: &Schedule, args: ScanArgs) -> eyre::R
 			Ok(r) => {
 				if let Some(e) = r.failure {
 					failed += 1;
-					report(&e.wrap_err(format!("scan of target {} ({})", t.id, t.label)), "scan failed");
+					report(&e.wrap_err(format!("scan of target {} ({t})", t.id)), "scan failed");
 				}
 				println!("{}", r.summary);
 			}

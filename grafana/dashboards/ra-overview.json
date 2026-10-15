@@ -1,0 +1,196 @@
+{
+  "uid": "ra-overview",
+  "title": "review_archive · overview",
+  "tags": ["review_archive"],
+  "schemaVersion": 41,
+  "editable": true,
+  "time": { "from": "now-30d", "to": "now" },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "gmail",
+        "label": "gmail",
+        "type": "query",
+        "refresh": 1,
+        "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+        "query": {
+          "refId": "variable",
+          "queryType": "infinity",
+          "query": "",
+          "infinityQuery": {
+            "refId": "variable",
+            "type": "json",
+            "source": "url",
+            "format": "table",
+            "parser": "backend",
+            "url": "/me/overview",
+            "url_options": { "method": "GET" },
+            "columns": [
+              { "selector": "gmail", "text": "__text", "type": "string" },
+              { "selector": "id", "text": "__value", "type": "string" }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Across locations",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 4 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/me/overview",
+          "url_options": { "method": "GET" },
+          "root_selector": "$[id=${gmail}].locations[]",
+          "columns": [
+            { "selector": "live", "text": "live", "type": "number" },
+            { "selector": "new_7d", "text": "new 7d", "type": "number" },
+            { "selector": "responded", "text": "responded", "type": "number" },
+            { "selector": "removed", "text": "removed", "type": "number" },
+            { "selector": "reinstating", "text": "reinstating", "type": "number" }
+          ]
+        }
+      ],
+      "transformations": [
+        { "id": "reduce", "options": { "mode": "reduceFields", "reducers": ["sum"], "includeTimeField": false } },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "alias": "responded %",
+            "binary": { "left": { "matcher": { "id": "byName", "options": "responded" } }, "operator": "/", "right": { "matcher": { "id": "byName", "options": "live" } } },
+            "replaceFields": false
+          }
+        },
+        { "id": "organize", "options": { "excludeByName": { "responded": true }, "indexByName": { "live": 0, "new 7d": 1, "responded %": 2, "removed": 3, "reinstating": 4 } } }
+      ],
+      "fieldConfig": {
+        "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "text" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "responded %" }, "properties": [{ "id": "unit", "value": "percentunit" }] },
+          { "matcher": { "id": "byName", "options": "removed" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "reinstating" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+        ]
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "vertical",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 2,
+      "type": "marcusolsson-dynamictext-panel",
+      "title": "Locations",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 16 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/me/overview",
+          "url_options": { "method": "GET" },
+          "root_selector": "$[id=${gmail}].locations[]",
+          "columns": [
+            { "selector": "target.id", "text": "target", "type": "number" },
+            { "selector": "target.label", "text": "label", "type": "string" },
+            { "selector": "target.place_id", "text": "place_id", "type": "string" },
+            { "selector": "enabled", "text": "enabled", "type": "boolean" },
+            { "selector": "snapshots_7d", "text": "snapshots_7d", "type": "number" },
+            { "selector": "snapshots_30d", "text": "snapshots_30d", "type": "number" },
+            { "selector": "live", "text": "live", "type": "number" },
+            { "selector": "listed", "text": "listed", "type": "number" },
+            { "selector": "new_7d", "text": "new_7d", "type": "number" },
+            { "selector": "responded", "text": "responded", "type": "number" },
+            { "selector": "removed", "text": "removed", "type": "number" },
+            { "selector": "reinstating", "text": "reinstating", "type": "number" },
+            { "selector": "held", "text": "held", "type": "boolean" },
+            { "selector": "last_run_at", "text": "last_run_at", "type": "string" },
+            { "selector": "last_run_status", "text": "last_run_status", "type": "string" },
+            { "selector": "last_run_error", "text": "last_run_error", "type": "string" }
+          ]
+        }
+      ],
+      "options": {
+        "renderMode": "allRows",
+        "wrap": false,
+        "editors": ["afterRender", "styles"],
+        "contentPartials": [],
+        "helpers": "",
+        "defaultContent": "No places tracked under this gmail yet.",
+        "content": "<div class=\"ra-grid\">\n{{#each data}}\n<div class=\"ra-card{{#unless enabled}} ra-off{{/unless}}\">\n  <div class=\"ra-label\">{{label}}</div>\n  <div class=\"ra-pid\">{{place_id}}</div>\n  <div class=\"ra-big\"><b>{{snapshots_7d}}</b> snapshots 7d <span>{{snapshots_30d}} 30d</span></div>\n  <div class=\"ra-badges\">\n    <span class=\"ok\">live {{live}}{{#if listed}}/{{listed}}{{/if}}</span>\n    <span class=\"ok\">new 7d +{{new_7d}}</span>\n    <span class=\"{{#if (lt responded live)}}warn{{else}}ok{{/if}}\">responded {{responded}}/{{live}}</span>\n    {{#if removed}}<span class=\"bad\">removed {{removed}}</span>{{/if}}\n    {{#if reinstating}}<span class=\"warn\">reinstating {{reinstating}}</span>{{/if}}\n    {{#if held}}<span class=\"warn\">out of tokens</span>{{/if}}\n  </div>\n  <div class=\"ra-run ra-{{last_run_status}}\" title=\"{{last_run_error}}\">{{#if last_run_status}}{{last_run_status}} · {{last_run_at}}{{else}}never scanned{{/if}}</div>\n</div>\n{{/each}}\n</div>",
+        "afterRender": "const gmail = Number(context.grafana.replaceVariables('${gmail}'));\nconst cards = context.element.querySelectorAll('.ra-card');\ncontext.data.forEach((row, i) => cards[i].addEventListener('click', () => window.parent.postMessage({ kind: 'ra-open', gmail, target: row.target }, '*')));",
+        "styles": ".ra-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }\n.ra-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; cursor: pointer; }\n.ra-card:hover { border-color: rgba(128,128,128,.7); }\n.ra-off { opacity: .5; }\n.ra-label { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-pid { font-family: monospace; font-size: 11px; opacity: .6; overflow: hidden; text-overflow: ellipsis; }\n.ra-big b { font-size: 26px; }\n.ra-big span { opacity: .6; margin-left: 8px; }\n.ra-badges { display: flex; flex-wrap: wrap; gap: 6px; }\n.ra-badges span { font-size: 11px; padding: 1px 8px; border-radius: 999px; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }\n.bad { background: rgba(242,73,92,.15); color: #f2495c; }\n.ra-run { margin-top: auto; padding-top: 8px; border-top: 1px solid rgba(128,128,128,.3); font-size: 11px; opacity: .7; }\n.ra-ok::before, .ra-partial::before, .ra-failed::before { content: '●'; margin-right: 6px; }\n.ra-ok::before { color: #73bf69; }\n.ra-partial::before { color: #ff9830; }\n.ra-failed::before { color: #f2495c; }"
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "All locations",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 10 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/me/overview",
+          "url_options": { "method": "GET" },
+          "root_selector": "$[id=${gmail}].locations[]",
+          "columns": [
+            { "selector": "target.label", "text": "location", "type": "string" },
+            { "selector": "enabled", "text": "on", "type": "boolean" },
+            { "selector": "snapshots_7d", "text": "snapshots 7d", "type": "number" },
+            { "selector": "snapshots_30d", "text": "snapshots 30d", "type": "number" },
+            { "selector": "live", "text": "live", "type": "number" },
+            { "selector": "listed", "text": "listed", "type": "number" },
+            { "selector": "new_7d", "text": "new 7d", "type": "number" },
+            { "selector": "posts_7d", "text": "posts 7d", "type": "number" },
+            { "selector": "responded", "text": "responded", "type": "number" },
+            { "selector": "removed", "text": "removed", "type": "number" },
+            { "selector": "reinstating", "text": "reinstating", "type": "number" },
+            { "selector": "last_run_at", "text": "last run", "type": "timestamp" },
+            { "selector": "last_run_status", "text": "status", "type": "string" }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "filterable": true } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "status" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "mappings",
+                "value": [{ "type": "value", "options": { "ok": { "color": "green", "index": 0 }, "partial": { "color": "orange", "index": 1 }, "failed": { "color": "red", "index": 2 } } }]
+              }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "snapshots 7d", "desc": true }] }
+    }
+  ]
+}

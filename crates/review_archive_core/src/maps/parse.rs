@@ -45,6 +45,16 @@ pub fn owner_post(html: &str) -> Option<Post> {
 	})
 }
 
+/// The place's name, from its overview's heading in `html`.
+pub fn place_name(html: &str) -> Option<String> {
+	first_text(Html::parse_fragment(html).root_element(), sel::PLACE_TITLE)
+}
+
+/// The place's address, from its overview in `html`.
+pub fn place_address(html: &str) -> Option<String> {
+	first_text(Html::parse_fragment(html).root_element(), sel::PLACE_ADDRESS)
+}
+
 /// Parses every outermost review card in `html`, in document order.
 pub fn cards(html: &str) -> Vec<Card> {
 	let doc = Html::parse_fragment(html);

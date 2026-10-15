@@ -230,7 +230,7 @@ impl Deliverer {
 	async fn telegram(&self, store: &Store, d: &Delivery, destination: &str) -> eyre::Result<Result<(), String>> {
 		let (_, tg) = self.bot()?;
 		let payload: EventPayload = serde_json::from_str(&d.payload).map_err(|e| eyre::eyre!("delivery {} has an unreadable payload: {e}", d.id))?;
-		let label = store.target(TargetId(payload.target_id)).await?.label;
+		let label = store.target(TargetId(payload.target_id)).await?.to_string();
 		let text = message(&payload, &label);
 		let photo = match payload.review.as_ref().and_then(|r| r.capture_sha256.as_deref()).filter(|_| payload.event == Event::ReviewGone) {
 			Some(sha) => {

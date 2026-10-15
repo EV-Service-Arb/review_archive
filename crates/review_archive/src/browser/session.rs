@@ -61,6 +61,8 @@ pub(crate) struct Opened {
 	pub page_url: String,
 	pub sorted: bool,
 	pub total: Option<u64>,
+	pub name: String,
+	pub address: Option<String>,
 	pub post: Option<parse::Post>,
 }
 
@@ -199,7 +201,7 @@ impl Page<'_> {
 		self.wait_for_any(sel::SIGNED_OUT).await
 	}
 
-	/// Opens the place, reads the owner's latest post off its overview, and opens its review
+	/// Opens the place, reads its name, address and the owner's latest post off its overview, and opens its review
 	/// list sorted newest first. `Err`: the walk is already over — the place has no reviews,
 	/// or `policy` does not want them read.
 	pub(crate) async fn open_reviews(&mut self, place_id: &str, lang: &str, policy: &mut dyn WalkPolicy, meter: &mut Meter) -> Result<Result<Opened, Walked>, SessionError> {
@@ -215,21 +217,24 @@ impl Page<'_> {
 			return Err(SessionError::new_signed_out());
 		}
 		let post = parse::owner_post(&self.eval::<String>(js::FIRST_HTML, sel::OWNER_POST).await?);
+		let name = parse::place_name(&self.eval::<String>(js::FIRST_HTML, sel::PLACE_TITLE).await?);
+		let address = parse::place_address(&self.eval::<String>(js::FIRST_HTML, sel::PLACE_ADDRESS).await?);
 		if !has_reviews_tab {
 			if self.eval::<bool>(js::HAS_TEXT, sel::LIMITED_VIEW_TEXT).await? {
 				return Err(SessionError::new_limited_view());
 			}
 			// no place panel at all: Google does not know the id, whatever its markup is now
-			if !self.eval::<bool>(js::ANY, sel::PLACE_TITLE).await? {
+			let Some(name) = name else {
 				return Err(SessionError::new_place_not_found(place_id.to_owned()));
-			}
+			};
 			// The place rendered, and has no star average: nobody has reviewed it yet.
 			if !self.eval::<bool>(js::ANY, sel::RATING_SUMMARY).await? {
 				tracing::info!(place_id, "the place has no reviews");
-				return Ok(Err(Walked::empty(url, post)));
+				return Ok(Err(Walked::empty(url, name, address, post)));
 			}
 			return Err(markup_changed("waiting for the reviews tab", sel::REVIEWS_TAB));
 		}
+		let name = name.ok_or_else(|| markup_changed("reading the place's name", sel::PLACE_TITLE))?;
 		meter.spend(cost::REVIEWS);
 		if !self.click_first(sel::REVIEWS_TAB).await? {
 			return Err(markup_changed("clicking the reviews tab", sel::REVIEWS_TAB));
@@ -237,14 +242,14 @@ impl Page<'_> {
 		if !self.wait_for_any(&[sel::CARD]).await? {
 			if self.review_total().await? == Some(0) {
 				tracing::info!(place_id, "the review list is empty");
-				return Ok(Err(Walked::empty(url, post)));
+				return Ok(Err(Walked::empty(url, name, address, post)));
 			}
 			return Err(markup_changed("waiting for the review list", &[sel::CARD]));
 		}
 		let total = self.review_total().await?;
 		if !policy.wants_list(total) {
 			tracing::info!(place_id, ?total, "the review count is the last scan's; the list is not read");
-			return Ok(Err(Walked::unchanged(self.tab.url(), total, post)));
+			return Ok(Err(Walked::unchanged(self.tab.url(), name, address, total, post)));
 		}
 
 		if !self.wait_for_any(sel::SORT_BUTTON).await? {
@@ -259,6 +264,8 @@ impl Page<'_> {
 			page_url: self.tab.url(),
 			sorted,
 			total,
+			name,
+			address,
 			post,
 		}))
 	}
@@ -413,6 +420,8 @@ impl Page<'_> {
 			warnings,
 			sorted: opened.sorted,
 			total: opened.total,
+			name: opened.name,
+			address: opened.address,
 			post: opened.post,
 		})
 	}

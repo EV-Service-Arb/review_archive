@@ -67,7 +67,7 @@ impl Archive {
 		let lang = req.lang.clone().unwrap_or_else(|| self.inner.defaults.lang.clone());
 		check_lang(&lang)?;
 		let gbp = req.gbp.as_deref().map(str::parse::<GbpLocation>).transpose()?;
-		let (place_id, _) = crate::places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), &req.place).await?;
+		let (place_id, resolved) = crate::places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), &req.place).await?;
 		let target = match store.find_target(&place_id, &lang, gbp.as_ref()).await? {
 			Some(t) if t.enabled => t,
 			Some(t) =>
@@ -79,7 +79,7 @@ impl Archive {
 					},
 				)
 				.await?,
-			None => self.insert_target(&place_id, req.label.clone(), Some(lang), None, gbp, true).await?.target,
+			None => self.insert_target(place_id, resolved.as_ref(), req.label.clone(), Some(lang), None, gbp, true).await?,
 		};
 		store.track(Some(member), gmail, target.id, Timestamp::now()).await?;
 		Ok(target.into())

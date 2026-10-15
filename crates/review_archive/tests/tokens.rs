@@ -80,6 +80,8 @@ impl ReviewSource for Spends {
 			cut_after: None,
 			listed: None,
 			post: None,
+			name: None,
+			address: None,
 		})
 	}
 }

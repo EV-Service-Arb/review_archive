@@ -70,6 +70,8 @@ fn complete(reviews: Vec<Observed>) -> Result<Scan, String> {
 		cut_after: None,
 		listed: None,
 		post: None,
+		name: None,
+		address: None,
 	})
 }
 
@@ -99,7 +101,9 @@ async fn target(store: &Store) -> Target {
 	let id = store
 		.add_target(
 			&InsertTarget {
-				label: "t".into(),
+				label: None,
+				name: Some("t".into()),
+				address: None,
 				kind: TargetKind::Maps,
 				place_id: "ChIJtesttesttesttest".into(),
 				gbp: None,
@@ -360,7 +364,9 @@ async fn telegram_channels_get_their_members_places_only() {
 	let other = store
 		.add_target(
 			&InsertTarget {
-				label: "elsewhere".into(),
+				label: None,
+				name: Some("elsewhere".into()),
+				address: None,
 				kind: TargetKind::Maps,
 				place_id: "ChIJelsewhereelsewhere".into(),
 				gbp: None,

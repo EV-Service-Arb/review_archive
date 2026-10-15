@@ -54,6 +54,8 @@ impl ReviewSource for Served {
 			cut_after: None,
 			listed: None,
 			post: None,
+			name: None,
+			address: None,
 		})
 	}
 }

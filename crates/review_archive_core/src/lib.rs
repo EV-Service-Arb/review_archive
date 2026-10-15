@@ -154,8 +154,12 @@ impl FromStr for GbpLocation {
 pub struct Target {
 	/// Its id in the archive.
 	pub id: TargetId,
-	/// What people call it; the place's name unless given.
-	pub label: String,
+	/// What a person called it, which it is shown as over its name.
+	pub label: Option<String>,
+	/// The place's name as Google last showed it.
+	pub name: Option<String>,
+	/// The place's address as Google last showed it.
+	pub address: Option<String>,
 	/// Where its reviews are read from.
 	pub kind: TargetKind,
 	/// The Google place id (`ChIJ…`). `gbp` targets need it too: screenshots come from Maps.
@@ -170,6 +174,12 @@ pub struct Target {
 	pub enabled: bool,
 	/// When it was added.
 	pub created_at: Timestamp,
+}
+
+impl fmt::Display for Target {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.pad(self.label.as_deref().or(self.name.as_deref()).unwrap_or(&self.place_id))
+	}
 }
 
 /// One review as a source saw it on this scan.
@@ -243,6 +253,10 @@ pub struct Scan {
 	pub listed: Option<u64>,
 	/// The owner's latest post, when the source shows one.
 	pub post: Option<OwnerPost>,
+	/// The place's name, when the source showed it.
+	pub name: Option<String>,
+	/// The place's address; only meaningful with `name`, which says the overview was read.
+	pub address: Option<String>,
 }
 
 /// A post by the place's owner, as a scan saw it.

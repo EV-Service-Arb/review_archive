@@ -80,7 +80,7 @@ impl Store {
 	/// The member's ledger, newest first; days renewal added nothing to are left out.
 	pub async fn ledger(&self, member: PersonId, limit: u32) -> eyre::Result<Vec<LedgerEntry>> {
 		let rows: Vec<LedgerRow> = sqlx::query_as(
-			"SELECT l.at, l.delta, l.kind, l.by_email, l.note, l.run_id, r.target_id, t.label
+			"SELECT l.at, l.delta, l.kind, l.by_email, l.note, l.run_id, r.target_id, COALESCE(t.label, t.name, t.place_id) AS label
 			 FROM token_ledger l LEFT JOIN runs r ON r.id = l.run_id LEFT JOIN targets t ON t.id = r.target_id
 			 WHERE l.person_id = ? AND l.delta != 0 ORDER BY l.id DESC LIMIT ?",
 		)

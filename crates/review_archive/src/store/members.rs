@@ -206,7 +206,7 @@ impl Store {
 			.wrap_err("listing gmails")?;
 		let rows: Vec<LocationRow> = sqlx::query_as(
 			"SELECT k.managing_gmail_id AS gmail_id,
-			        t.id, t.label, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang, t.interval_secs, t.enabled, t.created_at,
+			        t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang, t.interval_secs, t.enabled, t.created_at,
 			        k.enabled AS track_enabled,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.published_est >= ?2) AS new_7d,
 			        (SELECT COUNT(*) FROM posts p WHERE p.target_id = t.id AND p.published_est >= ?2) AS posts_7d,

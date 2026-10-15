@@ -21,6 +21,12 @@ const LANES: [(Column, &str, &str); 3] = [
 	(Column::Reinstating, "reinstating", "Reinstating"),
 ];
 
+/// Tiles past the lanes.
+#[cfg(feature = "grafana")]
+const EXTRA: &[&str] = &["stats"];
+#[cfg(not(feature = "grafana"))]
+const EXTRA: &[&str] = &[];
+
 /// Maps the dock's chrome onto the kit's tokens.
 const DOCK_THEME: &str = "--dv-group-bg: var(--secondary); --dv-tabstrip-bg: var(--secondary); --dv-tab-bg: var(--secondary); \
 	--dv-tab-active-bg: var(--background); --dv-tab-active-fg: var(--ink); --dv-tab-border: var(--border); --dv-fg: var(--ink); \
@@ -43,19 +49,21 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 	use_effect(move || {
 		let Some(Ok(b)) = &*board.read() else { return };
 		let mut lists = [b.snapshotted.clone(), b.removed.clone(), b.reinstating.clone()].into_iter();
-		panels.set(
-			LANES
-				.iter()
-				.map(|&(column, id, title)| {
-					let cards = lists.next().expect("a list per lane");
-					DockPanel {
-						id: PanelId(id.into()),
-						title: format!("{title} · {}", cards.len()),
-						content: rsx! { Lane { column, cards, gmail: g, dragging } },
-					}
-				})
-				.collect(),
-		);
+		let tiles = LANES.iter().map(|&(column, id, title)| {
+			let cards = lists.next().expect("a list per lane");
+			DockPanel {
+				id: PanelId(id.into()),
+				title: format!("{title} · {}", cards.len()),
+				content: rsx! { Lane { column, cards, gmail: g, dragging } },
+			}
+		});
+		#[cfg(feature = "grafana")]
+		let tiles = tiles.chain([DockPanel {
+			id: PanelId("stats".into()),
+			title: "Stats".into(),
+			content: rsx! { crate::grafana::Stats { target } },
+		}]);
+		panels.set(tiles.collect());
 	});
 	let mut dock = use_signal(|| None::<PackedApi>);
 	// the tile `+`: brings back a lane closed with `✕`
@@ -63,13 +71,14 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 		Callback::new(move |group: GroupId| {
 			let mut api = dock().expect("tiles exist only after on_band");
 			let open = api.tab_ids();
-			if let Some(id) = LANES.iter().map(|l| PanelId(l.1.into())).find(|p| !open.contains(p)) {
+			if let Some(id) = LANES.iter().map(|l| l.1).chain(EXTRA.iter().copied()).map(|t| PanelId(t.into())).find(|p| !open.contains(p)) {
 				api.add_tab(group, id);
 			}
 		})
 	});
 	let config = Config {
-		storage_key: Some("review-archive-board".into()),
+		// a layout saved without the extra tiles would never show them
+		storage_key: Some(format!("review-archive-board{}", EXTRA.iter().map(|t| format!("-{t}")).collect::<String>())),
 		..Default::default()
 	};
 	let rows = config.rows;
@@ -78,10 +87,11 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 		if api.restored() {
 			return;
 		}
-		let w = api.cols() / 3;
-		for (i, (_, id, _)) in LANES.iter().enumerate() {
+		let tiles: Vec<&str> = LANES.iter().map(|l| l.1).chain(EXTRA.iter().copied()).collect();
+		let w = api.cols() / tiles.len() as u32;
+		for (i, id) in tiles.iter().enumerate() {
 			let group = Group::new(api.mint_group_id(), PanelId((*id).into()));
-			let w = if i == LANES.len() - 1 { api.cols() - 2 * w } else { w };
+			let w = if i == tiles.len() - 1 { api.cols() - (tiles.len() as u32 - 1) * w } else { w };
 			api.place(group, w, rows, MinSize::Steps { w: Step(2), h: Step(4) });
 		}
 	});
