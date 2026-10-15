@@ -64,6 +64,11 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 					Badge { tone: if loc.responded < loc.live { Tone::Warn } else { Tone::Ok },
 						span { title: "replied to by the owner / live", "responded {loc.responded}/{loc.live}" }
 					}
+					if loc.corrupted > 0 {
+						Badge { tone: Tone::Warn,
+							span { title: "reviews whose every screenshot is cut off / reviews with one; the next scan retakes them", "corrupted {loc.corrupted}/{loc.captured}" }
+						}
+					}
 					if loc.removed > 0 {
 						Badge { tone: Tone::Bad, "removed {loc.removed}" }
 					}

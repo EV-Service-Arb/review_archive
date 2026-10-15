@@ -633,6 +633,10 @@ pub struct LocationSummary {
 	pub live: i64,
 	/// Of which the owner has replied to.
 	pub responded: i64,
+	/// Reviews with a screenshot stored, gone ones too.
+	pub captured: i64,
+	/// Of which every screenshot is corrupted.
+	pub corrupted: i64,
 	/// How many reviews Google says the place has, as of the last scan that read it.
 	pub listed: Option<i64>,
 	/// Gone, with no open appeal from this gmail.
