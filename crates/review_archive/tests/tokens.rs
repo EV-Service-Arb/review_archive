@@ -81,6 +81,7 @@ impl ReviewSource for Spends {
 			listed: None,
 			post: None,
 			name: None,
+			address: None,
 		})
 	}
 }

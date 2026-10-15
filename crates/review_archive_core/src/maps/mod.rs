@@ -94,13 +94,15 @@ pub struct Walked {
 	pub total: Option<u64>,
 	/// The place's name, from its overview.
 	pub name: String,
+	/// The place's address, from its overview; a service-area business hides it.
+	pub address: Option<String>,
 	/// The owner's latest post, from the place's overview.
 	pub post: Option<parse::Post>,
 }
 
 impl Walked {
 	/// The walk of a place that has no reviews: nothing to read, and that is all of it.
-	pub fn empty(page_url: String, name: String, post: Option<parse::Post>) -> Self {
+	pub fn empty(page_url: String, name: String, address: Option<String>, post: Option<parse::Post>) -> Self {
 		Self {
 			cards: Vec::new(),
 			end: WalkEnd::ReachedEnd,
@@ -109,12 +111,13 @@ impl Walked {
 			sorted: true,
 			total: Some(0),
 			name,
+			address,
 			post,
 		}
 	}
 
 	/// The walk of a list the policy did not want read: nothing read, nothing judged.
-	pub fn unchanged(page_url: String, name: String, total: Option<u64>, post: Option<parse::Post>) -> Self {
+	pub fn unchanged(page_url: String, name: String, address: Option<String>, total: Option<u64>, post: Option<parse::Post>) -> Self {
 		Self {
 			cards: Vec::new(),
 			end: WalkEnd::Unread,
@@ -123,6 +126,7 @@ impl Walked {
 			sorted: false,
 			total,
 			name,
+			address,
 			post,
 		}
 	}
@@ -337,6 +341,7 @@ pub fn scan_of(walked: Walked, now: Timestamp) -> Scan {
 		sorted,
 		total,
 		name,
+		address,
 		post,
 		..
 	} = walked;
@@ -354,6 +359,7 @@ pub fn scan_of(walked: Walked, now: Timestamp) -> Scan {
 			text: p.text,
 		}),
 		name: Some(name),
+		address,
 	}
 }
 
@@ -406,6 +412,7 @@ mod tests {
 			sorted,
 			total,
 			name: String::new(),
+			address: None,
 			post: None,
 		}
 	}
@@ -483,7 +490,7 @@ mod tests {
 
 	#[test]
 	fn a_place_without_reviews_is_an_empty_complete_scan() {
-		let s = NewestFirst::new(&Known::default(), now()).conclude(Walked::empty(String::new(), String::new(), None), 200, now());
+		let s = NewestFirst::new(&Known::default(), now()).conclude(Walked::empty(String::new(), String::new(), None, None), 200, now());
 		assert_eq!((s.reviews.len(), s.coverage, s.cut_after), (0, Coverage::Complete, None));
 		assert!(s.warnings.is_empty());
 	}
@@ -629,7 +636,7 @@ mod tests {
 		let p = NewestFirst::new(&settled, now());
 		assert!(!p.wants_list(Some(1)));
 		assert!(p.wants_list(Some(2)) && p.wants_list(Some(0)) && p.wants_list(None));
-		let s = p.conclude(Walked::unchanged(String::new(), String::new(), Some(1), None), 200, now());
+		let s = p.conclude(Walked::unchanged(String::new(), String::new(), None, Some(1), None), 200, now());
 		assert_eq!((s.reviews.len(), s.coverage, s.cut_after, s.listed), (0, Coverage::DownTo(None), None, Some(1)));
 		assert!(s.warnings.is_empty());
 

@@ -198,6 +198,7 @@ impl ReviewSource for Listed {
 			listed: Some(u64::try_from(self.0.len()).unwrap()),
 			post: None,
 			name: None,
+			address: None,
 		})
 	}
 }
@@ -224,6 +225,7 @@ impl ReviewSource for Posted {
 			listed: None,
 			post: Some(self.0.clone()),
 			name: None,
+			address: None,
 		})
 	}
 }

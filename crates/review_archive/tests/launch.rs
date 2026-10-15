@@ -55,6 +55,7 @@ impl ReviewSource for Served {
 			listed: None,
 			post: None,
 			name: None,
+			address: None,
 		})
 	}
 }

@@ -22,6 +22,8 @@ pub struct TargetDto {
 	pub kind: TargetKind,
 	/// The Google place id.
 	pub place_id: String,
+	/// The place's address as Google last showed it.
+	pub address: Option<String>,
 	/// Set for `gbp` targets.
 	pub gbp_account: Option<String>,
 	/// Set for `gbp` targets.
@@ -45,6 +47,7 @@ impl From<Target> for TargetDto {
 			label,
 			kind: t.kind,
 			place_id: t.place_id,
+			address: t.address,
 			gbp_account,
 			gbp_location,
 			lang: t.lang,

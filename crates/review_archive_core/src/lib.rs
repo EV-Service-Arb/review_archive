@@ -158,6 +158,8 @@ pub struct Target {
 	pub label: Option<String>,
 	/// The place's name as Google last showed it.
 	pub name: Option<String>,
+	/// The place's address as Google last showed it.
+	pub address: Option<String>,
 	/// Where its reviews are read from.
 	pub kind: TargetKind,
 	/// The Google place id (`ChIJ…`). `gbp` targets need it too: screenshots come from Maps.
@@ -253,6 +255,8 @@ pub struct Scan {
 	pub post: Option<OwnerPost>,
 	/// The place's name, when the source showed it.
 	pub name: Option<String>,
+	/// The place's address; only meaningful with `name`, which says the overview was read.
+	pub address: Option<String>,
 }
 
 /// A post by the place's owner, as a scan saw it.

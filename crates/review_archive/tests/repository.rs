@@ -108,6 +108,7 @@ fn scan(reviews: Vec<Observed>, coverage: Coverage) -> Result<Scan, String> {
 		listed: None,
 		post: None,
 		name: None,
+		address: None,
 	})
 }
 
@@ -130,6 +131,7 @@ async fn env() -> Env {
 			&InsertTarget {
 				label: None,
 				name: Some("Café test".into()),
+				address: None,
 				kind: TargetKind::Maps,
 				place_id: "ChIJtesttesttesttest".into(),
 				gbp: None,
@@ -268,6 +270,7 @@ async fn failures_are_runs_and_back_off() {
 		listed: None,
 		post: None,
 		name: None,
+		address: None,
 	}));
 	let s = e.archive().run(&src, &e.target).await.unwrap();
 	assert_eq!(s.status, RunStatus::Partial);
@@ -384,6 +387,7 @@ fn cut(reviews: Vec<Observed>, cut_after: Option<&str>) -> Result<Scan, String> 
 		listed: None,
 		post: None,
 		name: None,
+		address: None,
 	})
 }
 
@@ -634,7 +638,7 @@ async fn avif_captures_become_webp() {
 }
 
 /// A place added by its id is shown as Google names it from its first walk on; a label a
-/// person gave stays what it is shown as.
+/// person gave stays what it is shown as. Its address is whatever the last walk saw, none included.
 #[tokio::test]
 async fn a_scan_names_its_place() {
 	let e = env().await;
@@ -644,6 +648,7 @@ async fn a_scan_names_its_place() {
 			&InsertTarget {
 				label: None,
 				name: None,
+				address: None,
 				kind: TargetKind::Maps,
 				place_id: "ChIJunnamedunnamed".into(),
 				gbp: None,
@@ -658,30 +663,42 @@ async fn a_scan_names_its_place() {
 	let target = || async { e.store.target(id).await.unwrap() };
 	assert_eq!(target().await.to_string(), "ChIJunnamedunnamed");
 
-	let named = |name: &str| {
+	let named = |name: &str, address: Option<&str>| {
 		Ok(Scan {
 			name: Some(name.into()),
+			address: address.map(Into::into),
 			..cut(vec![], None).unwrap()
 		})
 	};
-	let src = Scripted(Mutex::new(named("Joe's")));
+	let src = Scripted(Mutex::new(named("Joe's", Some("1 Main St"))));
 	e.archive().run(&src, &target().await).await.unwrap();
-	assert_eq!(target().await.to_string(), "Joe's");
+	let t = target().await;
+	assert_eq!((t.to_string().as_str(), t.address.as_deref()), ("Joe's", Some("1 Main St")));
 
-	src.set(named("Joe's Pizza"));
+	src.set(named("Joe's Pizza", Some("2 Main St")));
 	e.archive().run(&src, &target().await).await.unwrap();
-	assert_eq!(target().await.to_string(), "Joe's Pizza", "renamed on Google, renamed here");
+	let t = target().await;
+	assert_eq!(
+		(t.to_string().as_str(), t.address.as_deref()),
+		("Joe's Pizza", Some("2 Main St")),
+		"renamed and moved on Google, here too"
+	);
 
 	src.set(Err("blocked by Google".into()));
 	e.archive().run(&src, &target().await).await.unwrap();
-	assert_eq!(target().await.to_string(), "Joe's Pizza", "a failed walk keeps the name");
+	let t = target().await;
+	assert_eq!((t.to_string().as_str(), t.address.as_deref()), ("Joe's Pizza", Some("2 Main St")), "a failed walk keeps both");
+
+	src.set(named("Joe's Pizza", None));
+	e.archive().run(&src, &target().await).await.unwrap();
+	assert_eq!(target().await.address, None, "an address the place hid is no longer shown");
 
 	let labelled = TargetPatch {
 		label: Some("our Joe's".into()),
 		..Default::default()
 	};
 	e.store.update_target(id, &labelled).await.unwrap();
-	src.set(named("Joe's Pizzeria"));
+	src.set(named("Joe's Pizzeria", None));
 	e.archive().run(&src, &target().await).await.unwrap();
 	let t = target().await;
 	assert_eq!((t.to_string().as_str(), t.name.as_deref()), ("our Joe's", Some("Joe's Pizzeria")));

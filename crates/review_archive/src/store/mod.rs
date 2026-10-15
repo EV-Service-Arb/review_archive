@@ -62,6 +62,8 @@ pub struct InsertTarget {
 	pub label: Option<String>,
 	/// The place's name, when known.
 	pub name: Option<String>,
+	/// The place's address, when known.
+	pub address: Option<String>,
 	/// Where its reviews are read from.
 	pub kind: TargetKind,
 	/// The Google place id.
@@ -127,6 +129,8 @@ pub struct ScanWrite<'a> {
 	pub post: Option<&'a OwnerPost>,
 	/// See [`review_archive_core::Scan::name`].
 	pub name: Option<&'a str>,
+	/// See [`review_archive_core::Scan::address`].
+	pub address: Option<&'a str>,
 	/// An ad-hoc capture: it may record a gap but never closes one.
 	pub ad_hoc: bool,
 	/// Recorded with each capture.
@@ -310,6 +314,7 @@ struct TargetRow {
 	id: i64,
 	label: Option<String>,
 	name: Option<String>,
+	address: Option<String>,
 	kind: String,
 	place_id: String,
 	gbp_account: Option<String>,
@@ -329,6 +334,7 @@ impl TryFrom<TargetRow> for Target {
 			id: TargetId(r.id),
 			label: r.label,
 			name: r.name,
+			address: r.address,
 			kind: r.kind.parse().wrap_err_with(|| format!("target {} has an unknown kind", r.id))?,
 			place_id: r.place_id,
 			gbp,
@@ -359,7 +365,7 @@ struct KnownRow {
 	text: Option<String>,
 }
 
-const TARGET_COLUMNS: &str = "id, label, name, kind, place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at";
+const TARGET_COLUMNS: &str = "id, label, name, address, kind, place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at";
 
 fn no_target(id: TargetId) -> Rejected {
 	Rejected::not_found(format!("no target {id}"))
@@ -395,11 +401,12 @@ impl Store {
 	/// Adds a target.
 	pub async fn add_target(&self, t: &InsertTarget, now: Timestamp) -> eyre::Result<TargetId> {
 		let id: i64 = sqlx::query_scalar(
-			"INSERT INTO targets (label, name, kind, place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+			"INSERT INTO targets (label, name, address, kind, place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
 		)
 		.bind(&t.label)
 		.bind(&t.name)
+		.bind(&t.address)
 		.bind(t.kind.as_ref())
 		.bind(&t.place_id)
 		.bind(t.gbp.as_ref().map(|g| g.account.as_str()))
@@ -724,12 +731,16 @@ impl Store {
 			.execute(&mut *tx)
 			.await
 			.wrap_err("recording where the walk stopped")?;
-		sqlx::query("UPDATE targets SET name = COALESCE(?, name) WHERE id = ?")
-			.bind(scan.name)
-			.bind(target.0)
-			.execute(&mut *tx)
-			.await
-			.wrap_err("recording the place's name")?;
+		// a name means the overview was read, and an address missing from it is gone
+		if let Some(name) = scan.name {
+			sqlx::query("UPDATE targets SET name = ?, address = ? WHERE id = ?")
+				.bind(name)
+				.bind(scan.address)
+				.bind(target.0)
+				.execute(&mut *tx)
+				.await
+				.wrap_err("recording the place's name and address")?;
+		}
 		// what the next scan compares its count against, so only a scan's own
 		if let Some(listed) = scan.listed.filter(|_| !scan.ad_hoc) {
 			sqlx::query("UPDATE targets SET listed = ? WHERE id = ?")

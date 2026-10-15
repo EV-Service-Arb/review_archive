@@ -82,4 +82,9 @@ fn place_names() {
 		Some("Tour Eiffel"),
 		"not the sponsored heading beside it"
 	);
+	assert_eq!(
+		parse::place_address(&html("maps_en_overview_no_post.html")).as_deref(),
+		Some("1815 Lakeshore Rd W, Mississauga, ON L5J 1J6, Canada")
+	);
+	assert_eq!(parse::place_address(&html("maps_fr_limited_view.html")).as_deref(), Some("Av. Gustave Eiffel, 75007 Paris"));
 }

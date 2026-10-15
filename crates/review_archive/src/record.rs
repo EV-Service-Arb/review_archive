@@ -113,6 +113,7 @@ impl Recorder<'_> {
 					listed: scan.listed,
 					post: scan.post.as_ref(),
 					name: scan.name.as_deref(),
+					address: scan.address.as_deref(),
 					ad_hoc: source.ad_hoc(),
 					scanner_version: SCANNER_VERSION,
 				};

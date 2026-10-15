@@ -44,8 +44,8 @@ Out — do not build, even as an option:
   never do. An idle worker opens Maps on a standby profile unused for `browser.standby_touch`,
   to find its account signed out early. With every account signed out the walk fails
   (`signed_out`) and `serve` exits 78, for the deployment to be held until one is signed in.
-- On the place's overview, read the place's name (`targets.name`, every walk, so a renamed
-  place is renamed here), and the owner's latest post under "From the owner" (text,
+- On the place's overview, read the place's name and address (`targets.name`, `targets.address`,
+  every walk, so a renamed or moved place follows here; an address the place hides is cleared), and the owner's latest post under "From the owner" (text,
   date as printed); it is kept once per distinct text (`posts`), with when it was first
   and last seen. Only the latest shows there: two posts between scans keep the newer.
 - Open the Reviews tab. When the place's review count is the one the last scan read
@@ -95,9 +95,9 @@ same as `gmaps_optimal_placement_sources/src/poi.rs`.
 SQLite (sqlx, runtime `sqlx::query`, embedded migrations) + content-addressed
 blob dir. Everything under one data dir (`/data` in the container).
 
-- `targets(id, label, name, kind[maps|gbp], place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at, cut_after)`
+- `targets(id, label, name, address, kind[maps|gbp], place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at, cut_after)`
   — `lang` is a language tag (`fr`, `pt-BR`); anything else is refused.
-  — `label` is a person's, `name` the place's (a Places search when added, then every walk);
+  — `label` is a person's, `name` and `address` the place's (a Places search when added, then every walk);
   a target is shown as `label`, else `name`, else `place_id`.
 - `reviews(id, target_id, source_review_id, author, author_url, rating, text, reply, published_raw, published_est, first_seen, last_seen, gone_at, content_hash, capture_pending)`
   — unique `(target_id, source_review_id)`.

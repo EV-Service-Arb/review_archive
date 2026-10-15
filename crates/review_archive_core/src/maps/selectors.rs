@@ -74,6 +74,8 @@ pub const REVIEWS_TAB: &[&str] = &[
 
 /// The place's name heading: present once the place panel has rendered.
 pub const PLACE_TITLE: &[&str] = &["h1.DUwDvf", r#"[role="main"] h1"#];
+/// The address line of the overview. Service-area businesses hide it.
+pub const PLACE_ADDRESS: &[&str] = &[r#"button[data-item-id="address"] .Io6YTe"#, r#"button[data-item-id="address"] .fontBodyMedium"#];
 /// The star average under the name ("4.6 stars"). A place without reviews has none.
 pub const RATING_SUMMARY: &[&str] = &[r#".F7nice [role="img"][aria-label]"#];
 /// The per-star rows of the review list's histogram, labelled "5 stars, 4,377 reviews" /

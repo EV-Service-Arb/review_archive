@@ -71,6 +71,7 @@ fn complete(reviews: Vec<Observed>) -> Result<Scan, String> {
 		listed: None,
 		post: None,
 		name: None,
+		address: None,
 	})
 }
 
@@ -102,6 +103,7 @@ async fn target(store: &Store) -> Target {
 			&InsertTarget {
 				label: None,
 				name: Some("t".into()),
+				address: None,
 				kind: TargetKind::Maps,
 				place_id: "ChIJtesttesttesttest".into(),
 				gbp: None,
@@ -364,6 +366,7 @@ async fn telegram_channels_get_their_members_places_only() {
 			&InsertTarget {
 				label: None,
 				name: Some("elsewhere".into()),
+				address: None,
 				kind: TargetKind::Maps,
 				place_id: "ChIJelsewhereelsewhere".into(),
 				gbp: None,

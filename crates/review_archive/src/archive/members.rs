@@ -79,9 +79,7 @@ impl Archive {
 					},
 				)
 				.await?,
-			None =>
-				self.insert_target(place_id, resolved.and_then(|r| r.name), req.label.clone(), Some(lang), None, gbp, true)
-					.await?,
+			None => self.insert_target(place_id, resolved.as_ref(), req.label.clone(), Some(lang), None, gbp, true).await?,
 		};
 		store.track(Some(member), gmail, target.id, Timestamp::now()).await?;
 		Ok(target.into())
