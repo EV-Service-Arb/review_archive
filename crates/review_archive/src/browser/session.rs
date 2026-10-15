@@ -213,7 +213,7 @@ impl Page<'_> {
 
 		// The place panel renders after load; wait for the way into the reviews.
 		let has_reviews_tab = self.wait_for_any(sel::REVIEWS_TAB).await?;
-		if self.eval::<bool>(js::ANY, sel::SIGNED_OUT).await? {
+		if !self.cfg.guest && self.eval::<bool>(js::ANY, sel::SIGNED_OUT).await? {
 			return Err(SessionError::new_signed_out());
 		}
 		let post = parse::owner_post(&self.eval::<String>(js::FIRST_HTML, sel::OWNER_POST).await?);
@@ -255,9 +255,12 @@ impl Page<'_> {
 		if !self.wait_for_any(sel::SORT_BUTTON).await? {
 			return Err(markup_changed("waiting for the sort button", sel::SORT_BUTTON));
 		}
-		let sorted = match self.open_sort_menu(meter).await? {
-			SortMenu::Open => self.pick_newest().await?,
-			SortMenu::SignInRequired => return Err(SessionError::new_signed_out()),
+		let sorted = match self.cfg.guest {
+			true => false, // a guest's sort button opens the sign-in dialog
+			false => match self.open_sort_menu(meter).await? {
+				SortMenu::Open => self.pick_newest().await?,
+				SortMenu::SignInRequired => return Err(SessionError::new_signed_out()),
+			},
 		};
 
 		Ok(Ok(Opened {

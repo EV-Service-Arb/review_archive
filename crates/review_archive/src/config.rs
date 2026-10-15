@@ -64,6 +64,8 @@ pub struct BrowserConfig {
 	pub executable: Option<PathBuf>,
 	/// Shows the window, for watching a scan by hand.
 	pub headful: bool,
+	/// Walks a profile signed out of Google: at most 5 reviews per place, unsorted. Tests only (ARCHITECTURE.md § Testing).
+	pub guest: bool,
 	/// Browser profiles, each signed in to its own Google account, in the order walks use them:
 	/// only a signed-out account moves walks to the next. `[<data_dir>/chromium-profile]` when empty.
 	pub profile_dirs: Vec<PathBuf>,

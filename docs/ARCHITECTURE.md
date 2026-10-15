@@ -212,8 +212,8 @@ with its own platform implements `sources::ReviewSource` and records through
 
 ## Testing
 
-Live tests never sign in to Google, nor reuse a signed-in profile: a signed-out Maps shows a
-place's first 5 reviews, which is enough to test a walk and its shots.
+Live tests never sign in to Google, nor reuse a signed-in profile: they walk as `browser.guest`,
+and a signed-out Maps shows at most 5 reviews of a place, unsorted, which is enough to test a walk and its shots.
 
 ## Memory
 
