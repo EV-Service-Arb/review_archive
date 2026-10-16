@@ -160,7 +160,7 @@ impl Store {
 		let today = now.to_zoned(jiff::tz::TimeZone::UTC).date();
 		let first = today - jiff::Span::new().days(USAGE_DAYS - 1);
 		let charged: Vec<(String, i64, i64)> = sqlx::query_as(
-			"SELECT substr(at, 1, 10) AS day, COUNT(DISTINCT run_id), -SUM(delta) FROM token_ledger
+			"SELECT substr(at, 1, 10) AS day, COUNT(*), -SUM(delta) FROM token_ledger
 			 WHERE person_id = ? AND kind = 'charge' AND delta < 0 AND at >= ? GROUP BY day",
 		)
 		.bind(member.0)

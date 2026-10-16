@@ -213,7 +213,7 @@ impl Archive {
 	pub async fn purge_untracked(&self, now: Timestamp) -> eyre::Result<usize> {
 		let stored = self.stored()?;
 		let before = now - self.inner.defaults.untracked_retention.duration();
-		let orphans = stored.store.purge_untracked(before, now).await?;
+		let orphans = stored.store.purge_untracked(before).await?;
 		for sha in &orphans {
 			let path = stored.blobs.path_of(sha).expect("a stored capture's sha256 is a valid blob name");
 			tokio::fs::remove_file(&path)

@@ -431,19 +431,19 @@ impl Store {
 
 	/// Every target, by id.
 	pub async fn targets(&self) -> eyre::Result<Vec<Target>> {
-		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets WHERE purged_at IS NULL ORDER BY id")))
+		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets WHERE id > 0 ORDER BY id")))
 			.fetch_all(&self.pool)
 			.await
 			.wrap_err("listing targets")?;
 		rows.into_iter().map(Target::try_from).collect()
 	}
 
-	/// Drops the archive of every target no gmail has tracked since `before`. The target and its
-	/// runs stay, as what the token ledger charged for, but no lookup finds it again. Returns the
-	/// captures' blobs no capture points at any more.
-	pub(crate) async fn purge_untracked(&self, before: Timestamp, now: Timestamp) -> eyre::Result<Vec<String>> {
+	/// Deletes every target no gmail has tracked since `before`, with its archive. What members
+	/// were charged or owed for its runs stays, under the `other` run (0). Returns the captures'
+	/// blobs no capture points at any more.
+	pub(crate) async fn purge_untracked(&self, before: Timestamp) -> eyre::Result<Vec<String>> {
 		let mut tx = self.write().await?;
-		let targets: Vec<i64> = sqlx::query_scalar("SELECT id FROM targets WHERE untracked_at <= ? AND purged_at IS NULL")
+		let targets: Vec<i64> = sqlx::query_scalar("SELECT id FROM targets WHERE untracked_at <= ?")
 			.bind(fmt_ts(before))
 			.fetch_all(&mut *tx)
 			.await
@@ -464,15 +464,13 @@ impl Store {
 				"DELETE FROM reviews WHERE target_id = ?",
 				"DELETE FROM posts WHERE target_id = ?",
 				"DELETE FROM jobs WHERE target_id = ?",
+				"UPDATE token_ledger SET run_id = 0 WHERE run_id IN (SELECT id FROM runs WHERE target_id = ?)",
+				"UPDATE kickbacks SET run_id = 0 WHERE run_id IN (SELECT id FROM runs WHERE target_id = ?)",
+				"DELETE FROM runs WHERE target_id = ?",
+				"DELETE FROM targets WHERE id = ?",
 			] {
 				sqlx::query(q).bind(target).execute(&mut *tx).await.wrap_err_with(|| format!("purging target {target}"))?;
 			}
-			sqlx::query("UPDATE targets SET purged_at = ?, cut_after = NULL, listed = NULL WHERE id = ?")
-				.bind(fmt_ts(now))
-				.bind(target)
-				.execute(&mut *tx)
-				.await
-				.wrap_err_with(|| format!("purging target {target}"))?;
 		}
 		let mut orphans = Vec::new();
 		for sha in shas {
@@ -506,7 +504,7 @@ impl Store {
 
 	/// One target; [`Rejected::NotFound`] when there is none.
 	pub async fn target(&self, id: TargetId) -> eyre::Result<Target> {
-		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets WHERE id = ? AND purged_at IS NULL")))
+		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets WHERE id = ? AND id > 0")))
 			.bind(id.0)
 			.fetch_optional(&self.pool)
 			.await
@@ -545,7 +543,7 @@ impl Store {
 	pub async fn find_target(&self, place_id: &str, lang: &str, gbp: Option<&GbpLocation>) -> eyre::Result<Option<Target>> {
 		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
 			"SELECT {TARGET_COLUMNS} FROM targets
-			 WHERE purged_at IS NULL AND place_id = ?1 AND lang = ?2 AND kind = IIF(?3 IS NULL, 'maps', 'gbp') AND gbp_account IS ?3 AND gbp_location IS ?4
+			 WHERE place_id = ?1 AND lang = ?2 AND kind = IIF(?3 IS NULL, 'maps', 'gbp') AND gbp_account IS ?3 AND gbp_location IS ?4
 			 ORDER BY id LIMIT 1"
 		)))
 		.bind(place_id)

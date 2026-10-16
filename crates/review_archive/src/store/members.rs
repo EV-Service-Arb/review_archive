@@ -161,7 +161,7 @@ impl Store {
 		self.check_gmail(member, gmail).await?;
 		let mut tx = self.write().await?;
 		// back on the schedule it was taken off when its last track went
-		let live = sqlx::query("UPDATE targets SET enabled = enabled OR untracked_at IS NOT NULL, untracked_at = NULL WHERE id = ? AND purged_at IS NULL")
+		let live = sqlx::query("UPDATE targets SET enabled = enabled OR untracked_at IS NOT NULL, untracked_at = NULL WHERE id = ? AND id > 0")
 			.bind(target.0)
 			.execute(&mut *tx)
 			.await

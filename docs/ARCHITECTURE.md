@@ -126,8 +126,9 @@ with its own platform implements `sources::ReviewSource` and records through
 - **History is append-only, while anyone tracks it.** Reviews and captures are never deleted; `review_versions` gets a
   row per distinct content, the first sighting included. `gone_at` is set and cleared, never a
   deletion. A place whose last track went is off the schedule, and `defaults.untracked_retention`
-  later its archive is purged; the target and its runs stay for the token ledger, found by no lookup.
-  A target never tracked is the operator's, and is never purged.
+  later it is deleted with its archive and runs; the ledger rows and kick-backs of those runs move to
+  the `other` run (id 0, on the `other` target no lookup finds). A target never tracked is the
+  operator's, and is never purged.
 - **A walk that stops short leaves no hole.** A scan stops at a screen of archived cards
   only once it is past the last card a previous walk was cut short at
   (`targets.cut_after`), and past every review still waiting for its screenshot; a

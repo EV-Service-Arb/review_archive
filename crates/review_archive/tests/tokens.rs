@@ -421,3 +421,33 @@ async fn a_failure_is_kicked_back() {
 	assert_eq!(archive.claim_kickbacks(a).await.unwrap().balance, 90, "each gets back what they paid");
 	assert_eq!(archive.claim_kickbacks(b).await.unwrap().balance, 4);
 }
+
+/// A purged place leaves nothing behind but what its members were charged and are owed, under `other`.
+#[tokio::test]
+async fn a_purged_places_tokens_stay_under_other() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let t = target(&archive, "ChIJtokenstest00000purged").await;
+	let a = person(archive.store().unwrap(), "a").await;
+	let gmail = tracks(&archive, a, t.id).await;
+	set(&archive, a, 100).await;
+	archive.record(&Spends(20), &t).await.unwrap();
+	archive.record(&Warns(10, Warning::Failure("screenshot of x failed".into())), &t).await.unwrap();
+	archive.untrack(a, gmail, t.id).await.unwrap();
+
+	archive.purge_untracked(Timestamp::now() + SignedDuration::from_hours(24 * 7)).await.unwrap();
+	let tokens = archive.tokens(a).await.unwrap();
+	assert_eq!(tokens.balance, 70);
+	assert_eq!(tokens.kickbacks.iter().map(|k| (k.target_label.as_str(), k.amount)).collect::<Vec<_>>(), [("other", 10)]);
+	let charges: Vec<_> = archive
+		.ledger(a)
+		.await
+		.unwrap()
+		.into_iter()
+		.filter(|l| l.kind == TokenKind::Charge)
+		.map(|l| (l.delta, l.target_label))
+		.collect();
+	assert_eq!(charges, [(-10, Some("other".into())), (-20, Some("other".into()))]);
+	assert!(archive.store().unwrap().targets().await.unwrap().is_empty(), "`other` is no target");
+	assert_eq!(archive.claim_kickbacks(a).await.unwrap().balance, 80);
+}
