@@ -643,3 +643,58 @@ async fn a_scan_names_its_place() {
 	let t = target().await;
 	assert_eq!((t.to_string().as_str(), t.name.as_deref()), ("our Joe's", Some("Joe's Pizzeria")));
 }
+
+/// A place no gmail tracks is off the schedule and keeps its archive for `defaults.untracked_retention`,
+/// to be tracked again with it; past that its archive is purged, and the place is new to the archive.
+#[tokio::test]
+async fn an_untracked_place_is_purged_after_a_week() {
+	let e = env().await;
+	let src = Scripted(Mutex::new(scan(vec![review("a", 5, "Great", None, true)], Coverage::DownTo(None))));
+	e.archive().run(&src, &e.target).await.unwrap();
+	let blob = e.blobs.path_of(e.by_source_id().await["a"].capture_sha256.as_deref().unwrap()).unwrap();
+	let archive = review_archive::Archive::open(review_archive::config::Config {
+		data_dir: Some(e.dir.path().to_owned()),
+		..Default::default()
+	})
+	.await
+	.unwrap();
+	assert_eq!(
+		archive.purge_untracked("2030-01-01T00:00:00Z".parse().unwrap()).await.unwrap(),
+		0,
+		"a target never tracked is the operator's"
+	);
+
+	let seen = review_archive::store::people::Seen {
+		sub: "m",
+		email: "m@x",
+		email_verified: true,
+		name: "m",
+	};
+	let review_archive::store::people::Claim::Person(member) = e.store.person(&seen, now()).await.unwrap() else {
+		panic!("a fresh archive refuses nobody")
+	};
+	let gmail = e.store.add_gmail(member, "ops", now()).await.unwrap().id;
+	e.store.track(Some(member), gmail, e.target.id, now()).await.unwrap();
+	e.store.untrack(member, gmail, e.target.id, now()).await.unwrap();
+	assert!(!e.store.target(e.target.id).await.unwrap().enabled, "off the schedule");
+
+	e.clock.set("2026-09-07T10:00:00Z");
+	assert_eq!(archive.purge_untracked(now()).await.unwrap(), 0);
+	e.store.track(Some(member), gmail, e.target.id, now()).await.unwrap();
+	assert!(e.store.target(e.target.id).await.unwrap().enabled, "back on the schedule, archive and all");
+	assert_eq!(e.by_source_id().await.len(), 1);
+	e.store.delete_gmail(member, gmail, now()).await.unwrap();
+
+	e.clock.set("2026-09-14T09:59:59Z");
+	assert_eq!(archive.purge_untracked(now()).await.unwrap(), 0, "a week from the last track, not the first");
+	e.clock.set("2026-09-14T10:00:00Z");
+	assert_eq!(archive.purge_untracked(now()).await.unwrap(), 1);
+	archive.close().await;
+	assert!(!blob.exists());
+	assert!(e.by_source_id().await.is_empty());
+	assert!(e.store.target(e.target.id).await.is_err());
+	assert!(
+		e.store.find_target(&e.target.place_id, "fr", None).await.unwrap().is_none(),
+		"tracking the place again starts it anew"
+	);
+}

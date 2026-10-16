@@ -534,7 +534,7 @@ async fn track(State(s): State<AppState>, Member(m): Member, Path(gmail): Path<i
 	Ok((StatusCode::CREATED, Json(s.archive.track(m, gmail, &req).await?)))
 }
 
-/// Stops tracking; the place and its archive stay.
+/// Stops tracking; the place and its archive stay until `defaults.untracked_retention` after no gmail tracks it.
 #[utoipa::path(delete, path = "/me/gmails/{gmail}/tracks/{target}", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)),
 	responses((status = 204), (status = 404, body = ErrorBody)))]
 async fn untrack(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>) -> ApiResult<StatusCode> {

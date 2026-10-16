@@ -11,9 +11,9 @@ use review_archive_core::{
 	maps::cost,
 	tokens::Tokens,
 };
-use sqlx::FromRow;
+use sqlx::{FromRow, SqliteConnection};
 
-use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow, webhooks::parse_events};
+use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow, no_target, webhooks::parse_events};
 
 #[derive(FromRow)]
 struct GmailRow {
@@ -99,6 +99,17 @@ fn no_gmail(id: i64) -> Rejected {
 	Rejected::not_found(format!("no gmail {id}"))
 }
 
+/// A target whose last track went comes off the schedule, and is purged once `defaults.untracked_retention` passes.
+async fn left_untracked(conn: &mut SqliteConnection, target: TargetId, now: Timestamp) -> eyre::Result<()> {
+	sqlx::query("UPDATE targets SET untracked_at = ?, enabled = 0 WHERE id = ?2 AND NOT EXISTS (SELECT 1 FROM tracks WHERE target_id = ?2)")
+		.bind(fmt_ts(now))
+		.bind(target.0)
+		.execute(conn)
+		.await
+		.wrap_err("marking a target untracked")?;
+	Ok(())
+}
+
 impl Store {
 	/// Adds a managing gmail to a member.
 	pub async fn add_gmail(&self, member: PersonId, gmail: &str, now: Timestamp) -> eyre::Result<GmailDto> {
@@ -115,7 +126,7 @@ impl Store {
 
 	/// Removes a gmail with its tracks and the Telegram channels scoped to it. One with
 	/// appeals is kept: they are the history of what was asked of Google.
-	pub async fn delete_gmail(&self, member: PersonId, id: i64) -> eyre::Result<()> {
+	pub async fn delete_gmail(&self, member: PersonId, id: i64, now: Timestamp) -> eyre::Result<()> {
 		let mut tx = self.write().await?;
 		let appeals: Option<i64> =
 			sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM reinstatements WHERE managing_gmail_id = g.id) FROM managing_gmails g WHERE g.id = ? AND g.person_id = ?")
@@ -128,11 +139,19 @@ impl Store {
 			0 => {}
 			n => return Err(Rejected::invalid(format!("gmail {id} has {n} reinstatement requests on record; it is kept with them")).into()),
 		}
+		let tracked: Vec<i64> = sqlx::query_scalar("SELECT target_id FROM tracks WHERE managing_gmail_id = ?")
+			.bind(id)
+			.fetch_all(&mut *tx)
+			.await
+			.wrap_err("listing a gmail's places")?;
 		sqlx::query("DELETE FROM managing_gmails WHERE id = ?")
 			.bind(id)
 			.execute(&mut *tx)
 			.await
 			.wrap_err("deleting a gmail")?;
+		for target in tracked {
+			left_untracked(&mut *tx, TargetId(target), now).await?;
+		}
 		tx.commit().await.wrap_err("committing a gmail's removal")
 	}
 
@@ -140,30 +159,42 @@ impl Store {
 	/// the operator, who may assign any gmail.
 	pub async fn track(&self, member: Option<PersonId>, gmail: i64, target: TargetId, now: Timestamp) -> eyre::Result<()> {
 		self.check_gmail(member, gmail).await?;
-		self.target(target).await?;
+		let mut tx = self.write().await?;
+		// back on the schedule it was taken off when its last track went
+		let live = sqlx::query("UPDATE targets SET enabled = enabled OR untracked_at IS NOT NULL, untracked_at = NULL WHERE id = ? AND purged_at IS NULL")
+			.bind(target.0)
+			.execute(&mut *tx)
+			.await
+			.wrap_err("tracking a target")?;
+		if live.rows_affected() != 1 {
+			return Err(no_target(target).into());
+		}
 		sqlx::query("INSERT INTO tracks (managing_gmail_id, target_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
 			.bind(gmail)
 			.bind(target.0)
 			.bind(fmt_ts(now))
-			.execute(&self.pool)
+			.execute(&mut *tx)
 			.await
 			.wrap_err("tracking a target")?;
-		Ok(())
+		tx.commit().await.wrap_err("committing a track")
 	}
 
-	/// Stops tracking; the target and its archive stay.
-	pub async fn untrack(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<()> {
+	/// Stops tracking; the target and its archive stay, until `defaults.untracked_retention`
+	/// after its last track went.
+	pub async fn untrack(&self, member: PersonId, gmail: i64, target: TargetId, now: Timestamp) -> eyre::Result<()> {
+		let mut tx = self.write().await?;
 		let done = sqlx::query("DELETE FROM tracks WHERE managing_gmail_id = (SELECT id FROM managing_gmails WHERE id = ? AND person_id = ?) AND target_id = ?")
 			.bind(gmail)
 			.bind(member.0)
 			.bind(target.0)
-			.execute(&self.pool)
+			.execute(&mut *tx)
 			.await
 			.wrap_err("untracking a target")?;
 		if done.rows_affected() != 1 {
 			return Err(Rejected::not_found(format!("gmail {gmail} does not track target {target}")).into());
 		}
-		Ok(())
+		left_untracked(&mut *tx, target, now).await?;
+		tx.commit().await.wrap_err("committing an untrack")
 	}
 
 	/// Switches a member's gmail on or off.

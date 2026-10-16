@@ -123,9 +123,11 @@ with its own platform implements `sources::ReviewSource` and records through
   its chain and backtrace (`RUST_LIB_BACKTRACE=1`), which is one Sentry event and a Discord
   line. Known failures, and jobs refused as `Rejected`, are warnings. A queued job's failure
   reaches that report as typed as a scheduled scan's.
-- **History is append-only.** Reviews and captures are never deleted; `review_versions` gets a
+- **History is append-only, while anyone tracks it.** Reviews and captures are never deleted; `review_versions` gets a
   row per distinct content, the first sighting included. `gone_at` is set and cleared, never a
-  deletion.
+  deletion. A place whose last track went is off the schedule, and `defaults.untracked_retention`
+  later its archive is purged; the target and its runs stay for the token ledger, found by no lookup.
+  A target never tracked is the operator's, and is never purged.
 - **A walk that stops short leaves no hole.** A scan stops at a screen of archived cards
   only once it is past the last card a previous walk was cut short at
   (`targets.cut_after`), and past every review still waiting for its screenshot; a

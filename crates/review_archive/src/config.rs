@@ -17,7 +17,7 @@ pub struct Config {
 	pub data_dir: Option<PathBuf>,
 	/// How to run Chromium.
 	pub browser: BrowserConfig,
-	/// Scan limits and what a new target defaults to.
+	/// Scan limits, what a new target defaults to, and how long a dropped one is kept.
 	pub defaults: Defaults,
 	/// How targets are paced.
 	pub schedule: Schedule,
@@ -123,7 +123,7 @@ pub enum Lean {
 	LowEndDevice,
 }
 
-/// Scan limits and what a new target defaults to.
+/// Scan limits, what a new target defaults to, and how long a dropped one is kept.
 #[derive(Clone, Debug, Deserialize, Serialize, SmartDefault)]
 #[cfg_attr(feature = "settings", derive(schemars::JsonSchema, v_utils::macros::SettingsNested))]
 #[serde(default, deny_unknown_fields)]
@@ -146,6 +146,9 @@ pub struct Defaults {
 	/// until some are done.
 	#[default(20)]
 	pub max_queued_jobs: usize,
+	/// How long a place no gmail tracks keeps its archive, to be tracked again with it.
+	#[default(Timeframe::from("7d"))]
+	pub untracked_retention: Timeframe,
 	/// For one call to the Places or the Business Profile API: a hung one must not hold the one worker forever.
 	#[default(Timeframe::from("15s"))]
 	pub api_timeout: Timeframe,

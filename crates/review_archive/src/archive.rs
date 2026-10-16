@@ -208,6 +208,21 @@ impl Archive {
 		stored.store.check_unchecked_captures(&stored.blobs).await
 	}
 
+	/// Purges what no gmail has tracked for `defaults.untracked_retention`: its reviews, captures and their blobs.
+	#[cfg(feature = "store")]
+	pub async fn purge_untracked(&self, now: Timestamp) -> eyre::Result<usize> {
+		let stored = self.stored()?;
+		let before = now - self.inner.defaults.untracked_retention.duration();
+		let orphans = stored.store.purge_untracked(before, now).await?;
+		for sha in &orphans {
+			let path = stored.blobs.path_of(sha).expect("a stored capture's sha256 is a valid blob name");
+			tokio::fs::remove_file(&path)
+				.await
+				.map_err(|e| eyre::Report::new(e).wrap_err(format!("removing {}", path.display())))?;
+		}
+		Ok(orphans.len())
+	}
+
 	async fn open_inner(config: Config, #[cfg(feature = "maps")] browser: Browser) -> eyre::Result<Self> {
 		#[cfg(feature = "store")]
 		let store = match (config.db_path(), config.blob_dir()) {
