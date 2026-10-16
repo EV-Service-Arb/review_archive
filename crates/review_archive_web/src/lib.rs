@@ -23,12 +23,12 @@ use ev_lib::{
 	t,
 	uikit::{
 		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Select,
-		SelectContent, SelectItem, SelectTrigger, SelectValue, Size, Switch, Tabs, TabsList, TabsTrigger,
+		SelectContent, SelectItem, SelectTrigger, SelectValue, Size, Spinner, Switch, Tabs, TabsList, TabsTrigger,
 	},
 };
 use review_archive_client::{
 	Client,
-	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, TokensChange, TokensDto},
+	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, TargetDto, TokensChange, TokensDto},
 };
 use sa_auth::{Members, Permission, PermissionSet, Tokens};
 use wasm_bindgen::{JsCast, prelude::*};
@@ -786,6 +786,9 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 		_ => picked().and_then(|gmail| under.iter().find(|g| g.gmail == gmail)).map(|g| g.id),
 	};
 	let mut choices = use_signal(|| None::<(i64, Vec<PlaceDto>)>);
+	let mut pending = use_signal(|| false);
+	let mut outcome = use_signal(|| None::<String>);
+	let held: Vec<(i64, i64)> = cards.iter().map(|(g, l)| (g.id, l.target.id)).collect();
 	let filter: Signal<filter::Filter> = use_context();
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
@@ -832,15 +835,26 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 				onsubmit: move |e: FormEvent| {
 					e.prevent_default();
 					let id = into.expect("the submit button is disabled until a gmail is picked");
+					let gmail = under.iter().find(|g| g.id == id).expect("into is one of under").gmail.clone();
 					let input = place();
+					let held = held.clone();
+					pending.set(true);
+					outcome.set(None);
+					choices.set(None);
 					act(move |c| async move {
-						match <[PlaceDto; 1]>::try_from(c.places(&input).await?) {
-							Ok([one]) => c.track(id, &NewTrack { place: one.place_id, ..Default::default() }).await.map(drop),
-							Err(many) => {
-								choices.set(Some((id, many)));
-								Ok(())
+						let r = async {
+							match <[PlaceDto; 1]>::try_from(c.places(&input).await?) {
+								Ok([one]) => {
+									let t = c.track(id, &NewTrack { place: one.place_id, ..Default::default() }).await?;
+									outcome.set(Some(tracked(&held, id, &gmail, &t)));
+								}
+								Err(many) => choices.set(Some((id, many))),
 							}
+							Ok(())
 						}
+						.await;
+						pending.set(false);
+						r
 					});
 					place.set(String::new());
 				},
@@ -857,10 +871,20 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 				Input {
 					class: "w-80",
 					placeholder: "Place id or Google Maps URL",
+					disabled: pending(),
 					value: place(),
 					oninput: move |e: FormEvent| place.set(e.value()),
 				}
-				Button { disabled: into.is_none(), "+ Track place" }
+				Button { disabled: into.is_none() || pending(),
+					if pending() { Spinner {} " Tracking…" } else { "+ Track place" }
+				}
+			}
+		}
+		if let Some(o) = outcome() {
+			div { class: "flex items-center gap-2 border-b border-border px-6 py-2",
+				span { "{o}" }
+				div { class: "flex-1" }
+				Button { variant: ButtonVariant::Ghost, size: Size::Xs, r#type: "button", onclick: move |_| outcome.set(None), "dismiss" }
 			}
 		}
 		if let Some((id, many)) = choices() {
@@ -879,9 +903,18 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 						r#type: "button",
 						onclick: {
 							let place_id = p.place_id.clone();
+							let held = held.clone();
+							let gmail = under.iter().find(|g| g.id == id).expect("choices are offered under a gmail of under").gmail.clone();
 							move |_| {
 								let req = NewTrack { place: place_id.clone(), ..Default::default() };
-								act(move |c| async move { c.track(id, &req).await.map(drop) });
+								let (held, gmail) = (held.clone(), gmail.clone());
+								pending.set(true);
+								act(move |c| async move {
+									let t = c.track(id, &req).await;
+									pending.set(false);
+									outcome.set(Some(tracked(&held, id, &gmail, &t?)));
+									Ok(())
+								});
 								choices.set(None);
 							}
 						},
@@ -893,6 +926,14 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 		}
 		filter::Bar { shown: count, total }
 		{overview}
+	}
+}
+
+/// A track of a place its gmail had already is a no-op, which would otherwise look like nothing happened.
+fn tracked(held: &[(i64, i64)], gmail: i64, address: &str, t: &TargetDto) -> String {
+	match held.contains(&(gmail, t.id)) {
+		true => format!("{} is already tracked under {address}", t.label),
+		false => format!("Now tracking {} under {address}", t.label),
 	}
 }
 
