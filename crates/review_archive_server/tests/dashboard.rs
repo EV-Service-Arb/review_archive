@@ -12,6 +12,9 @@ use review_archive::{
 };
 use serde::Deserialize;
 
+#[path = "../../review_archive/tests/support/busy.rs"]
+mod busy;
+
 const SHORT: &str = "Shiny Maids";
 const TWO_LINES: &str = "Long Island Premier Christmas & Holiday Lighting Decorators";
 const LONGER: &str = "Long Island Premier Christmas & Holiday Lighting Decorators of Nassau and Suffolk Counties, New York";
@@ -90,7 +93,7 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 		None,
 	)
 	.await
-	.unwrap();
+	.unwrap_or_else(|e| busy::busy(format!("Chromium did not start: {e}")));
 	let mut tab = browser.tab().await.unwrap();
 	let names = async {
 		while tab.goto(&format!("http://127.0.0.1:{port}/gmails/{gmail}")).await.is_err() {
@@ -107,7 +110,7 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 	let names = tokio::select! {
 		names = names => names,
 		status = serve.wait() => panic!("serve ended: {status:?}"),
-		() = tokio::time::sleep(Duration::from_secs(60)) => panic!("no card names every place in 60s"),
+		() = tokio::time::sleep(Duration::from_secs(60)) => busy::busy("no card names every place in 60s".to_owned()),
 	};
 	browser.close().await.unwrap();
 

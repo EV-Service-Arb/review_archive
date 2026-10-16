@@ -48,6 +48,8 @@ v_utils = { workspace = true, features = ["cli", "xdg"] }
 
 [dev-dependencies]
 browser_manipulation.workspace = true
+miette = { workspace = true, features = ["fancy"] }
+thiserror.workspace = true
 
 [lints]
 workspace = true

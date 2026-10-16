@@ -14,6 +14,18 @@ use review_archive::{
 	store::people::{Claim, Seen},
 };
 
+#[path = "support/busy.rs"]
+mod busy;
+
+fn starved(failure: &str) {
+	if ["review_archive::browser::launch_timeout", "review_archive::browser::unresponsive"]
+		.iter()
+		.any(|code| failure.contains(code))
+	{
+		busy::busy(failure.to_owned());
+	}
+}
+
 /// The Eiffel Tower: public, and reviewed every few minutes.
 const PLACE_ID: &str = "ChIJLU7jZClu5kcR4PcOOO6p3I0";
 
@@ -61,6 +73,7 @@ async fn live_scan_of_a_real_place() {
 	let error = summary.error.as_deref();
 	if summary.status == RunStatus::Failed {
 		let error = error.expect("a failed run says why");
+		starved(error);
 		assert!(error.contains("code: review_archive::google::"), "{summary}");
 		assert!(error.contains("-walk-failed.png]"), "{summary}");
 		return;
@@ -88,10 +101,11 @@ async fn live_capture_without_a_store() {
 	let got = match got {
 		Ok(got) => got,
 		Err(e) => {
+			let failure = review_archive::describe(&e);
+			starved(&failure);
 			assert!(
 				matches!(e.downcast_ref::<SessionError>(), Some(SessionError::LimitedView { .. } | SessionError::Blocked { .. })),
-				"{}",
-				review_archive::describe(&e)
+				"{failure}"
 			);
 			return;
 		}
@@ -118,10 +132,11 @@ async fn live_capture_on_a_profile_that_met_negotiate() {
 	let got = archive.capture_place(&CaptureRequest::new(PLACE_ID).lang("fr").max_reviews(5)).await;
 	archive.close().await;
 	if let Err(e) = got {
+		let failure = review_archive::describe(&e);
+		starved(&failure);
 		assert!(
 			matches!(e.downcast_ref::<SessionError>(), Some(SessionError::LimitedView { .. } | SessionError::Blocked { .. })),
-			"{}",
-			review_archive::describe(&e)
+			"{failure}"
 		);
 	}
 }
@@ -177,6 +192,7 @@ async fn live_a_share_link_tracks_the_place_it_shares() {
 	let error = summary.error.as_deref();
 	if summary.status == RunStatus::Failed {
 		let error = error.expect("a failed run says why");
+		starved(error);
 		assert!(error.contains("code: review_archive::google::"), "{summary}");
 		return;
 	}

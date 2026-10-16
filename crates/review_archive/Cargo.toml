@@ -59,6 +59,7 @@ zip = { workspace = true, optional = true }
 
 [dev-dependencies]
 axum.workspace = true
+miette = { workspace = true, features = ["fancy"] }
 png.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
