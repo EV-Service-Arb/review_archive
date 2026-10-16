@@ -22,8 +22,8 @@ use ev_lib::{
 	i18n::{Locale, Messages, Translator},
 	t,
 	uikit::{
-		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Size, Switch, Tabs,
-		TabsList, TabsTrigger,
+		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Select,
+		SelectContent, SelectItem, SelectTrigger, SelectValue, Size, Switch, Tabs, TabsList, TabsTrigger,
 	},
 };
 use review_archive_client::{
@@ -650,14 +650,14 @@ fn Workspace(view: Route) -> Element {
 					(_, None) => {
 						let mut cards: Vec<_> = gmails.iter().flat_map(|g| g.locations.iter().map(|l| (g.gmail.clone(), l.clone()))).collect();
 						cards.sort_by_key(|(_, l)| (std::cmp::Reverse(l.snapshots_7d), l.target.id));
-						rsx! { Places { cards, gmail: None, tab } }
+						rsx! { Places { cards, under: gmails.iter().map(|g| g.gmail.clone()).collect::<Vec<_>>(), gmail: None, tab } }
 					}
 					(_, Some(g)) => match target.and_then(|t| g.locations.iter().find(|l| l.target.id == t)) {
 						Some(loc) => rsx! {
 							board::Board { gmail: g.gmail.clone(), location: loc.clone(), tab }
 						},
 						None => rsx! {
-							Places { cards: g.locations.iter().map(|l| (g.gmail.clone(), l.clone())).collect::<Vec<_>>(), gmail: Some(g.gmail), tab }
+							Places { cards: g.locations.iter().map(|l| (g.gmail.clone(), l.clone())).collect::<Vec<_>>(), under: vec![g.gmail.clone()], gmail: Some(g.gmail), tab }
 						},
 					},
 				}
@@ -775,11 +775,17 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 }
 
 /// Places as cards, as given: one gmail's (`gmail`), else every gmail's. A place tracked under
-/// two gmails is a card under each: its counts are that gmail's.
+/// two gmails is a card under each: its counts are that gmail's. `under`: the gmails a new place can be tracked under.
 #[component]
-fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab: Option<i64>) -> Element {
+fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: Option<GmailDto>, tab: Option<i64>) -> Element {
+	assert!(!under.is_empty(), "Workspace shows no Places without a gmail");
 	let mut place = use_signal(String::new);
-	let mut choices = use_signal(Vec::<PlaceDto>::new);
+	let mut picked = use_signal(|| None::<String>);
+	let into = match under.as_slice() {
+		[only] => Some(only.id),
+		_ => picked().and_then(|gmail| under.iter().find(|g| g.gmail == gmail)).map(|g| g.id),
+	};
+	let mut choices = use_signal(|| None::<(i64, Vec<PlaceDto>)>);
 	let filter: Signal<filter::Filter> = use_context();
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
@@ -821,44 +827,50 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab:
 			span { class: "text-ink-soft", "/" }
 			span { class: "font-medium", "Locations" }
 			div { class: "flex-1" }
-			if let Some(g) = &gmail {
-				form {
-					class: "flex gap-2",
-					onsubmit: {
-						let id = g.id;
-						move |e: FormEvent| {
-							e.prevent_default();
-							let input = place();
-							act(move |c| async move {
-								match <[PlaceDto; 1]>::try_from(c.places(&input).await?) {
-									Ok([one]) => c.track(id, &NewTrack { place: one.place_id, ..Default::default() }).await.map(drop),
-									Err(many) => {
-										choices.set(many);
-										Ok(())
-									}
-								}
-							});
-							place.set(String::new());
+			form {
+				class: "flex gap-2",
+				onsubmit: move |e: FormEvent| {
+					e.prevent_default();
+					let id = into.expect("the submit button is disabled until a gmail is picked");
+					let input = place();
+					act(move |c| async move {
+						match <[PlaceDto; 1]>::try_from(c.places(&input).await?) {
+							Ok([one]) => c.track(id, &NewTrack { place: one.place_id, ..Default::default() }).await.map(drop),
+							Err(many) => {
+								choices.set(Some((id, many)));
+								Ok(())
+							}
 						}
-					},
-					Input {
-						class: "w-80",
-						placeholder: "Place id or Google Maps URL",
-						value: place(),
-						oninput: move |e: FormEvent| place.set(e.value()),
+					});
+					place.set(String::new());
+				},
+				if under.len() > 1 {
+					Select { on_value_change: move |v: String| picked.set(Some(v)),
+						SelectTrigger { class: "w-56", SelectValue { placeholder: "under gmail…" } }
+						SelectContent {
+							for g in under.iter() {
+								SelectItem { key: "{g.id}", value: "{g.gmail}", "{g.gmail}" }
+							}
+						}
 					}
-					Button { "+ Track place" }
 				}
+				Input {
+					class: "w-80",
+					placeholder: "Place id or Google Maps URL",
+					value: place(),
+					oninput: move |e: FormEvent| place.set(e.value()),
+				}
+				Button { disabled: into.is_none(), "+ Track place" }
 			}
 		}
-		if let Some(g) = gmail.as_ref().filter(|_| !choices.read().is_empty()) {
+		if let Some((id, many)) = choices() {
 			div { class: "flex flex-col gap-1 border-b border-border px-6 py-3",
 				div { class: "flex items-center gap-2",
-					span { class: "text-ink-soft", "{choices.read().len()} places bear this name; which one?" }
+					span { class: "text-ink-soft", "{many.len()} places bear this name; which one?" }
 					div { class: "flex-1" }
-					Button { variant: ButtonVariant::Ghost, size: Size::Xs, r#type: "button", onclick: move |_| choices.set(Vec::new()), "cancel" }
+					Button { variant: ButtonVariant::Ghost, size: Size::Xs, r#type: "button", onclick: move |_| choices.set(None), "cancel" }
 				}
-				for p in choices() {
+				for p in many {
 					Button {
 						key: "{p.place_id}",
 						class: "justify-start text-left",
@@ -866,11 +878,11 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, gmail: Option<GmailDto>, tab:
 						size: Size::Sm,
 						r#type: "button",
 						onclick: {
-							let (id, place_id) = (g.id, p.place_id.clone());
+							let place_id = p.place_id.clone();
 							move |_| {
 								let req = NewTrack { place: place_id.clone(), ..Default::default() };
 								act(move |c| async move { c.track(id, &req).await.map(drop) });
-								choices.set(Vec::new());
+								choices.set(None);
 							}
 						},
 						span { class: "font-medium", {p.name.clone().unwrap_or(p.place_id.clone())} }
