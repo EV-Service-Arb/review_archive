@@ -30,9 +30,11 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 	rsx! {
 		div { class: "relative",
 		Link { class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" }, to,
-			Card { class: if loc.favorite { "h-full gap-3 rounded-lg p-4 py-4 border-accent-warn" } else { "h-full gap-3 rounded-lg p-4 py-4 hover:border-ink-soft" },
+			Card { class: if loc.favorite { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 border-accent-warn" } else { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 hover:border-ink-soft" },
 				div {
-					div { class: "truncate text-[14px] font-semibold", "{loc.target.label}" }
+					div { class: "flex min-h-7 flex-col justify-end", // a name that wraps takes the space above it
+						div { class: "line-clamp-2 text-[14px] leading-5 font-semibold", title: "{loc.target.label}", "{loc.target.label}" }
+					}
 					if let Some(address) = &loc.target.address {
 						div { class: "truncate text-ink-soft", title: "{address}", "{address}" }
 					}

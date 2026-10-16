@@ -5125,6 +5125,7 @@ name = "review_archive_server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "browser_manipulation",
  "clap",
  "color-eyre",
  "concierge_iam",

@@ -46,5 +46,8 @@ tracing-subscriber.workspace = true
 utoipa.workspace = true
 v_utils = { workspace = true, features = ["cli", "xdg"] }
 
+[dev-dependencies]
+browser_manipulation.workspace = true
+
 [lints]
 workspace = true
