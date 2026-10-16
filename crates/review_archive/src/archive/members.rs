@@ -56,7 +56,7 @@ impl Archive {
 	/// Removes a gmail with its tracks and the channels scoped to it; one with appeals on
 	/// record stays.
 	pub async fn delete_gmail(&self, member: PersonId, id: i64) -> eyre::Result<()> {
-		self.store()?.delete_gmail(member, id).await
+		self.store()?.delete_gmail(member, id, Timestamp::now()).await
 	}
 
 	/// Every place a pasted id or Maps URL may mean, to pick one to track by its id.
@@ -95,9 +95,9 @@ impl Archive {
 		self.store()?.track(None, gmail, target, Timestamp::now()).await
 	}
 
-	/// Stops the member's gmail tracking a target; the target and its archive stay.
+	/// Stops the member's gmail tracking a target; the target and its archive stay until `defaults.untracked_retention` after no gmail tracks it.
 	pub async fn untrack(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<()> {
-		self.store()?.untrack(member, gmail, target).await
+		self.store()?.untrack(member, gmail, target, Timestamp::now()).await
 	}
 
 	/// Switches the member's gmail on or off: off, its places are scanned only if someone else has them on.

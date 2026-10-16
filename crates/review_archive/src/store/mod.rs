@@ -431,11 +431,62 @@ impl Store {
 
 	/// Every target, by id.
 	pub async fn targets(&self) -> eyre::Result<Vec<Target>> {
-		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets ORDER BY id")))
+		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets WHERE purged_at IS NULL ORDER BY id")))
 			.fetch_all(&self.pool)
 			.await
 			.wrap_err("listing targets")?;
 		rows.into_iter().map(Target::try_from).collect()
+	}
+
+	/// Drops the archive of every target no gmail has tracked since `before`. The target and its
+	/// runs stay, as what the token ledger charged for, but no lookup finds it again. Returns the
+	/// captures' blobs no capture points at any more.
+	pub(crate) async fn purge_untracked(&self, before: Timestamp, now: Timestamp) -> eyre::Result<Vec<String>> {
+		let mut tx = self.write().await?;
+		let targets: Vec<i64> = sqlx::query_scalar("SELECT id FROM targets WHERE untracked_at <= ? AND purged_at IS NULL")
+			.bind(fmt_ts(before))
+			.fetch_all(&mut *tx)
+			.await
+			.wrap_err("listing untracked targets")?;
+		let mut shas: Vec<String> = Vec::new();
+		for target in targets {
+			shas.extend(
+				sqlx::query_scalar::<_, String>("SELECT DISTINCT c.sha256 FROM captures c JOIN reviews r ON r.id = c.review_id WHERE r.target_id = ?")
+					.bind(target)
+					.fetch_all(&mut *tx)
+					.await
+					.wrap_err("listing a target's captures")?,
+			);
+			for q in [
+				"DELETE FROM captures WHERE review_id IN (SELECT id FROM reviews WHERE target_id = ?)",
+				"DELETE FROM review_versions WHERE review_id IN (SELECT id FROM reviews WHERE target_id = ?)",
+				"DELETE FROM reinstatements WHERE review_id IN (SELECT id FROM reviews WHERE target_id = ?)",
+				"DELETE FROM reviews WHERE target_id = ?",
+				"DELETE FROM posts WHERE target_id = ?",
+				"DELETE FROM jobs WHERE target_id = ?",
+			] {
+				sqlx::query(q).bind(target).execute(&mut *tx).await.wrap_err_with(|| format!("purging target {target}"))?;
+			}
+			sqlx::query("UPDATE targets SET purged_at = ?, cut_after = NULL, listed = NULL WHERE id = ?")
+				.bind(fmt_ts(now))
+				.bind(target)
+				.execute(&mut *tx)
+				.await
+				.wrap_err_with(|| format!("purging target {target}"))?;
+		}
+		let mut orphans = Vec::new();
+		for sha in shas {
+			let kept: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM captures WHERE sha256 = ?)")
+				.bind(&sha)
+				.fetch_one(&mut *tx)
+				.await
+				.wrap_err("checking a blob's other captures")?;
+			if !kept {
+				orphans.push(sha);
+			}
+		}
+		tx.commit().await.wrap_err("committing a purge")?;
+		Ok(orphans)
 	}
 
 	/// Enabled targets, by id, but for those every member tracking has switched off.
@@ -455,7 +506,7 @@ impl Store {
 
 	/// One target; [`Rejected::NotFound`] when there is none.
 	pub async fn target(&self, id: TargetId) -> eyre::Result<Target> {
-		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets WHERE id = ?")))
+		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets WHERE id = ? AND purged_at IS NULL")))
 			.bind(id.0)
 			.fetch_optional(&self.pool)
 			.await
@@ -494,7 +545,7 @@ impl Store {
 	pub async fn find_target(&self, place_id: &str, lang: &str, gbp: Option<&GbpLocation>) -> eyre::Result<Option<Target>> {
 		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
 			"SELECT {TARGET_COLUMNS} FROM targets
-			 WHERE place_id = ?1 AND lang = ?2 AND kind = IIF(?3 IS NULL, 'maps', 'gbp') AND gbp_account IS ?3 AND gbp_location IS ?4
+			 WHERE purged_at IS NULL AND place_id = ?1 AND lang = ?2 AND kind = IIF(?3 IS NULL, 'maps', 'gbp') AND gbp_account IS ?3 AND gbp_location IS ?4
 			 ORDER BY id LIMIT 1"
 		)))
 		.bind(place_id)

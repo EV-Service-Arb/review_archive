@@ -133,6 +133,10 @@ async fn step(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, login_ch
 		return Ok(step);
 	}
 	let now = Timestamp::now();
+	let purged = archive.purge_untracked(now).await?;
+	if purged > 0 {
+		tracing::info!(blobs = purged, "purged the archives no gmail tracks");
+	}
 	match archive.touch_standby(now).await {
 		Ok(true) => return Ok(Step::Scanned),
 		Ok(false) => {}
