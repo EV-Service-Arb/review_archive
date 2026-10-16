@@ -34,6 +34,28 @@ const SHARE_LINK: &str = "https://maps.app.goo.gl/xpeH4R7UKWfVeXqC8";
 /// Shiny Maids of Hicksville, the place the link shares.
 const SHARED_PLACE_ID: &str = "ChIJ89hmOOCBwokRDrDlHKKRT6c";
 
+/// The data dir, kept when the test fails: a failed walk's error names the page it saved under it.
+struct Kept(Option<tempfile::TempDir>);
+
+impl Kept {
+	fn new() -> Self {
+		Self(Some(tempfile::tempdir().unwrap()))
+	}
+
+	fn path(&self) -> &std::path::Path {
+		self.0.as_ref().expect("taken on drop only").path()
+	}
+}
+
+impl Drop for Kept {
+	fn drop(&mut self) {
+		if std::thread::panicking() {
+			let dir = self.0.take().expect("taken on drop only").keep();
+			eprintln!("kept the data dir: {}", dir.display());
+		}
+	}
+}
+
 fn config(dir: &std::path::Path) -> Config {
 	let mut config = Config {
 		data_dir: Some(dir.to_owned()),
@@ -53,7 +75,7 @@ fn config(dir: &std::path::Path) -> Config {
 #[tokio::test]
 #[ignore = "live: needs Chrome and the network"]
 async fn live_scan_of_a_real_place() {
-	let dir = tempfile::tempdir().unwrap();
+	let dir = Kept::new();
 	let archive = Archive::open(config(dir.path())).await.unwrap();
 	let added = archive
 		.add_target(&NewTarget {
@@ -146,7 +168,7 @@ async fn live_capture_on_a_profile_that_met_negotiate() {
 #[tokio::test]
 #[ignore = "live: needs Chrome and the network"]
 async fn live_a_share_link_tracks_the_place_it_shares() {
-	let dir = tempfile::tempdir().unwrap();
+	let dir = Kept::new();
 	let archive = Archive::open(config(dir.path())).await.unwrap();
 	let seen = Seen {
 		sub: "sub",

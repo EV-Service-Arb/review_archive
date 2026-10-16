@@ -87,8 +87,8 @@ with its own platform implements `sources::ReviewSource` and records through
   masking, no proxy, no CAPTCHA solving. The accounts in `browser.profile_dirs` are used in
   their order, and only `signed_out` moves a walk to the next; a flag on the address
   (`blocked`, `limited_view`) never does. When Google does not serve the
-  full page — the "unusual traffic" page, or its "limited view" without reviews — the run
-  fails and the error says which. A profile signed out of Google cannot walk: Maps shows it
+  full page — the "unusual traffic" page, its "limited view" without reviews, or a review list
+  that never fills — the run fails and the error says which. A profile signed out of Google cannot walk: Maps shows it
   a place's first few reviews only, unsorted, which is no archive. The walk starts over on the
   next signed-in profile (it is seen before any card is read), and the account is kept signed
   out (`profiles`, SQLite, so a restart keeps it) and logged at error level until a person signs

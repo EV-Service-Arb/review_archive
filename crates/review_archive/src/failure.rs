@@ -34,7 +34,7 @@ pub fn remedy(e: &eyre::Report) -> Remedy {
 			SessionError::MarkupChanged { .. } | SessionError::Consent { .. } => Remedy::Human,
 			// a person fixes the target and its card says why, but one target's place must not halt
 			// every Maps walk; a place panel missing is also what a page that did not finish looks like
-			SessionError::PlaceNotFound { .. } => Remedy::Retry,
+			SessionError::PlaceNotFound { .. } | SessionError::ListNotLoaded { .. } => Remedy::Retry,
 			SessionError::Launch { .. } | SessionError::SignedOut { .. } => Remedy::Fatal,
 			SessionError::Browser { source, .. } => match &*source.kind {
 				// a slow start is `LaunchTimeout` by then: what is left is the setup
@@ -114,6 +114,10 @@ pub enum SessionError {
 		help("this browser session is not trusted with the full page: every Maps walk pauses, and one probes later")
 	)]
 	LimitedView,
+	#[leaf]
+	#[error("the review list stayed empty while Maps loaded it")]
+	#[diagnostic(code(review_archive::google::list_not_loaded), help("Google was slow to serve the list: the target's backoff retries it"))]
+	ListNotLoaded,
 	#[leaf]
 	#[error("the scanner's browser is signed out of Google, which then shows a place's first few reviews only, unsorted")]
 	#[diagnostic(

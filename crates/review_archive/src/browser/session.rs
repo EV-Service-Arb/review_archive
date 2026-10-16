@@ -427,8 +427,8 @@ impl Page<'_> {
 				if !meter.try_spend(cost::STEP) {
 					return Ok(Some(WalkEnd::Budget));
 				}
-				// A list short enough to fit the panel has nothing to scroll and nothing more to load.
-				if !self.eval::<bool>(js::SCROLL_FEED, sel::CARD).await? {
+				// A list short enough to fit the panel has nothing to scroll and nothing more to load; one still loading has no card yet.
+				if !self.eval::<bool>(js::SCROLL_FEED, sel::CARD).await? && !cards.is_empty() {
 					return Ok(Some(WalkEnd::ReachedEnd));
 				}
 				tokio::time::sleep(self.cfg.step_wait.duration()).await;
@@ -444,6 +444,13 @@ impl Page<'_> {
 				}
 			}
 		};
+		// the list exists once a card showed in `open_reviews`: a walk that ends without one never read it
+		if end == WalkEnd::ReachedEnd && cards.is_empty() {
+			return Err(match self.eval::<bool>(js::ANY, [sel::CARD]).await? {
+				true => markup_changed("reading the review cards", &[sel::CARD]),
+				false => SessionError::new_list_not_loaded(),
+			});
+		}
 		Ok(Walked {
 			cards,
 			end,
