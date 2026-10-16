@@ -1,7 +1,7 @@
 //! The locations overview as the kit draws it: a card per place.
 
 use dioxus::{prelude::*, web::WebEventExt};
-use ev_lib::uikit::{Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuItemVariant, DropdownMenuTrigger, Size, Spinner, Switch};
+use ev_lib::uikit::{Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuItemVariant, DropdownMenuTrigger, Size, Spinner, Switch, button_classes};
 use review_archive_client::dto::{GmailDto, LocationSummary, RunStatus, ScanState, TrackPatch};
 use sa_ui::TokenCost;
 
@@ -118,13 +118,15 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 					}
 				}
 			}
-			Switch {
-				checked: loc.enabled,
-				disabled: !gmail_on,
-				on_checked_change: move |on: bool| act(move |c| async move { c.patch_track(id, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
+			label { class: "inline-flex h-8 cursor-pointer items-center rounded-[var(--control-radius)] px-1.5 transition-all hover:bg-hover has-disabled:cursor-not-allowed has-disabled:hover:bg-transparent", // ↻'s hover, and a click on it toggles
+				Switch {
+					checked: loc.enabled,
+					disabled: !gmail_on,
+					on_checked_change: move |on: bool| act(move |c| async move { c.patch_track(id, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
+				}
 			}
 			DropdownMenu {
-				DropdownMenuTrigger { class: "inline-flex size-7 items-center justify-center rounded-full text-ink hover:bg-border",
+				DropdownMenuTrigger { class: button_classes(&ButtonVariant::Ghost, Size::Sm, true, None, "text-ink"),
 					svg { class: "size-5", view_box: "0 0 24 24", fill: "currentColor",
 						title { "more" }
 						circle { cx: "12", cy: "5", r: "2" }
