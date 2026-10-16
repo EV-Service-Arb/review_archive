@@ -31,7 +31,7 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 		div { class: "relative",
 		Link { class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" }, to,
 			Card { class: if loc.favorite { "h-full gap-3 rounded-lg p-4 py-4 border-accent-warn" } else { "h-full gap-3 rounded-lg p-4 py-4 hover:border-ink-soft" },
-				div { class: "pr-24",
+				div {
 					div { class: "truncate text-[14px] font-semibold", "{loc.target.label}" }
 					if let Some(address) = &loc.target.address {
 						div { class: "truncate text-ink-soft", title: "{address}", "{address}" }
@@ -82,7 +82,7 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 						}
 					}
 				}
-				div { class: "mt-auto flex items-center gap-2 border-t border-border pt-3 text-[11px] text-ink-soft",
+				div { class: "mt-auto flex items-center gap-2 border-t border-border pt-3 pr-28 text-[11px] text-ink-soft",
 					span { class: "size-1.5 rounded-full {dot}" }
 					"{scan}{last}"
 					match (&loc.last_run_status, &loc.last_run_error) {
@@ -92,15 +92,34 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 				}
 			}
 		}
-		div { class: "absolute top-3 right-3 flex items-center gap-1",
+		div { class: "absolute right-2 bottom-2 flex items-center gap-1",
+			if loc.scan.is_some() {
+				Button { variant: ButtonVariant::Ghost, size: Size::Sm, icon: true, r#type: "button", disabled: true, Spinner {} }
+			} else {
+				TokenCost { tokens: loc.scan_cost,
+					Button {
+						variant: ButtonVariant::Ghost,
+						size: Size::Sm,
+						icon: true,
+						r#type: "button",
+						onclick: move |_| act(move |c| async move { c.scan_tracked(id, target).await.map(drop) }),
+						span { title: "scan now, on top of the schedule", "↻" }
+					}
+				}
+			}
 			Switch {
 				checked: loc.enabled,
 				disabled: !gmail_on,
 				on_checked_change: move |on: bool| act(move |c| async move { c.patch_track(id, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
 			}
 			DropdownMenu {
-				DropdownMenuTrigger { class: "inline-flex size-7 items-center justify-center rounded-md text-ink-soft hover:text-ink",
-					span { title: "more", "⋯" }
+				DropdownMenuTrigger { class: "inline-flex size-7 items-center justify-center rounded-full text-ink hover:bg-border",
+					svg { class: "size-5", view_box: "0 0 24 24", fill: "currentColor",
+						title { "more" }
+						circle { cx: "12", cy: "5", r: "2" }
+						circle { cx: "12", cy: "12", r: "2" }
+						circle { cx: "12", cy: "19", r: "2" }
+					}
 				}
 				DropdownMenuContent { class: "left-auto right-0 z-50",
 					DropdownMenuItem {
@@ -122,22 +141,6 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 						onclick: move |_| act(move |c| async move { c.untrack(id, target).await }),
 						span { "🗑" }
 						span { title: "stop tracking under this gmail; the archive stays", "delete" }
-					}
-				}
-			}
-		}
-		div { class: "absolute right-2 bottom-2",
-			if loc.scan.is_some() {
-				Button { variant: ButtonVariant::Ghost, size: Size::Sm, icon: true, r#type: "button", disabled: true, Spinner {} }
-			} else {
-				TokenCost { tokens: loc.scan_cost,
-					Button {
-						variant: ButtonVariant::Ghost,
-						size: Size::Sm,
-						icon: true,
-						r#type: "button",
-						onclick: move |_| act(move |c| async move { c.scan_tracked(id, target).await.map(drop) }),
-						span { title: "scan now, on top of the schedule", "↻" }
 					}
 				}
 			}
