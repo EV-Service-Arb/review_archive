@@ -11,6 +11,8 @@ use strum::IntoEnumIterator;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, strum::Display, strum::EnumIter)]
 enum Facet {
+	#[strum(to_string = "favorite")]
+	Favorite,
 	#[strum(to_string = "responded")]
 	Responded,
 	#[strum(to_string = "removed")]
@@ -34,6 +36,7 @@ enum Facet {
 impl Facet {
 	fn holds(self, g: &GmailDto, l: &LocationSummary) -> bool {
 		match self {
+			Self::Favorite => l.favorite,
 			Self::Responded => l.responded >= l.live,
 			Self::Removed => l.removed > 0,
 			Self::Reinstating => l.reinstating > 0,
