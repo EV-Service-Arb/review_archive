@@ -26,10 +26,12 @@ struct Name {
 	top: f64,
 	/// Cut off with an ellipsis.
 	cut: bool,
+	/// The whole name on hover.
+	titled: bool,
 }
 
 /// Namesakes differ in what follows their common start (#44): a name wraps once, and what wrapping takes is
-/// taken from the space above it.
+/// taken from the space above it. Only a name cut off shows whole on hover.
 #[tokio::test]
 #[ignore = "dashboard: needs the devShell's Chromium, wasm-bindgen and tailwindcss"]
 async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
@@ -99,13 +101,11 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 		while tab.goto(&format!("http://127.0.0.1:{port}/gmails/{gmail}")).await.is_err() {
 			tokio::time::sleep(Duration::from_millis(100)).await;
 		}
-		loop {
-			let names: BTreeMap<String, Name> = tab.eval(MEASURE, [SHORT, TWO_LINES, LONGER]).await.unwrap();
-			if names.len() == 3 {
-				break names;
-			}
+		while tab.eval::<BTreeMap<String, Name>>(MEASURE, [SHORT, TWO_LINES, LONGER]).await.unwrap().len() < 3 {
 			tokio::time::sleep(Duration::from_millis(100)).await;
 		}
+		tokio::time::sleep(Duration::from_millis(500)).await; // a resize observer reports a frame after layout
+		tab.eval::<BTreeMap<String, Name>>(MEASURE, [SHORT, TWO_LINES, LONGER]).await.unwrap()
 	};
 	let names = tokio::select! {
 		names = names => names,
@@ -114,9 +114,36 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 	};
 	browser.close().await.unwrap();
 
-	assert_eq!(names[SHORT], Name { lines: 1, top: 16.0, cut: false }, "{names:#?}");
-	assert_eq!(names[TWO_LINES], Name { lines: 2, top: 8.0, cut: false }, "{names:#?}");
-	assert_eq!(names[LONGER], Name { lines: 2, top: 8.0, cut: true }, "{names:#?}");
+	assert_eq!(
+		names[SHORT],
+		Name {
+			lines: 1,
+			top: 16.0,
+			cut: false,
+			titled: false
+		},
+		"{names:#?}"
+	);
+	assert_eq!(
+		names[TWO_LINES],
+		Name {
+			lines: 2,
+			top: 8.0,
+			cut: false,
+			titled: false
+		},
+		"{names:#?}"
+	);
+	assert_eq!(
+		names[LONGER],
+		Name {
+			lines: 2,
+			top: 8.0,
+			cut: true,
+			titled: true
+		},
+		"{names:#?}"
+	);
 }
 
 const MEASURE: &str = r#"labels => Object.fromEntries([...document.querySelectorAll("[data-slot=card] div")]
@@ -128,7 +155,7 @@ const MEASURE: &str = r#"labels => Object.fromEntries([...document.querySelector
 		const text = document.createRange();
 		text.selectNodeContents(el);
 		const lines = new Set([...text.getClientRects()].filter(r => r.top < box.bottom).map(r => Math.round(r.top))).size;
-		return [el.textContent, { lines, top, cut: el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth }];
+		return [el.textContent, { lines, top, cut: el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth, titled: el.title == el.textContent }];
 	}))"#;
 
 /// As `nix run .#dev-mfe` builds it, in a target dir of its own: the one `cargo test` runs from is locked.

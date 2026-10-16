@@ -1,6 +1,6 @@
 //! The locations overview as the kit draws it: a card per place.
 
-use dioxus::prelude::*;
+use dioxus::{prelude::*, web::WebEventExt};
 use ev_lib::uikit::{Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuItemVariant, DropdownMenuTrigger, Size, Spinner, Switch};
 use review_archive_client::dto::{GmailDto, LocationSummary, RunStatus, ScanState, TrackPatch};
 use sa_ui::TokenCost;
@@ -27,13 +27,22 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 	let (gmail_on, gmail) = (gmail.enabled, gmail);
 	let id = gmail.id;
 	let favorite = loc.favorite;
+	let mut cut = use_signal(|| false);
 	rsx! {
 		div { class: "relative",
 		Link { class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" }, to,
 			Card { class: if loc.favorite { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 border-accent-warn" } else { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 hover:border-ink-soft" },
 				div {
 					div { class: "flex min-h-7 flex-col justify-end", // a name that wraps takes the space above it
-						div { class: "line-clamp-2 text-[14px] leading-5 font-semibold", title: "{loc.target.label}", "{loc.target.label}" }
+						div {
+							class: "line-clamp-2 text-[14px] leading-5 font-semibold",
+							title: if cut() { "{loc.target.label}" },
+							onresize: move |e| {
+								let name = e.as_web_event().target();
+								cut.set(name.scroll_height() > name.client_height());
+							},
+							"{loc.target.label}"
+						}
 					}
 					if let Some(address) = &loc.target.address {
 						div { class: "truncate text-ink-soft", title: "{address}", "{address}" }
