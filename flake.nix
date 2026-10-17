@@ -225,6 +225,8 @@
             inherit port;
             mounts = [ "/data" ];
             sqlite = [ "/data/review_archive.db" ];
+            # Chromium's own; a lost sign-in is the `signed_out` halt
+            unreplicated = [ "/data/chromium-profile" "/data/chromium-profile-2" "/data/.local/share/pki" ];
             healthPath = "/health";
             # an archive that misses a scan catches up on the next one
             criticality = "normal";
