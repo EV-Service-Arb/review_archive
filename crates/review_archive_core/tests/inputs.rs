@@ -45,3 +45,17 @@ fn a_maps_url_names_its_place_by_the_feature_id() {
 	.unwrap();
 	assert_eq!(got, place::Parsed::PlaceId("ChIJ89hmOOCBwokRDrDlHKKRT6c".into()));
 }
+
+/// A share.google link (Search's share button) lands on a Google Search for the place's name;
+/// that name is what Places is searched for.
+#[test]
+fn a_google_search_url_searches_for_its_query() {
+	let got = place::parse("https://www.google.com/search?hl=en&gl=US&output=search&kgmid=/g/11zgy_6kp_&q=Bayou+Buff+Mobile+Car+Detailing+Houston+TX&shndl=30").unwrap();
+	assert_eq!(
+		got,
+		place::Parsed::Search {
+			query: "Bayou Buff Mobile Car Detailing Houston TX".into(),
+			near: None,
+		}
+	);
+}

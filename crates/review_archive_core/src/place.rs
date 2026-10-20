@@ -50,7 +50,12 @@ pub fn parse(input: &str) -> eyre::Result<Parsed> {
 		.position(|s| s == "place")
 		.and_then(|i| segments.get(i + 1))
 		.filter(|s| !s.is_empty() && !s.starts_with('@'))
-		.cloned();
+		.cloned()
+		.or_else(|| {
+			(url.path() == "/search")
+				.then(|| url.query_pairs().find(|(k, _)| k == "q").map(|(_, v)| v.into_owned()))
+				.flatten()
+		}); // a share.google link lands on a Search for the place's name
 	let near = segments.iter().find_map(|s| {
 		let mut it = s.strip_prefix('@')?.split(',');
 		Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))

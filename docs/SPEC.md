@@ -85,7 +85,7 @@ Out — do not build, even as an option:
 
 ### Place id resolution
 
-`target add` accepts a place id or a Google Maps URL. From a URL, take the id it carries
+`target add` accepts a place id, a Google Maps URL, or a share link (`maps.app.goo.gl`, `share.google`, expanded to the Maps or Search URL behind it; a Search URL's `q` is the name). From a URL, take the id it carries
 (`!1s0x…:0x…` in `data=` is the place id, re-encoded); otherwise search Places API (New)
 `places:searchText` (`GOOGLE_MAPS_KEY`) for the URL's name. A place is never guessed: only
 hits bearing that exact name count, and when several do, the person picks one by its id

@@ -55,16 +55,20 @@ fn needed(key: Option<&str>) -> Result<&str, Rejected> {
 }
 
 async fn parsed(input: &str) -> eyre::Result<Parsed> {
-	let input = input.trim();
-	let expanded = if input.starts_with("https://maps.app.goo.gl/") {
-		expand_short_link(input).await?
-	} else {
-		input.to_owned()
-	};
+	let mut expanded = input.trim().to_owned();
+	for _ in 0..3 {
+		if !["https://maps.app.goo.gl/", "https://share.google/", "https://www.google.com/share.google?"]
+			.iter()
+			.any(|p| expanded.starts_with(p))
+		{
+			break;
+		}
+		expanded = expand_short_link(&expanded).await?;
+	}
 	Ok(place::parse(&expanded).map_err(|e| Rejected::invalid(format!("{e:#}")))?)
 }
 
-/// One hop only: following further can land on consent.google.com instead of the place.
+/// One hop: following further can land on consent.google.com instead of the place.
 async fn expand_short_link(url: &str) -> eyre::Result<String> {
 	let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(PlacesError::from)?;
 	let resp = client.get(url).send().await.map_err(PlacesError::from)?;
