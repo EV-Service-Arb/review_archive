@@ -59,3 +59,13 @@ fn a_google_search_url_searches_for_its_query() {
 		}
 	);
 }
+
+/// A Search viewer link (a place's panel shared from Search) and a Maps `?cid=` URL carry only
+/// the place's cid; the id built from it is one Places answers with the place's own.
+#[test]
+fn a_cid_names_its_place_by_an_alias() {
+	let viewer = place::parse("https://www.google.com/searchviewer/10?output=search&svid=CAwSKBImCgNwdnESH09oVXdlREE2TUhoalpXVm1PVFEwWVdWalkySXhNbVkYCg&hl=en&gl=US").unwrap();
+	let maps = place::parse("https://maps.google.com/?cid=931956246298013999").unwrap();
+	assert_eq!(viewer, place::Parsed::Alias("ChIJAAAAAAAAAAARL7HMrkT57gw".into()));
+	assert_eq!(maps, viewer);
+}

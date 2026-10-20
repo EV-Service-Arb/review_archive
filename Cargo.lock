@@ -5100,6 +5100,7 @@ dependencies = [
 name = "review_archive_core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "clap",
  "csv",
  "eyre",

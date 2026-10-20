@@ -22,6 +22,10 @@ const FIELD_MASK: &str = "places.id,places.displayName,places.formattedAddress";
 pub async fn resolve(http: &reqwest::Client, key: Option<&str>, input: &str) -> eyre::Result<(String, Option<PlaceDto>)> {
 	match parsed(input).await? {
 		Parsed::PlaceId(id) => Ok((id, None)),
+		Parsed::Alias(alias) => {
+			let place = details(http, PLACES, needed(key)?, &alias).await?;
+			Ok((place.place_id.clone(), Some(place)))
+		}
 		Parsed::Search { query, near } => match <[PlaceDto; 1]>::try_from(search(http, SEARCH_TEXT, needed(key)?, &query, near).await?) {
 			Ok([one]) => Ok((one.place_id.clone(), Some(one))),
 			Err(many) => {
@@ -46,6 +50,7 @@ pub async fn candidates(http: &reqwest::Client, key: Option<&str>, input: &str) 
 				address: None,
 			},
 		}]),
+		Parsed::Alias(alias) => Ok(vec![details(http, PLACES, needed(key)?, &alias).await?]),
 		Parsed::Search { query, near } => search(http, SEARCH_TEXT, needed(key)?, &query, near).await,
 	}
 }

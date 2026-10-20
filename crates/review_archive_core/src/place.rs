@@ -1,6 +1,7 @@
 //! A place id from what a person pastes: the id itself, or a Maps URL. Resolving a URL
 //! without an id takes a Places API search, which is the engine's job.
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use eyre::WrapErr;
 
 /// What the input says without asking anyone.
@@ -8,6 +9,8 @@ use eyre::WrapErr;
 pub enum Parsed {
 	/// The input is, or contains, a place id.
 	PlaceId(String),
+	/// An id Places answers for by the place's own: built from a cid alone, it is not the place's.
+	Alias(String),
 	/// A URL with no id in it; searching needs the name and, when present, where the map was.
 	Search {
 		/// The place's name from the URL path.
@@ -25,6 +28,17 @@ pub fn parse(input: &str) -> eyre::Result<Parsed> {
 		return Ok(Parsed::PlaceId(input.to_owned()));
 	}
 	let url = url::Url::parse(input).wrap_err_with(|| format!("parsing {input:?}"))?;
+	let cid = url
+		.query_pairs()
+		.find_map(|(k, v)| match k.as_ref() {
+			"cid" => Some(v.parse::<u64>().wrap_err_with(|| format!("cid {v:?} in {input:?}"))),
+			"svid" => Some(svid_cid(&v).ok_or_else(|| eyre::eyre!("the svid of {input:?} names no place"))),
+			_ => None,
+		})
+		.transpose()?;
+	if let Some(cid) = cid {
+		return Ok(Parsed::Alias(place_id_of_feature(0, cid)));
+	}
 	for (k, v) in url.query_pairs() {
 		let candidate = match k.as_ref() {
 			"query_place_id" | "place_id" => Some(v.to_string()),
@@ -77,20 +91,58 @@ fn feature_ids(data: &str) -> impl Iterator<Item = (u64, u64)> + '_ {
 	})
 }
 
+/// A Search viewer's `svid` is base64url protobuf; one of its strings is, base64url again, a protobuf holding the feature id `0x0:0x<cid>`.
+fn svid_cid(svid: &str) -> Option<u64> {
+	fn varint(b: &mut &[u8]) -> Option<u64> {
+		let mut v = 0;
+		for shift in (0..64).step_by(7) {
+			let (&byte, rest) = b.split_first()?;
+			*b = rest;
+			v |= u64::from(byte & 0x7f) << shift;
+			if byte & 0x80 == 0 {
+				return Some(v);
+			}
+		}
+		None
+	}
+	fn strings<'a>(mut b: &'a [u8], out: &mut Vec<&'a [u8]>) -> Option<()> {
+		while !b.is_empty() {
+			match varint(&mut b)? & 7 {
+				0 => {
+					varint(&mut b)?;
+				}
+				1 => b = b.get(8..)?,
+				5 => b = b.get(4..)?,
+				2 => {
+					let n = usize::try_from(varint(&mut b)?).ok()?;
+					let (s, rest) = (b.get(..n)?, &b[n..]);
+					out.push(s);
+					let _ = strings(s, out); // a string is not always a message
+					b = rest;
+				}
+				_ => return None,
+			}
+		}
+		Some(())
+	}
+	let outer = URL_SAFE_NO_PAD.decode(svid.trim_end_matches('=')).ok()?;
+	let mut found = Vec::new();
+	strings(&outer, &mut found)?;
+	found.into_iter().filter_map(|s| URL_SAFE_NO_PAD.decode(s).ok()).find_map(|inner| {
+		let inner = String::from_utf8_lossy(&inner);
+		let (_, after) = inner.split_once("0x0:0x")?;
+		let hex: String = after.chars().take_while(char::is_ascii_hexdigit).collect();
+		u64::from_str_radix(&hex, 16).ok()
+	})
+}
+
 /// A `ChIJ…` place id is the feature id itself: `{1: {1: fixed64 cell, 2: fixed64 cid}}`, base64url.
 fn place_id_of_feature(cell: u64, cid: u64) -> String {
-	const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 	let mut bytes = vec![0x0a, 0x12, 0x09];
 	bytes.extend(cell.to_le_bytes());
 	bytes.push(0x11);
 	bytes.extend(cid.to_le_bytes());
-	let bits = bytes.len() * 8;
-	(0..bits.div_ceil(6))
-		.map(|i| {
-			let at = |b: usize| bytes.get(b / 8).map_or(0, |byte| (byte >> (7 - b % 8)) & 1);
-			B64[(0..6).fold(0, |acc, k| acc << 1 | at(i * 6 + k)) as usize] as char
-		})
-		.collect()
+	URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// Form decoding: `+` is a space, `%2B` a plus.
