@@ -411,7 +411,10 @@ async fn telegram_channels_get_their_members_places_only() {
 		blobs: &blobs,
 		now: Timestamp::now,
 		schedule: &Schedule::default(),
-		tokens: &Tokens::default(),
+		tokens: &Tokens {
+			start_cap_multiple: Some(2.0),
+			..Tokens::default()
+		},
 	};
 	let mut shot = review("b", "rude");
 	shot.capture = Some(review_archive::core::Capture {

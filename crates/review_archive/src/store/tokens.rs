@@ -271,7 +271,7 @@ impl Store {
 }
 
 /// The member's balance, renewed up to `now` inside the caller's write. A member seen for
-/// the first time starts with twice the cap.
+/// the first time starts with `tokens.start_cap_multiple` caps.
 async fn renewed(tx: &mut SqliteConnection, member: PersonId, now: Timestamp, cfg: &Tokens) -> eyre::Result<i64> {
 	let (balance, last): (i64, Option<String>) = sqlx::query_as("SELECT COALESCE(SUM(delta), 0), MAX(CASE WHEN kind = 'accrual' THEN at END) FROM token_ledger WHERE person_id = ?")
 		.bind(member.0)
@@ -279,7 +279,11 @@ async fn renewed(tx: &mut SqliteConnection, member: PersonId, now: Timestamp, cf
 		.await
 		.wrap_err("summing a balance")?;
 	let (delta, at) = match last {
-		None => (2 * cfg.cap, now),
+		None => {
+			let m = cfg.start_cap_multiple.ok_or_else(|| eyre::eyre!("`tokens.start_cap_multiple` is not set"))?;
+			assert!(m.is_finite() && m >= 0., "tokens.start_cap_multiple ({m}) is a finite multiple, 0 or more");
+			((cfg.cap as f64 * m).round() as i64, now)
+		}
 		Some(last) => {
 			let last = parse_ts(&last)?;
 			match accrue(balance, last, now, cfg.daily, cfg.cap) {

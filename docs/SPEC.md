@@ -176,7 +176,7 @@ needs) and `http.max_concurrent` are served at once; `/health` and `/openapi.jso
 
 Config: v_utils `Settings` (`--config`, else `$XDG_CONFIG_HOME/review_archive.{toml,nix,…}`;
 each key also a flag, e.g. `--schedule-min-interval`) for data dir, bind address, defaults,
-pacing (`[schedule]`, `[worker]`, `[http]`, `[webhooks]`, `[browser]`, `[tokens]`); every key has a default,
+pacing (`[schedule]`, `[worker]`, `[http]`, `[webhooks]`, `[browser]`, `[tokens]`); every key has a default but `tokens.start_cap_multiple`,
 `review_archive config write-defaults` lists them. Secrets only from env.
 
 ### HTTP API for other services
@@ -274,7 +274,7 @@ exposure for it. Tokens price that, and the members whose places are scanned pay
 - `token_ledger(id, person_id, at, delta, kind[accrual|grant|purchase|set|charge|kickback], run_id, by_email, note)`:
   append-only; a balance is the sum of its rows. Reading a balance renews it first, a whole
   day at a time: `tokens.daily` (15) per day while under `tokens.cap` (500); granted or bought
-  tokens above the cap stay. A member seen for the first time starts with twice the cap.
+  tokens above the cap stay. A member seen for the first time starts with `tokens.start_cap_multiple` (no default; 2.0) caps.
   `set` writes the difference to the balance asked for.
 - A scheduled scan of a target is paid by the members tracking it (a track on, under a gmail
   that is on). Its walk may spend their balances together, within what the account has left

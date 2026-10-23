@@ -59,6 +59,11 @@ impl AppConfig {
 			cfg.tokens.per_hour,
 			cost::FIRST_SCREEN
 		);
+		eyre::ensure!(
+			matches!(cfg.tokens.start_cap_multiple, Some(m) if m.is_finite() && m >= 0.),
+			"tokens.start_cap_multiple ({:?}) must be set, a finite multiple of the cap, 0 or more",
+			cfg.tokens.start_cap_multiple
+		);
 		Ok(cfg)
 	}
 

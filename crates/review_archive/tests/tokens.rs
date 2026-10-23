@@ -107,9 +107,17 @@ impl ReviewSource for Spends {
 	}
 }
 
+fn tokens() -> Tokens {
+	Tokens {
+		start_cap_multiple: Some(2.0),
+		..Tokens::default()
+	}
+}
+
 async fn open(dir: &Path) -> Archive {
 	Archive::open(Config {
 		data_dir: Some(dir.to_owned()),
+		tokens: tokens(),
 		..Config::default()
 	})
 	.await
@@ -149,7 +157,7 @@ async fn set(archive: &Archive, member: PersonId, n: i64) {
 	archive
 		.store()
 		.unwrap()
-		.change_balance(member, BalanceChange::Set(n), "root", None, Timestamp::now(), &Tokens::default())
+		.change_balance(member, BalanceChange::Set(n), "root", None, Timestamp::now(), &tokens())
 		.await
 		.unwrap();
 }
@@ -158,7 +166,7 @@ async fn set(archive: &Archive, member: PersonId, n: i64) {
 async fn renewal_stops_at_the_cap_and_never_takes_back() {
 	let dir = tempfile::tempdir().unwrap();
 	let store = open(dir.path()).await.store().unwrap().clone();
-	let cfg = Tokens::default();
+	let cfg = tokens();
 	let a = person(&store, "a").await;
 	let t0: Timestamp = "2026-10-01T09:00:00Z".parse().unwrap();
 	let day = |n: i64| t0 + SignedDuration::from_hours(24 * n);
@@ -262,7 +270,7 @@ async fn usage_sums_a_members_own_charges_by_utc_day() {
 				blobs,
 				now,
 				schedule: &Schedule::default(),
-				tokens: &Tokens::default(),
+				tokens: &tokens(),
 			};
 			rec.record(&Spends(cost), &t, None).await.unwrap();
 		}

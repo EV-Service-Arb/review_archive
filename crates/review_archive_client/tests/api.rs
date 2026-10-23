@@ -113,6 +113,7 @@ async fn env() -> Env {
 		data_dir: Some(dir.path().to_owned()),
 		..Config::default()
 	};
+	config.tokens.start_cap_multiple = Some(2.0);
 	// the webhooks here point at loopback, which only a listed host may
 	config.webhooks.allowed_hosts = vec!["127.0.0.1".into()];
 	let archive = Archive::open(config).await.unwrap();
@@ -990,12 +991,12 @@ async fn an_admin_sets_a_members_tokens() {
 #[tokio::test]
 async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	let dir = tempfile::tempdir().unwrap();
-	let archive = Archive::open(Config {
+	let mut config = Config {
 		data_dir: Some(dir.path().to_owned()),
 		..Config::default()
-	})
-	.await
-	.unwrap();
+	};
+	config.tokens.start_cap_multiple = Some(2.0);
+	let archive = Archive::open(config).await.unwrap();
 	let seen = Seen {
 		sub: "test",
 		email: "test@localhost",
