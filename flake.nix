@@ -149,8 +149,8 @@
 
         # lays out `ra-location` in the Stats tile like the board's own tiles
         tilersPlugin = pkgs.fetchzip {
-          url = "https://github.com/EV-Main/tilers/releases/download/grafana-v0.3.1/evmain-tilers-app-0.3.1.zip";
-          hash = "sha256-G8uL2kv78wtRMEG9w5dJT24uK+z5a65TLCgYuWEAYxM=";
+          url = "https://github.com/EV-Main/tilers/releases/download/grafana-v0.3.2/evmain-tilers-app-0.3.2.zip";
+          hash = "";
         };
 
         # `serve`'s `grafana`: `serve` gives it its socket, data dir and `RA_API`; the rest is fixed here.
