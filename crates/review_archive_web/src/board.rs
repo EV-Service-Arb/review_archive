@@ -101,10 +101,14 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 		if api.restored() {
 			return;
 		}
-		let tiles: Vec<&str> = LANES.iter().map(|l| l.1).chain(EXTRA.iter().copied()).collect();
+		let tiles: Vec<Vec<&str>> = [vec!["snapshotted"], vec!["removed", "reinstating"]].into_iter().chain(EXTRA.iter().map(|t| vec![*t])).collect();
 		let w = api.cols() / tiles.len() as u32;
-		for (i, id) in tiles.iter().enumerate() {
-			let group = Group::new(api.mint_group_id(), PanelId((*id).into()));
+		for (i, tabs) in tiles.iter().enumerate() {
+			let group = Group {
+				id: api.mint_group_id(),
+				tabs: tabs.iter().map(|t| PanelId((*t).into())).collect(),
+				active: 0,
+			};
 			let w = if i == tiles.len() - 1 { api.cols() - (tiles.len() as u32 - 1) * w } else { w };
 			api.place(group, w, api.rows());
 		}
