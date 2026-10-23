@@ -33,7 +33,7 @@ strum.workspace = true
 tilers_dioxus = { version = "0.2.3", default-features = false, features = ["web"] }
 wasm-bindgen = "=0.2.129" # the flake's wasm-bindgen-cli is this version; a skew is a hard error
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["DataTransfer", "DragEvent", "Element", "HtmlDocument", "HtmlIFrameElement", "MessageEvent", "ResizeObserverEntry", "Location", "Storage", "Window", "Document"] }
+web-sys = { version = "0.3", features = ["DataTransfer", "DragEvent", "CssStyleDeclaration", "DomRect", "Element", "History", "HtmlElement", "HtmlDocument", "HtmlIFrameElement", "MessageEvent", "PopStateEvent", "ResizeObserverEntry", "Location", "Storage", "Window", "Document"] }
 
 [build-dependencies]
 ev_lib_classes = { workspace = true }

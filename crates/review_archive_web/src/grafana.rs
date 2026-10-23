@@ -1,7 +1,8 @@
 //! The locations overview drawn by Grafana (`grafana/dashboards/ra-overview.json`) in place of the
-//! cards, and a place's Stats tile (`ra-location`), framed from `/grafana/` beside the API. The
-//! filter stays ours: the frame is posted the places it keeps (`ra-vars`), and posts back what is
-//! clicked (`ra-open`, `ra-scan`, `ra-enable`), or `ra-ready` when it wants the vars again.
+//! cards, and a place's Stats tile (`ra-location`). One frame from `/grafana/` starts with the page
+//! and lives as long: its boot takes seconds, moving it to another dashboard or vars does not. A
+//! [`Slot`] says where it shows and what; the frame is laid over the slot on screen and steered
+//! there, never reloaded. The overview posts up what is clicked (`ra-open`, `ra-scan`, `ra-enable`).
 
 use dioxus::{
 	core::{Runtime, current_scope_id},
@@ -10,129 +11,191 @@ use dioxus::{
 };
 use wasm_bindgen::{JsCast, prelude::*};
 
-use crate::{Refresh, Route, View, act, api, base, shown};
+use crate::{Refresh, Route, View, act};
+
+const KIOSK: &str = "?kiosk&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks";
 
 fn grafana() -> reqwest::Url {
-	base().join("grafana/").expect("a relative path joins")
+	crate::base().join("grafana/").expect("a relative path joins")
 }
 
-/// What the overview's panels read: `keys` are the `gmail:target` pairs the filter keeps, in
-/// the order shown; `rev` changes whenever the overview was read again.
-#[derive(Clone, PartialEq)]
-struct Vars {
-	keys: String,
-	rev: u32,
+fn window() -> web_sys::Window {
+	web_sys::window().expect("runs in a page")
 }
 
-impl Vars {
-	fn message(&self) -> JsValue {
-		let o = js_sys::Object::new();
-		for (k, v) in [("kind", JsValue::from("ra-vars")), ("keys", self.keys.clone().into()), ("rev", self.rev.to_string().into())] {
-			js_sys::Reflect::set(&o, &k.into(), &v).expect("setting a field of a plain object");
-		}
-		o.into()
-	}
+#[derive(Clone, Copy)]
+struct Frame {
+	me: i64,
+	slots: Signal<Vec<Placed>>,
 }
 
+#[derive(Clone)]
+struct Placed {
+	id: ScopeId,
+	el: web_sys::Element,
+	/// under `/grafana/`
+	path: String,
+	on: Option<EventHandler<Up>>,
+}
+
+/// A click in the overview's cards.
+enum Up {
+	Open { gmail: i64, target: i64 },
+	Scan { gmail: i64, target: i64 },
+	Enable { gmail: i64, target: i64, on: bool },
+}
+
+/// Holds the frame for everything under it, as `me` until a slot asks for another dashboard.
 #[component]
-pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
-	// `/me` is who signed in: a tab's member is theirs, the caller's own is read here
-	let me = use_resource(|| async { api().me().await.map_err(shown) });
-	match (tab, &*me.read()) {
-		(Some(member), _) => rsx! { Framed { member, gmail, keys, tab } },
-		(None, Some(Ok(me))) => rsx! { Framed { member: me.id, gmail, keys, tab } },
-		(None, Some(Err(e))) => rsx! { div { class: "p-6 text-accent-error", "{e}" } },
-		(None, None) => rsx! {},
-	}
-}
-
-#[component]
-fn Framed(member: i64, gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
-	let Refresh(refresh) = use_context();
-	let mut vars = use_signal(|| Vars {
-		keys: keys.clone(),
-		rev: *refresh.peek(),
-	});
+pub fn Host(me: i64, children: Element) -> Element {
+	let Frame { slots, .. } = use_context_provider(|| Frame { me, slots: Signal::new(Vec::new()) });
+	let mut wrap = use_signal(|| None::<web_sys::Element>);
 	let mut frame = use_signal(|| None::<web_sys::HtmlIFrameElement>);
-	let origin = grafana().origin().ascii_serialization();
-	let post = {
-		let origin = origin.clone();
-		move || {
-			if let Some(w) = frame.peek().as_ref().and_then(|f| f.content_window()) {
-				w.post_message(&vars.peek().message(), &origin).expect("posting to a frame");
-			}
-		}
-	};
-	let again = post.clone();
-	use_effect(use_reactive!(|keys| {
-		let next = Vars { keys, rev: refresh() };
-		if *vars.peek() != next {
-			vars.set(next);
-			post();
-		}
-	}));
-	let listener = use_hook(|| {
-		let (rt, scope) = (Runtime::current(), current_scope_id());
-		let on_message = Closure::<dyn Fn(web_sys::MessageEvent)>::new(move |e: web_sys::MessageEvent| {
-			// every member tab stays mounted, each with its own frame
-			let ours = rt.in_scope(scope, || frame.peek().as_ref().and_then(|f| f.content_window()));
-			let data = e.data();
-			if e.origin() != origin || ours.map(JsValue::from) != e.source().map(JsValue::from) || !data.is_object() {
-				return;
-			}
-			let field = |k: &str| js_sys::Reflect::get(&data, &k.into()).expect("an object's field reads");
-			let kind = field("kind").as_string();
-			let id = |k| field(k).as_f64().unwrap_or_else(|| panic!("{kind:?}'s {k} is not an id: {:?}", field(k))) as i64;
-			rt.in_scope(scope, || match kind.as_deref() {
-				Some("ra-ready") => again(),
-				Some("ra-open") => {
-					navigator().push(Route::at(
-						tab,
-						View::Place {
-							gmail: id("gmail"),
-							target: id("target"),
-						},
-					));
-				}
-				Some("ra-scan") => {
-					let (g, t) = (id("gmail"), id("target"));
-					act(move |c| async move { c.scan_tracked(g, t).await.map(drop) });
-				}
-				Some("ra-enable") => {
-					let (g, t) = (id("gmail"), id("target"));
-					let on = field("on").as_bool().unwrap_or_else(|| panic!("ra-enable's on is not a bool: {:?}", field("on")));
-					act(move |c| async move { c.patch_track(g, t, &review_archive_client::dto::TrackPatch { enabled: Some(on), favorite: None }).await });
-				}
-				_ => {}
+	let mut shown = use_signal(|| None::<ScopeId>);
+	use_future(move || async move {
+		let (mut steered, mut style) = (String::new(), String::new());
+		loop {
+			wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |done, _| {
+				window().request_animation_frame(&done).expect("requestAnimationFrame takes a function");
+			}))
+			.await
+			.expect("an animation frame never rejects");
+			let (Some(w), Some(f)) = (wrap.peek().clone(), frame.peek().clone()) else { continue };
+			// a hidden tab's or tile's slot is not displayed, so has no box
+			let on_screen = slots.peek().iter().find_map(|s| {
+				let r = s.el.get_bounding_client_rect();
+				(r.width() > 0. && r.height() > 0.).then(|| (s.id, s.path.clone(), r))
 			});
+			let next = match &on_screen {
+				Some((_, _, r)) => {
+					let o = w.get_bounding_client_rect();
+					format!("left:{}px;top:{}px;width:{}px;height:{}px", r.left() - o.left(), r.top() - o.top(), r.width(), r.height())
+				}
+				// still laid out at full size, so the hidden boot draws and queries its panels
+				None => "inset:0;width:100%;height:100%;visibility:hidden;pointer-events:none".into(),
+			};
+			if next != style {
+				f.style().set_css_text(&format!("position:absolute;border:0;{next}"));
+				style = next;
+			}
+			let id = on_screen.as_ref().map(|(id, ..)| *id);
+			if *shown.peek() != id {
+				shown.set(id);
+			}
+			let Some((_, path, _)) = on_screen else { continue };
+			let inner = f.content_window().expect("a mounted frame has a window");
+			// the frame's first document is about:blank, whose history takes no Grafana URL
+			if path == steered || inner.location().pathname().expect("a same-origin location reads") == "blank" {
+				continue;
+			}
+			// Grafana's router follows its window's location on popstate; replaced, so back stays the page's
+			let url = grafana().join(&path).expect("a slot's path is relative");
+			inner
+				.history()
+				.expect("a window has a history")
+				.replace_state_with_url(&JsValue::NULL, "", Some(url.as_str()))
+				.expect("a same-origin URL");
+			inner
+				.dispatch_event(&web_sys::PopStateEvent::new("popstate").expect("a plain event"))
+				.expect("dispatching to a window");
+			steered = path;
+		}
+	});
+	let listener = use_hook(|| {
+		let (rt, host) = (Runtime::current(), current_scope_id());
+		let on_message = Closure::<dyn Fn(web_sys::MessageEvent)>::new(move |e: web_sys::MessageEvent| {
+			rt.in_scope(host, || {
+				let ours = frame.peek().as_ref().and_then(|f| f.content_window());
+				let data = e.data();
+				if e.origin() != grafana().origin().ascii_serialization() || ours.map(JsValue::from) != e.source().map(JsValue::from) || !data.is_object() {
+					return;
+				}
+				let field = |k: &str| js_sys::Reflect::get(&data, &k.into()).expect("an object's field reads");
+				let kind = field("kind").as_string();
+				let id = |k| field(k).as_f64().unwrap_or_else(|| panic!("{kind:?}'s {k} is not an id: {:?}", field(k))) as i64;
+				let up = match kind.as_deref() {
+					Some("ra-open") => Up::Open {
+						gmail: id("gmail"),
+						target: id("target"),
+					},
+					Some("ra-scan") => Up::Scan {
+						gmail: id("gmail"),
+						target: id("target"),
+					},
+					Some("ra-enable") => Up::Enable {
+						gmail: id("gmail"),
+						target: id("target"),
+						on: field("on").as_bool().unwrap_or_else(|| panic!("ra-enable's on is not a bool: {:?}", field("on"))),
+					},
+					_ => return,
+				};
+				// a click can only come from the slot the frame is over
+				let at = shown.peek().expect("a click in a shown frame");
+				let on = slots.peek().iter().find(|s| s.id == at).expect("the shown slot is placed").on;
+				on.expect("only the overview posts clicks").call(up);
+			})
 		});
-		web_sys::window()
-			.expect("a browser")
+		window()
 			.add_event_listener_with_callback("message", on_message.as_ref().unchecked_ref())
 			.expect("adding a listener");
 		std::rc::Rc::new(on_message)
 	});
 	use_drop(move || {
-		web_sys::window()
-			.expect("a browser")
+		window()
 			.remove_event_listener_with_callback("message", listener.as_ref().as_ref().unchecked_ref())
 			.expect("removing a listener");
 	});
-	// the first vars ride in the URL; later ones are posted, so the frame never reloads
-	let src = use_hook(|| {
-		let Vars { keys, rev } = vars.peek().clone();
-		let gmail = gmail.map(|g| g.to_string()).unwrap_or_default();
-		format!(
-			"{}d/ra-overview/?kiosk&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks&var-member={member}&var-gmail={gmail}&var-keys={keys}&var-rev={rev}",
-			grafana()
-		)
-	});
+	// it boots on the caller's overview, the likeliest first look, and is steered from there
+	let src = use_hook(|| format!("{}d/ra-overview/{KIOSK}&var-member={me}", grafana()));
 	rsx! {
-		iframe {
-			class: "min-h-0 w-full flex-1 border-0",
-			src,
-			onmounted: move |e| frame.set(Some(e.as_web_event().dyn_into().expect("an iframe element"))),
+		div {
+			class: "relative flex min-h-0 flex-1 flex-col",
+			onmounted: move |e| wrap.set(Some(e.as_web_event())),
+			{children}
+			iframe {
+				style: "position:absolute;border:0;inset:0;width:100%;height:100%;visibility:hidden;pointer-events:none",
+				src,
+				onmounted: move |e| frame.set(Some(e.as_web_event().dyn_into().expect("an iframe element"))),
+			}
 		}
+	}
+}
+
+/// Where the frame shows, and the dashboard (`path`, under `/grafana/`) it shows there.
+#[component]
+fn Slot(class: String, path: String, on: Option<EventHandler<Up>>) -> Element {
+	let Frame { mut slots, .. } = use_context();
+	let id = current_scope_id();
+	let mut el = use_signal(|| None::<web_sys::Element>);
+	use_effect(use_reactive!(|path, on| {
+		let Some(el) = el() else { return };
+		let mut slots = slots.write();
+		slots.retain(|s| s.id != id);
+		slots.push(Placed { id, el, path, on });
+	}));
+	use_drop(move || slots.write().retain(|s| s.id != id));
+	rsx! {
+		div { class, onmounted: move |e| el.set(Some(e.as_web_event())) }
+	}
+}
+
+/// `ra-overview` over the places the filter keeps: `keys`, the `gmail:target` pairs in the order shown.
+#[component]
+pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
+	let Frame { me, .. } = use_context();
+	let Refresh(refresh) = use_context();
+	let member = tab.unwrap_or(me);
+	let gmail = gmail.map(|g| g.to_string()).unwrap_or_default();
+	let path = format!("d/ra-overview/{KIOSK}&var-member={member}&var-gmail={gmail}&var-keys={keys}&var-rev={}", refresh());
+	let on = move |up: Up| match up {
+		Up::Open { gmail, target } => {
+			navigator().push(Route::at(tab, View::Place { gmail, target }));
+		}
+		Up::Scan { gmail, target } => act(move |c| async move { c.scan_tracked(gmail, target).await.map(drop) }),
+		Up::Enable { gmail, target, on } => act(move |c| async move { c.patch_track(gmail, target, &review_archive_client::dto::TrackPatch { enabled: Some(on), favorite: None }).await }),
+	};
+	rsx! {
+		Slot { class: "min-h-0 w-full flex-1", path, on }
 	}
 }
 
@@ -140,6 +203,6 @@ fn Framed(member: i64, gmail: Option<i64>, keys: String, tab: Option<i64>) -> El
 #[component]
 pub fn Stats(target: i64) -> Element {
 	rsx! {
-		iframe { class: "h-full w-full border-0", src: "{grafana()}d/ra-location/?kiosk&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks&var-target={target}" }
+		Slot { class: "h-full w-full", path: format!("d/ra-location/{KIOSK}&var-target={target}") }
 	}
 }

@@ -1,6 +1,6 @@
 // `nix run .#with-grafana` driven in a headless Chromium, as the member's tab: the overview's cards are
-// /me/overview's, a facet narrows them without reloading the frame, a card opens its board with no
-// page load and back returns, and (the gmail on) a card's switch writes and redraws.
+// /me/overview's, a facet narrows them, a card opens its board and its Stats tile, back returns, and
+// (the gmail on) a card's switch writes and redraws — all in one page load and one Grafana frame.
 // `node examples/with_grafana.cjs <member> <gmail> <facet>` inside `nix develop`. The switch writes:
 // run it on a copy of the data dir, `serve.lock` held so nothing walks.
 const path = require('path');
@@ -40,8 +40,9 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	page.on('request', (r) => r.resourceType() === 'document' && r.frame() === page.mainFrame() && documents++);
 
 	await page.goto(`${BASE}/members/${member}/gmails/${gmail}`);
-	const frame = await (await page.waitForSelector('iframe[src*="ra-overview"]')).contentFrame();
+	const frame = await (await page.waitForSelector('iframe[src*="/grafana/"]')).contentFrame();
 	await frame.waitForSelector('.ra-card', { timeout: 60000 });
+	const kept = async () => assert.strictEqual(await frame.evaluate(() => window.marker), 'kept', 'the frame did not reload');
 	const labels = await frame.$$eval('.ra-card .ra-label', (els) => els.map((e) => e.textContent));
 	assert.deepStrictEqual(labels, g.locations.map((l) => l.target.label), 'cards are /me/overview, in its order');
 	console.log('cards match:', labels.length);
@@ -50,10 +51,10 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	const held = g.locations.filter((l) => HOLDS[facet](g, l)).length;
 	await page.getByRole('button', { name: facet, exact: true }).click();
 	await count(frame, held);
-	assert.strictEqual(await frame.evaluate(() => window.marker), 'kept', 'the frame did not reload');
+	await kept();
 	await page.getByRole('button', { name: 'Clear' }).click();
 	await count(frame, g.locations.length);
-	assert.strictEqual(await frame.evaluate(() => window.marker), 'kept');
+	await kept();
 	console.log(`facet "${facet}": ${held} cards, the frame kept`);
 
 	if (g.enabled) {
@@ -71,12 +72,16 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 
 	await frame.click('.ra-card .ra-label');
 	await page.waitForURL(`**/members/${member}/gmails/${gmail}/places/${g.locations[0].target.id}`);
-	const stats = await (await page.waitForSelector('iframe[src*="ra-location"]', { timeout: 30000 })).contentFrame();
-	await stats.waitForSelector('text=Reviews per run', { timeout: 60000 });
-	console.log('board open, its Stats tile drawn');
+	let t = Date.now();
+	await frame.waitForSelector('text=Reviews per run', { timeout: 30000 });
+	await kept();
+	console.log(`board open, its Stats tile drawn in ${Date.now() - t} ms`);
 	await page.goBack();
 	await page.waitForURL(`**/members/${member}/gmails/${gmail}`);
-	await (await (await page.waitForSelector('iframe[src*="ra-overview"]')).contentFrame()).waitForSelector('.ra-card', { timeout: 60000 });
+	t = Date.now();
+	await count(frame, g.locations.length);
+	await kept();
+	console.log(`back on the overview in ${Date.now() - t} ms`);
 	assert.strictEqual(documents, 1, 'one page load in all');
 	console.log('back on the overview; page loads:', documents);
 	await browser.close();

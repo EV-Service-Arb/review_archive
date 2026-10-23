@@ -43,7 +43,8 @@ crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, backgrou
   src/config.rs                 the config (v_utils `Settings`): data dir, bind, and every library and server section
 crates/review_archive_client/   typed async client of the HTTP API through the panel, on the core's DTOs; native and wasm
 crates/review_archive_web/      the dashboard MFE (dioxus, wasm), over the client; `package.sh` lays out /mfe/, `index.html` is `/`;
-                                its `grafana` feature frames Grafana's overview and Stats tile (`nix run .#with-grafana`)
+                                its `grafana` feature frames Grafana's overview and Stats tile in one frame, booted with the page
+                                and steered between them (`nix run .#with-grafana`)
 grafana/                        those dashboards, over the API through the Infinity datasource
 ```
 

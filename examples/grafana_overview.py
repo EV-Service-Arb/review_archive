@@ -129,7 +129,7 @@ h.registerHelper('scanline', (r) => r.scan === 'queued'
 h.registerHelper('lastline', (r) => r.last_run_at ? 'last run ' + ago(r.last_run_at) + ' · ' : '');"""
 
 # The page frames this dashboard (crates/review_archive_web/src/grafana.rs): clicks go up to it,
-# the filter's result comes down as variables, set without reloading the frame.
+# the filter's result comes down as the frame's URL, steered without reloading it.
 AFTER_RENDER = """const up = (m) => window.parent.postMessage(m, window.location.origin);
 context.element.querySelectorAll('.ra-card').forEach((card) => {
   const row = context.data[Number(card.dataset.i)];
@@ -139,17 +139,7 @@ context.element.querySelectorAll('.ra-card').forEach((card) => {
     e.stopPropagation();
     up(b.dataset.act === 'scan' ? { kind: 'ra-scan', ...ids } : { kind: 'ra-enable', ...ids, on: !row.enabled });
   }));
-});
-const vars = (e) => {
-  if (e.source !== window.parent || e.origin !== window.location.origin || !e.data || e.data.kind !== 'ra-vars') return;
-  const g = context.grafana;
-  if (g.replaceVariables('${keys}') !== e.data.keys || g.replaceVariables('${rev}') !== e.data.rev) {
-    g.locationService.partial({ 'var-keys': e.data.keys, 'var-rev': e.data.rev }, true);
-  }
-};
-window.addEventListener('message', vars);
-up({ kind: 'ra-ready' });
-return () => window.removeEventListener('message', vars);"""
+});"""
 
 STYLES = """.ra-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .ra-card { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; cursor: pointer; }

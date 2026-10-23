@@ -322,10 +322,13 @@ fn Shell() -> Element {
 #[component]
 fn Signed(me: Me, view: Route) -> Element {
 	use_context_provider(|| Held(me.permissions.iter().cloned().collect()));
-	match may(Members::ActAs) {
+	let body = match may(Members::ActAs) {
 		true => rsx! { Admin { me: me.id } },
 		false => rsx! { Workspace { view } },
-	}
+	};
+	#[cfg(feature = "grafana")]
+	let body = rsx! { grafana::Host { me: me.id, {body} } };
+	body
 }
 
 /// "You", then a tab per member opened, kept for this browser tab across the full loads the
