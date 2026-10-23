@@ -27,6 +27,8 @@ const EXTRA: &[&str] = &["stats"];
 #[cfg(not(feature = "grafana"))]
 const EXTRA: &[&str] = &[];
 
+const MIN: MinSize = MinSize::Steps { w: Step(2), h: Step(4) };
+
 /// Maps the dock's chrome onto the kit's tokens: the dock's custom properties, unprefixed.
 pub(crate) const DOCK_THEME: [(&str, &str); 11] = [
 	("group-bg", "var(--secondary)"),
@@ -38,7 +40,7 @@ pub(crate) const DOCK_THEME: [(&str, &str); 11] = [
 	("fg", "var(--ink)"),
 	("accent", "var(--primary)"),
 	("shadow-bg", "var(--hover)"),
-	("resize-bg", "color-mix(in srgb, var(--ink) 14%, var(--secondary))"), // `--border`, opaque: a content's scrollbar sits under the corner
+	("resize-bg", "var(--border)"),
 	("content-pad", "0"),
 ];
 
@@ -65,6 +67,7 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 				id: PanelId(id.into()),
 				title: format!("{title} · {}", cards.len()),
 				content: rsx! { Lane { column, cards, gmail: g, dragging } },
+				min: MIN,
 			}
 		});
 		#[cfg(feature = "grafana")]
@@ -72,6 +75,7 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 			id: PanelId("stats".into()),
 			title: "Stats".into(),
 			content: rsx! { crate::grafana::Stats { target } },
+			min: MIN,
 		}]);
 		panels.set(tiles.collect());
 	});
@@ -91,8 +95,7 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 		storage_key: Some(format!("review-archive-board{}", EXTRA.iter().map(|t| format!("-{t}")).collect::<String>())),
 		..Default::default()
 	};
-	let rows = config.rows;
-	let theme: String = DOCK_THEME.iter().map(|(k, v)| format!("--dv-{k}: {v};")).collect();
+	let theme: String = DOCK_THEME.iter().map(|(k, v)| format!("--tl-{k}: {v};")).collect();
 	let on_band = Callback::new(move |mut api: PackedApi| {
 		dock.set(Some(api));
 		if api.restored() {
@@ -103,7 +106,7 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 		for (i, id) in tiles.iter().enumerate() {
 			let group = Group::new(api.mint_group_id(), PanelId((*id).into()));
 			let w = if i == tiles.len() - 1 { api.cols() - (tiles.len() as u32 - 1) * w } else { w };
-			api.place(group, w, rows, MinSize::Steps { w: Step(2), h: Step(4) });
+			api.place(group, w, api.rows());
 		}
 	});
 	rsx! {
@@ -123,8 +126,11 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 			div { class: "border-b border-border px-6 py-2 text-accent-error", "{e}" }
 		}
 		div { class: "relative min-h-0 flex-1",
-			div { class: "absolute inset-0", style: theme,
-				PackedArea { panels, on_band: Some(on_band), config: Some(config) }
+			// on_band places the panels, so the dock waits for the board that lists them
+			if !panels.read().is_empty() {
+				div { class: "absolute inset-0", style: theme,
+					PackedArea { panels, on_band: Some(on_band), config: Some(config) }
+				}
 			}
 		}
 	}
