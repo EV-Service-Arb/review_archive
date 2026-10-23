@@ -79,3 +79,6 @@ result_large_err = "allow" # typed errors carry their backtrace and span trace; 
 
 [workspace.lints.rust]
 unused_features = "allow"
+
+[workspace.lints.cargo]
+non_kebab_case_bins = "allow"
