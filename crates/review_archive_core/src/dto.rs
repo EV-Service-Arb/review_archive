@@ -467,6 +467,24 @@ pub struct NewWebhook {
 	pub secret: String,
 }
 
+/// A dock layout published as the one fresh browsers start from: `GET /layouts/{dock}`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LayoutDto {
+	/// `sm`, `md` or `xl`: the dock's width band.
+	pub band: String,
+	/// The dock's own layout JSON.
+	pub layout: String,
+}
+
+/// `PUT /layouts/{dock}/{band}`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct NewLayout {
+	/// The dock's own layout JSON.
+	pub layout: String,
+}
+
 /// A webhook, without its secret.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

@@ -2,11 +2,13 @@
 //! its reinstatement was asked of Google, and back when that is withdrawn; the columns keep
 //! their own order, and a review a scan lists again goes back to Snapshotted by itself.
 
-use dioxus::{prelude::*, web::WebEventExt};
-use review_archive_client::dto::{BoardCard, GmailDto, LocationSummary};
-use tilers_dioxus::{Config, DockPanel, Group, GroupId, MinSize, PackedApi, PackedArea, PanelId, Step};
+use std::rc::Rc;
 
-use crate::{Api, Badge, Refresh, Route, Tone, View, act, ago, host, shown};
+use dioxus::{prelude::*, web::WebEventExt};
+use review_archive_client::dto::{BoardCard, GmailDto, LocationSummary, NewLayout};
+use tilers_dioxus::{Band, Config, DockPanel, Group, GroupId, MinSize, PackedApi, PackedArea, PanelId, Step};
+
+use crate::{Api, Badge, Refresh, Route, Tone, View, act, ago, host, may, shown};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Column {
@@ -49,11 +51,23 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 	let Api(api) = use_context();
 	let Refresh(refresh) = use_context();
 	let (g, target) = (gmail.id, location.target.id);
-	let board = use_resource(move || {
+	// a layout saved without the extra tiles would never show them
+	let dock_key = format!("review-archive-board{}", EXTRA.iter().map(|t| format!("-{t}")).collect::<String>());
+	let board = use_resource({
 		let api = api.clone();
-		async move {
-			refresh();
-			api.board(g, target).await.map_err(shown)
+		move || {
+			let api = api.clone();
+			async move {
+				refresh();
+				api.board(g, target).await.map_err(shown)
+			}
+		}
+	});
+	let published = use_resource({
+		let (api, dock_key) = (api.clone(), dock_key.clone());
+		move || {
+			let (api, dock_key) = (api.clone(), dock_key.clone());
+			async move { api.layouts(&dock_key).await.map_err(shown) }
 		}
 	});
 	let dragging = use_signal(|| None::<(i64, Column)>);
@@ -90,15 +104,36 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 			}
 		})
 	});
+	let on_publish = may(sa_auth::Archive::Operate).then(|| {
+		let (api, dock_key) = (api.clone(), dock_key.clone());
+		Rc::new(move |band: Band, layout: String| {
+			let (api, dock_key) = (api.clone(), dock_key.clone());
+			// the dock calls this outside any scope, so no dioxus `spawn`
+			wasm_bindgen_futures::spawn_local(async move {
+				let said = match api.publish_layout(&dock_key, &band.to_string(), &NewLayout { layout }).await {
+					Ok(()) => format!("Published as everyone's default ({band})"),
+					Err(e) => format!("Publishing failed: {}", shown(e)),
+				};
+				dock.peek().expect("publishing needs the dock").notify(said);
+			});
+		}) as Rc<dyn Fn(Band, String)>
+	});
 	let config = Config {
-		// a layout saved without the extra tiles would never show them
-		storage_key: Some(format!("review-archive-board{}", EXTRA.iter().map(|t| format!("-{t}")).collect::<String>())),
+		storage_key: Some(dock_key),
+		on_publish,
 		..Default::default()
 	};
 	let theme: String = DOCK_THEME.iter().map(|(k, v)| format!("--tl-{k}: {v};")).collect();
 	let on_band = Callback::new(move |mut api: PackedApi| {
 		dock.set(Some(api));
 		if api.restored() {
+			return;
+		}
+		let Some(Ok(published)) = &*published.peek() else {
+			unreachable!("the dock mounts once the published layouts are in")
+		};
+		if let Some(p) = published.iter().find(|p| p.band == api.band().to_string()) {
+			api.load(&p.layout).expect("a published layout loads: this dock saved it");
 			return;
 		}
 		let tiles: Vec<Vec<&str>> = [vec!["snapshotted"], vec!["removed", "reinstating"]].into_iter().chain(EXTRA.iter().map(|t| vec![*t])).collect();
@@ -129,9 +164,12 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 		if let Some(Err(e)) = &*board.read() {
 			div { class: "border-b border-border px-6 py-2 text-accent-error", "{e}" }
 		}
+		if let Some(Err(e)) = &*published.read() {
+			div { class: "border-b border-border px-6 py-2 text-accent-error", "{e}" }
+		}
 		div { class: "relative min-h-0 flex-1",
-			// on_band places the panels, so the dock waits for the board that lists them
-			if !panels.read().is_empty() {
+			// on_band places the panels, or loads a published layout, so the dock waits for both
+			if !panels.read().is_empty() && matches!(&*published.read(), Some(Ok(_))) {
 				div { class: "absolute inset-0", style: theme,
 					PackedArea { panels, on_band: Some(on_band), config: Some(config) }
 				}

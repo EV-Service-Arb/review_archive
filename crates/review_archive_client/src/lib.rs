@@ -30,9 +30,9 @@ use std::fmt;
 use reqwest::{Method, RequestBuilder, StatusCode, Url};
 pub use review_archive_core::dto;
 use review_archive_core::dto::{
-	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LedgerEntry, MEMBER_HEADER, Me, MemberDto, NewGmail, NewTarget, NewTgChannel,
-	NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail, TargetDto, TargetPatch,
-	TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto,
+	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LayoutDto, LedgerEntry, MEMBER_HEADER, Me, MemberDto, NewGmail, NewLayout,
+	NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail,
+	TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto,
 };
 use serde::de::DeserializeOwned;
 
@@ -240,6 +240,17 @@ impl Client {
 	/// `DELETE /webhooks/{id}`.
 	pub async fn delete_webhook(&self, id: i64) -> Result<(), Error> {
 		Self::send(self.request(Method::DELETE, &format!("webhooks/{id}"))?).await?;
+		Ok(())
+	}
+
+	/// `GET /layouts/{dock}`.
+	pub async fn layouts(&self, dock: &str) -> Result<Vec<LayoutDto>, Error> {
+		Self::json(self.request(Method::GET, &format!("layouts/{dock}"))?).await
+	}
+
+	/// `PUT /layouts/{dock}/{band}`.
+	pub async fn publish_layout(&self, dock: &str, band: &str, layout: &NewLayout) -> Result<(), Error> {
+		Self::send(self.request(Method::PUT, &format!("layouts/{dock}/{band}"))?.json(layout)).await?;
 		Ok(())
 	}
 

@@ -23,9 +23,9 @@ use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
 	PersonId, ReviewId, TargetId,
 	dto::{
-		Board, CaptureRequest, DayStats, ErrorBody, EventPayload, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LedgerEntry, Me, MemberDto, NewGmail, NewTarget, NewTgChannel,
-		NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail, TargetDto, TargetPatch,
-		TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto, stats_csv,
+		Board, CaptureRequest, DayStats, ErrorBody, EventPayload, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LayoutDto, LedgerEntry, Me, MemberDto, NewGmail, NewLayout,
+		NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail,
+		TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto, stats_csv,
 	},
 };
 use serde::{Deserialize, Serialize};
@@ -96,6 +96,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		.route("/stats", get(stats))
 		.route("/webhooks", get(webhooks).post(add_webhook))
 		.route("/webhooks/{id}", axum::routing::delete(delete_webhook))
+		.route("/layouts/{dock}/{band}", axum::routing::put(publish_layout))
 		.route_layer(middleware::from_fn(operates_archive));
 	let members = Router::new().route("/members", get(members)).route_layer(middleware::from_fn(acts_as));
 	let tokens = Router::new().route("/members/{id}/tokens", post(change_tokens)).route_layer(middleware::from_fn(grants_tokens));
@@ -122,6 +123,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		.merge(tokens)
 		.merge(me)
 		.route("/captures/{file}", get(capture_webp))
+		.route("/layouts/{dock}", get(layouts))
 		.layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, state.cfg.request_timeout.duration()));
 	// an export of a large archive takes as long as it takes; it streams from a file
 	let authed = timed
@@ -435,6 +437,19 @@ async fn add_webhook(State(s): State<AppState>, JsonBody(hook): JsonBody<NewWebh
 	Ok((StatusCode::CREATED, Json(s.archive.add_webhook(&hook).await?)))
 }
 
+/// Every band's published layout of a dock: what a browser without one of its own starts from.
+#[utoipa::path(get, path = "/layouts/{dock}", tag = "layouts", params(("dock" = String, Path)), responses((status = 200, body = [LayoutDto])))]
+async fn layouts(State(s): State<AppState>, Path(dock): Path<String>) -> ApiResult<Json<Vec<LayoutDto>>> {
+	Ok(Json(s.archive.layouts(&dock).await?))
+}
+
+/// Publishes a dock's layout at a band (`sm`, `md`, `xl`) for every browser without one of its own.
+#[utoipa::path(put, path = "/layouts/{dock}/{band}", tag = "layouts", params(("dock" = String, Path), ("band" = String, Path)), request_body = NewLayout, responses((status = 204), (status = 400, body = ErrorBody)))]
+async fn publish_layout(State(s): State<AppState>, Path((dock, band)): Path<(String, String)>, JsonBody(layout): JsonBody<NewLayout>) -> ApiResult<StatusCode> {
+	s.archive.publish_layout(&dock, &band, &layout).await?;
+	Ok(StatusCode::NO_CONTENT)
+}
+
 #[utoipa::path(get, path = "/webhooks", tag = "webhooks", responses((status = 200, body = [WebhookDto])))]
 async fn webhooks(State(s): State<AppState>) -> ApiResult<Json<Vec<WebhookDto>>> {
 	Ok(Json(s.archive.webhooks().await?))
@@ -624,7 +639,7 @@ async fn test_tg_channel(State(s): State<AppState>, Member(m): Member, Path(id):
 	info(title = "review_archive", description = "Archive of public place reviews: a WebP screenshot of every review as it first appears, plus data for statistics."),
 	paths(
 		targets, add_target, target, patch_target, delete_target, reviews, runs, scan, capture, job, review, capture_webp, export_zip, stats, add_webhook,
-		webhooks, delete_webhook
+		webhooks, delete_webhook, layouts, publish_layout
 	),
 	// what no path returns: the body of a webhook delivery
 	components(schemas(EventPayload)),

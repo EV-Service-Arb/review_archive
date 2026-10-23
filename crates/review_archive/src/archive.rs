@@ -18,7 +18,10 @@ use review_archive_core::dto::CaptureLimits;
 #[cfg(feature = "store")]
 use review_archive_core::{
 	GbpLocation, Rejected, ReviewId, Target, TargetId, TargetKind,
-	dto::{self, DayStats, ExportQuery, JobDto, JobKind, NewTarget, NewWebhook, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, TargetDetail, TargetPatch, WebhookDto},
+	dto::{
+		self, DayStats, ExportQuery, JobDto, JobKind, LayoutDto, NewLayout, NewTarget, NewWebhook, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, TargetDetail,
+		TargetPatch, WebhookDto,
+	},
 	fmt_ts, parse_date, parse_interval, parse_since,
 	schedule::{LastRun, Schedule},
 };
@@ -833,6 +836,22 @@ impl Archive {
 			return Err(Rejected::invalid("the webhook secret is too short to be one (16+ characters)").into());
 		}
 		self.store()?.add_webhook(hook, Timestamp::now()).await
+	}
+
+	/// Every band's published layout of `dock`.
+	pub async fn layouts(&self, dock: &str) -> eyre::Result<Vec<LayoutDto>> {
+		self.store()?.layouts(dock).await
+	}
+
+	/// Publishes `layout` as what fresh browsers' `dock` starts from at `band`.
+	pub async fn publish_layout(&self, dock: &str, band: &str, layout: &NewLayout) -> eyre::Result<()> {
+		if !matches!(band, "sm" | "md" | "xl") {
+			return Err(Rejected::invalid(format!("`{band}` is not a band: sm, md or xl")).into());
+		}
+		if let Err(e) = serde_json::from_str::<serde_json::Value>(&layout.layout) {
+			return Err(Rejected::invalid(format!("the layout is not JSON: {e}")).into());
+		}
+		self.store()?.publish_layout(dock, band, &layout.layout, Timestamp::now()).await
 	}
 
 	/// Every webhook, without secrets.
