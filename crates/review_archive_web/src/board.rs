@@ -38,7 +38,7 @@ pub(crate) const DOCK_THEME: [(&str, &str); 11] = [
 	("fg", "var(--ink)"),
 	("accent", "var(--primary)"),
 	("shadow-bg", "var(--hover)"),
-	("resize-bg", "var(--border)"),
+	("resize-bg", "color-mix(in srgb, var(--ink) 14%, var(--secondary))"), // `--border`, opaque: a content's scrollbar sits under the corner
 	("content-pad", "0"),
 ];
 
