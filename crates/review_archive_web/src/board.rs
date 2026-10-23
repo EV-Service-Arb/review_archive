@@ -3,8 +3,8 @@
 //! their own order, and a review a scan lists again goes back to Snapshotted by itself.
 
 use dioxus::{prelude::*, web::WebEventExt};
-use dockviewers_dioxus::{Config, DockPanel, Group, GroupId, MinSize, PackedApi, PackedArea, PanelId, Step};
 use review_archive_client::dto::{BoardCard, GmailDto, LocationSummary};
+use tilers_dioxus::{Config, DockPanel, Group, GroupId, MinSize, PackedApi, PackedArea, PanelId, Step};
 
 use crate::{Api, Badge, Refresh, Route, Tone, View, act, ago, host, shown};
 
