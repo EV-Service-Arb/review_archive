@@ -271,7 +271,7 @@ impl Store {
 }
 
 /// The member's balance, renewed up to `now` inside the caller's write. A member seen for
-/// the first time starts with a day's worth.
+/// the first time starts with twice the cap.
 async fn renewed(tx: &mut SqliteConnection, member: PersonId, now: Timestamp, cfg: &Tokens) -> eyre::Result<i64> {
 	let (balance, last): (i64, Option<String>) = sqlx::query_as("SELECT COALESCE(SUM(delta), 0), MAX(CASE WHEN kind = 'accrual' THEN at END) FROM token_ledger WHERE person_id = ?")
 		.bind(member.0)
@@ -279,7 +279,7 @@ async fn renewed(tx: &mut SqliteConnection, member: PersonId, now: Timestamp, cf
 		.await
 		.wrap_err("summing a balance")?;
 	let (delta, at) = match last {
-		None => (cfg.daily.min(cfg.cap), now),
+		None => (2 * cfg.cap, now),
 		Some(last) => {
 			let last = parse_ts(&last)?;
 			match accrue(balance, last, now, cfg.daily, cfg.cap) {

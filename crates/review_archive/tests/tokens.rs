@@ -162,14 +162,17 @@ async fn renewal_stops_at_the_cap_and_never_takes_back() {
 	let a = person(&store, "a").await;
 	let t0: Timestamp = "2026-10-01T09:00:00Z".parse().unwrap();
 	let day = |n: i64| t0 + SignedDuration::from_hours(24 * n);
-	assert_eq!(store.balance(a, t0, &cfg).await.unwrap(), 15, "a day's worth on first sight");
-	assert_eq!(store.balance(a, day(3), &cfg).await.unwrap(), 60);
-	assert_eq!(store.balance(a, day(3) + SignedDuration::from_hours(5), &cfg).await.unwrap(), 60, "once a day");
-	assert_eq!(store.balance(a, day(100), &cfg).await.unwrap(), 300);
+	assert_eq!(store.balance(a, t0, &cfg).await.unwrap(), 1000, "twice the cap on first sight");
+	assert_eq!(store.balance(a, day(3), &cfg).await.unwrap(), 1000, "nothing renews above the cap");
+
+	assert_eq!(store.change_balance(a, BalanceChange::Set(400), "root", None, day(3), &cfg).await.unwrap(), 400);
+	assert_eq!(store.balance(a, day(4), &cfg).await.unwrap(), 415);
+	assert_eq!(store.balance(a, day(4) + SignedDuration::from_hours(5), &cfg).await.unwrap(), 415, "once a day");
+	assert_eq!(store.balance(a, day(100), &cfg).await.unwrap(), 500);
 
 	let bought = store.change_balance(a, BalanceChange::Purchase(200), "root", Some("inv-1"), day(100), &cfg).await.unwrap();
-	assert_eq!(bought, 500);
-	assert_eq!(store.balance(a, day(130), &cfg).await.unwrap(), 500, "above the cap stays");
+	assert_eq!(bought, 700);
+	assert_eq!(store.balance(a, day(130), &cfg).await.unwrap(), 700, "above the cap stays");
 
 	assert_eq!(store.change_balance(a, BalanceChange::Set(8), "root", None, day(130), &cfg).await.unwrap(), 8);
 	assert_eq!(store.balance(a, day(130), &cfg).await.unwrap(), 8);

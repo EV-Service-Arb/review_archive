@@ -13,8 +13,8 @@ pub struct Tokens {
 	/// Added to a member's balance per day, while it is under `cap`.
 	#[default(15)]
 	pub daily: i64,
-	/// Renewal stops here; tokens granted or bought above it stay.
-	#[default(300)]
+	/// Renewal stops here; tokens granted or bought above it stay. A new member starts with twice it.
+	#[default(500)]
 	pub cap: i64,
 	/// Spent by all walks together in any hour at most, whoever pays: Maps closes until older walks leave the window.
 	#[default(120)]

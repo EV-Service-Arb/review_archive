@@ -863,9 +863,9 @@ async fn me_is_open_to_anyone_signed_in() {
 			name: ALICE.into(),
 			permissions: vec![],
 			tokens: TokensDto {
-				balance: 15,
+				balance: 1000,
 				daily: 15,
-				cap: 300,
+				cap: 500,
 				kickbacks: vec![]
 			},
 		}
@@ -902,7 +902,7 @@ async fn members_need_act_as_and_their_balances_tokens_grant() {
 		claimed: true,
 		balance,
 	};
-	assert_eq!(actor.members().await.unwrap(), vec![member(a, ALICE, 8), member(root, "root", 15)]);
+	assert_eq!(actor.members().await.unwrap(), vec![member(a, ALICE, 8), member(root, "root", 1000)]);
 	e.server.abort();
 }
 
@@ -965,7 +965,7 @@ async fn an_admin_sets_a_members_tokens() {
 	let e = env().await;
 	let alice = e.member(ALICE);
 	let me = alice.me().await.unwrap();
-	assert_eq!(me.tokens.balance, 15, "a day's worth on first sight");
+	assert_eq!(me.tokens.balance, 1000, "twice the cap on first sight");
 	let set = |n| TokensChange {
 		change: BalanceChange::Set(n),
 		note: Some("trial".into()),
@@ -976,7 +976,7 @@ async fn an_admin_sets_a_members_tokens() {
 	let ledger = alice.ledger().await.unwrap();
 	assert_eq!(
 		ledger.iter().map(|l| (l.kind, l.delta, l.by.as_deref())).collect::<Vec<_>>(),
-		[(TokenKind::Set, -7, Some("root@x.com")), (TokenKind::Accrual, 15, None)]
+		[(TokenKind::Set, -992, Some("root@x.com")), (TokenKind::Accrual, 1000, None)]
 	);
 	let bad = TokensChange {
 		change: BalanceChange::Grant(0),

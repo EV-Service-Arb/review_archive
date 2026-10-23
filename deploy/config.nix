@@ -20,6 +20,4 @@
   # pause between scrolls, so V8 collects before the next screen loads
   browser.lean = [{ js_heap_mib = 512; } "small_young_generation" "js_lite_mode" "one_raster_thread" "low_end_device"];
   browser.step_wait = "3s";
-  # members start at 0 and nothing renews: an admin assigns tokens by hand
-  tokens.daily = 0;
 }
