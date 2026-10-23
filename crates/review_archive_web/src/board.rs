@@ -27,10 +27,20 @@ const EXTRA: &[&str] = &["stats"];
 #[cfg(not(feature = "grafana"))]
 const EXTRA: &[&str] = &[];
 
-/// Maps the dock's chrome onto the kit's tokens.
-const DOCK_THEME: &str = "--dv-group-bg: var(--secondary); --dv-tabstrip-bg: var(--secondary); --dv-tab-bg: var(--secondary); \
-	--dv-tab-active-bg: var(--background); --dv-tab-active-fg: var(--ink); --dv-tab-border: var(--border); --dv-fg: var(--ink); \
-	--dv-accent: var(--primary); --dv-shadow-bg: var(--hover); --dv-resize-bg: var(--border); --dv-content-pad: 0;";
+/// Maps the dock's chrome onto the kit's tokens: the dock's custom properties, unprefixed.
+pub(crate) const DOCK_THEME: [(&str, &str); 11] = [
+	("group-bg", "var(--secondary)"),
+	("tabstrip-bg", "var(--secondary)"),
+	("tab-bg", "var(--secondary)"),
+	("tab-active-bg", "var(--background)"),
+	("tab-active-fg", "var(--ink)"),
+	("tab-border", "var(--border)"),
+	("fg", "var(--ink)"),
+	("accent", "var(--primary)"),
+	("shadow-bg", "var(--hover)"),
+	("resize-bg", "var(--border)"),
+	("content-pad", "0"),
+];
 
 #[component]
 pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> Element {
@@ -82,6 +92,7 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 		..Default::default()
 	};
 	let rows = config.rows;
+	let theme: String = DOCK_THEME.iter().map(|(k, v)| format!("--dv-{k}: {v};")).collect();
 	let on_band = Callback::new(move |mut api: PackedApi| {
 		dock.set(Some(api));
 		if api.restored() {
@@ -112,7 +123,7 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 			div { class: "border-b border-border px-6 py-2 text-accent-error", "{e}" }
 		}
 		div { class: "relative min-h-0 flex-1",
-			div { class: "absolute inset-0", style: DOCK_THEME,
+			div { class: "absolute inset-0", style: theme,
 				PackedArea { panels, on_band: Some(on_band), config: Some(config) }
 			}
 		}

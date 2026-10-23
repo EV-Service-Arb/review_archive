@@ -147,13 +147,20 @@
           auditable = false;
         };
 
+        # lays out `ra-location` in the Stats tile like the board's own tiles
+        tilersPlugin = pkgs.fetchzip {
+          url = "https://github.com/EV-Main/tilers/releases/download/grafana-v0.2.2/evmain-tilers-app-0.2.2.zip";
+          hash = "sha256-y66KpUfQ6Wawggzbl5S0at9OdoKsHU7tl3BKDVLPJjw=";
+        };
+
         # `serve`'s `grafana`: `serve` gives it its socket, data dir and `RA_API`; the rest is fixed here.
         grafanaServer = pkgs.writeShellScript "grafana-server" ''
           log="''${XDG_STATE_HOME:-$HOME/.local/state}/review_archive/grafana.log"
           mkdir -p "$(dirname "$log")"
           export RA_GRAFANA=${./grafana}
           export GF_PATHS_LOGS="$GF_PATHS_DATA/log"
-          export GF_PATHS_PLUGINS="${pkgs.linkFarm "grafana-plugins" (map (p: { name = p.pname; path = p; }) (with pkgs.grafanaPlugins; [ yesoreyeram-infinity-datasource marcusolsson-dynamictext-panel ]))}"
+          export GF_PATHS_PLUGINS="${pkgs.linkFarm "grafana-plugins" (map (p: { name = p.pname; path = p; }) (with pkgs.grafanaPlugins; [ yesoreyeram-infinity-datasource marcusolsson-dynamictext-panel ]) ++ [ { name = "evmain-tilers-app"; path = tilersPlugin; } ])}"
+          export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=evmain-tilers-app
           export GF_PATHS_PROVISIONING="$RA_GRAFANA/provisioning"
           export GF_AUTH_ANONYMOUS_ENABLED=true GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
           export GF_SECURITY_ALLOW_EMBEDDING=true

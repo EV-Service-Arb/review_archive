@@ -44,7 +44,8 @@ crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, backgrou
 crates/review_archive_client/   typed async client of the HTTP API through the panel, on the core's DTOs; native and wasm
 crates/review_archive_web/      the dashboard MFE (dioxus, wasm), over the client; `package.sh` lays out /mfe/, `index.html` is `/`;
                                 its `grafana` feature frames Grafana's overview and Stats tile in one frame, booted with the page
-                                and steered between them (`nix run .#with-grafana`)
+                                and steered between them (`nix run .#with-grafana`); the Stats tile opens `ra-location` through
+                                the tilers plugin (`evmain-tilers-app`), its panels tiles themed like the board's
 grafana/                        those dashboards, over the API through the Infinity datasource
 ```
 

@@ -16,7 +16,9 @@
       "id": 1,
       "type": "state-timeline",
       "title": "Runs",
+      "dock": { "minH": 48 },
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 5 },
+      "transparent": true,
       "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
       "targets": [
         {
@@ -57,7 +59,9 @@
       "id": 2,
       "type": "timeseries",
       "title": "Reviews per run",
-      "gridPos": { "x": 0, "y": 5, "w": 18, "h": 9 },
+      "dock": { "minH": 140 },
+      "gridPos": { "x": 0, "y": 9, "w": 24, "h": 9 },
+      "transparent": true,
       "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
       "targets": [
         {
@@ -100,7 +104,9 @@
       "id": 3,
       "type": "stat",
       "title": "Last run",
-      "gridPos": { "x": 18, "y": 5, "w": 6, "h": 9 },
+      "dock": { "minH": 90 },
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 4 },
+      "transparent": true,
       "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
       "targets": [
         {

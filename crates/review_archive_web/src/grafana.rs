@@ -1,5 +1,6 @@
 //! The locations overview drawn by Grafana (`grafana/dashboards/ra-overview.json`) in place of the
-//! cards, and a place's Stats tile (`ra-location`). One frame from `/grafana/` starts with the page
+//! cards, and a place's Stats tile (`ra-location`, its panels tiled like the board by the tilers
+//! plugin, `evmain-tilers-app`). One frame from `/grafana/` starts with the page
 //! and lives as long: its boot takes seconds, moving it to another dashboard or vars does not. A
 //! [`Slot`] says where it shows and what; the frame is laid over the slot on screen and steered
 //! there, never reloaded. The overview posts up what is clicked (`ra-open`, `ra-scan`, `ra-enable`).
@@ -82,10 +83,21 @@ pub fn Host(me: i64, children: Element) -> Element {
 			if *shown.peek() != id {
 				shown.set(id);
 			}
-			let Some((_, path, _)) = on_screen else { continue };
 			let inner = f.content_window().expect("a mounted frame has a window");
 			// the frame's first document is about:blank, whose history takes no Grafana URL
-			if path == steered || inner.location().pathname().expect("a same-origin location reads") == "blank" {
+			if inner.location().pathname().expect("a same-origin location reads") == "blank" {
+				continue;
+			}
+			let doc = f.content_document().expect("a same-origin frame's document reads");
+			let Some(head) = doc.head() else { continue }; // Grafana's document, still parsing
+			if doc.get_element_by_id("ra-dock-theme").is_none() {
+				let style = doc.create_element("style").expect("creating an element");
+				style.set_id("ra-dock-theme");
+				style.set_text_content(Some(&dock_theme()));
+				head.append_child(&style).expect("appending to the head");
+			}
+			let Some((_, path, _)) = on_screen else { continue };
+			if path == steered {
 				continue;
 			}
 			// Grafana's router follows its window's location on popstate; replaced, so back stays the page's
@@ -161,6 +173,25 @@ pub fn Host(me: i64, children: Element) -> Element {
 	}
 }
 
+/// The board's [`DOCK_THEME`](crate::board::DOCK_THEME) on the plugin's tilers dock, the kit's tokens
+/// resolved here: the frame's document has none of them.
+fn dock_theme() -> String {
+	let kit = window()
+		.get_computed_style(&window().document().expect("a page has a document").document_element().expect("a document has a root"))
+		.expect("a root has a style")
+		.expect("a rendered root has a computed style");
+	let token = |name: &str| kit.get_property_value(name).expect("reading a custom property");
+	let tokens: String = crate::board::DOCK_THEME
+		.iter()
+		.filter_map(|(_, v)| v.strip_prefix("var(")?.strip_suffix(')'))
+		.collect::<std::collections::BTreeSet<_>>()
+		.into_iter()
+		.map(|t| format!("{t}: {};", token(t)))
+		.collect();
+	let dock: String = crate::board::DOCK_THEME.iter().map(|(k, v)| format!("--tl-{k}: {v};")).collect();
+	format!(".tl-packed {{ {tokens} {dock} }} body:has(.tl-packed) {{ background: {}; }}", token("--background"))
+}
+
 /// Where the frame shows, and the dashboard (`path`, under `/grafana/`) it shows there.
 #[component]
 fn Slot(class: String, path: String, on: Option<EventHandler<Up>>) -> Element {
@@ -203,6 +234,6 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 #[component]
 pub fn Stats(target: i64) -> Element {
 	rsx! {
-		Slot { class: "h-full w-full", path: format!("d/ra-location/{KIOSK}&var-target={target}") }
+		Slot { class: "h-full w-full", path: format!("a/evmain-tilers-app/d/ra-location{KIOSK}&var-target={target}") }
 	}
 }
