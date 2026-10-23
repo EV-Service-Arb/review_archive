@@ -29,6 +29,7 @@ crates/review_archive/          the engine (features: maps, store)
   src/store/members.rs          per-member state: gmails, tracks, reinstatements, Telegram channels
   src/store/people.rs           people by concierge `sub`; claiming an address's rows from before
   src/store/tokens.rs           the token ledger: balances, who pays for a scan, the account's hourly limit
+  src/store/layouts.rs          the board dock's published layouts, per dock and band, what fresh browsers start from
   src/record.rs                 one scan of one target into the store: run row, source, blobs, reconcile, write
   src/failure.rs                the typed errors (miette codes and help), `describe`, and who a failure waits for
     src/webhooks.rs               where a hook may point; delivering the outbox: signature, retries, the Telegram bot
