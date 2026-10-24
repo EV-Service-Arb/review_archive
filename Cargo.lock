@@ -6496,9 +6496,7 @@ dependencies = [
 
 [[package]]
 name = "tilers_core"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13b27f85f64cba93665db57d7d210c0816f910f8b393cf6c573399a1817b8f21"
+version = "0.3.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -6508,9 +6506,7 @@ dependencies = [
 
 [[package]]
 name = "tilers_dioxus"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d9ca68c60c852717ecde9490767488a323e10d6720aa570df2861239d9174c6"
+version = "0.3.3"
 dependencies = [
  "dioxus",
  "tilers_core",
