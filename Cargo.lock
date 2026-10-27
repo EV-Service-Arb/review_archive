@@ -2153,7 +2153,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "767564fb9848499fc38a773ca09d835baee190246d3acc51c900ed5da8189acb"
 dependencies = [
  "dioxus",
- "ev_lib_classes",
+ "ev_lib_classes 0.14.0",
+ "strum",
+ "tailwind_fuse",
+]
+
+[[package]]
+name = "ev_lib"
+version = "0.28.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60f4fab6e14bc007abca4f76be165dcec2384fc716a059e0e6f7e5e3b90be7cf"
+dependencies = [
+ "dioxus",
+ "ev_lib_classes 0.16.1",
  "inventory",
  "jiff",
  "js-sys",
@@ -2184,6 +2196,16 @@ name = "ev_lib_classes"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4f7f13e0f258566f17780646873ee3f8124610c089087ec811c852f21b52265"
+dependencies = [
+ "strum",
+ "tailwind_fuse",
+]
+
+[[package]]
+name = "ev_lib_classes"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "761d0045bdd882bfced48a7854466681a1edd53342142d7393059dea44eb552d"
 dependencies = [
  "strum",
  "tailwind_fuse",
@@ -5106,7 +5128,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "concierge_iam",
- "ev_lib",
+ "ev_lib 0.28.2",
  "eyre",
  "jiff",
  "miette",
@@ -5138,8 +5160,8 @@ name = "review_archive_web"
 version = "0.1.0"
 dependencies = [
  "dioxus",
- "ev_lib",
- "ev_lib_classes",
+ "ev_lib 0.28.2",
+ "ev_lib_classes 0.16.1",
  "getrandom 0.3.4",
  "jiff",
  "js-sys",
@@ -5362,7 +5384,7 @@ version = "0.1.0"
 source = "git+https://github.com/EV-Service-Arb/panel?rev=003926e852549637be3d2f34a0322f1d72494dc9#003926e852549637be3d2f34a0322f1d72494dc9"
 dependencies = [
  "dioxus",
- "ev_lib",
+ "ev_lib 0.25.1",
 ]
 
 [[package]]
@@ -6497,6 +6519,8 @@ dependencies = [
 [[package]]
 name = "tilers_core"
 version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c9d5fc9d4c5ad1667af95dd9f8bc310f70ff7e729ba2e9cf597d78552993f79"
 dependencies = [
  "serde",
  "serde_json",
@@ -6507,6 +6531,8 @@ dependencies = [
 [[package]]
 name = "tilers_dioxus"
 version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f92cfb7be3723ab1eaf588339b1269b3bdd1a4e27c0351d75c7c6a36023d965"
 dependencies = [
  "dioxus",
  "tilers_core",

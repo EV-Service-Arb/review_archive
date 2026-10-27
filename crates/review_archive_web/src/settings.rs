@@ -52,31 +52,24 @@ pub fn Page() -> Element {
 	}
 }
 
-/// One setting, offered `options` and whatever it holds besides: what applies is blue, the
-/// default grey.
+/// One setting, offered `options` and whatever it holds besides.
 #[component]
 fn Choice(label: &'static str, hint: &'static str, options: Vec<u64>, setting: Setting<u64>, on_choose: EventHandler<String>) -> Element {
 	let mut options = options;
 	options.extend([setting.value(), setting.default]);
 	options.sort_unstable();
 	options.dedup();
-	let (current, default) = (written(setting.value()), written(setting.default));
 	rsx! {
 		div { class: "flex items-center gap-4 border-b border-border px-4 py-3 last:border-b-0",
 			div { class: "flex min-w-0 flex-1 flex-col gap-0.5",
 				span { "{label}" }
 				span { class: "text-[12px] text-ink-soft", "{hint}" }
 			}
-			Select { value: Some(current.clone()), on_value_change: move |v| on_choose.call(v),
+			Select { value: Some(written(setting.value())), reset_value: Some(written(setting.default)), on_value_change: move |v| on_choose.call(v),
 				SelectTrigger { size: Size::Sm, class: "w-24", SelectValue {} }
 				SelectContent {
 					for name in options.into_iter().map(written) {
-						SelectItem {
-							key: "{name}",
-							class: if name == current { "bg-accent-info/20! text-accent-info!" } else if name == default { "bg-ink-soft/15!" } else { "" },
-							value: name.clone(),
-							"{name}"
-						}
+						SelectItem { key: "{name}", value: name.clone(), "{name}" }
 					}
 				}
 			}
