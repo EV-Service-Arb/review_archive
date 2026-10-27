@@ -5,10 +5,11 @@ use jiff::Timestamp;
 use review_archive_core::{
 	GbpLocation, PersonId, Rejected, ReviewId, TargetId, check_lang,
 	dto::{
-		Board, GmailDto, GmailOverview, JobKind, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, PlaceDto, ReinstatementDto, TargetDto, TargetPatch, TgChannelDto, TokensChange,
-		TokensDto, TrackPatch, Usage,
+		Board, GmailDto, GmailOverview, IntervalChange, JobKind, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, PlaceDto, ReinstatementDto, ScanInterval, TargetDto, TargetPatch,
+		TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage,
 	},
 	maps::cost,
+	parse_interval,
 };
 use tg_types::TelegramDestination;
 
@@ -212,6 +213,22 @@ impl Archive {
 		let events: Vec<&str> = ch.events.iter().map(AsRef::as_ref).collect();
 		let text = format!("review_archive: this chat gets {}", events.join(", "));
 		Ok(self.inner.webhooks.test_telegram(&ch.destination, text).await?)
+	}
+
+	/// How often the places the member pays for are scanned.
+	pub async fn interval(&self, member: PersonId) -> eyre::Result<ScanInterval> {
+		Ok(ScanInterval {
+			interval_secs: self.store()?.interval(member).await?,
+		})
+	}
+
+	/// Sets how often the places the member pays for are scanned; `None`: each place's own.
+	pub async fn set_interval(&self, member: PersonId, req: &IntervalChange) -> eyre::Result<()> {
+		let interval = req.interval.as_deref().map(parse_interval).transpose()?;
+		if let Some(i) = interval {
+			self.check_interval(i)?;
+		}
+		self.store()?.set_interval(member, interval).await
 	}
 
 	/// The member's tokens, renewed up to now.

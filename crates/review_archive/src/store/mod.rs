@@ -374,7 +374,13 @@ struct KnownRow {
 	text: Option<String>,
 }
 
-const TARGET_COLUMNS: &str = "id, label, name, address, kind, place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at";
+/// Over `targets t`. A tracked target's interval is the shortest its payers chose, each payer
+/// without a choice counting as the target's own.
+const TARGET_COLUMNS: &str = "t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang,
+	 COALESCE((SELECT MIN(COALESCE(pe.interval_secs, t.interval_secs)) FROM tracks tr
+	           JOIN managing_gmails mg ON mg.id = tr.managing_gmail_id JOIN people pe ON pe.id = mg.person_id
+	           WHERE tr.target_id = t.id AND tr.enabled AND mg.enabled), t.interval_secs) AS interval_secs,
+	 t.enabled, t.created_at";
 
 fn no_target(id: TargetId) -> Rejected {
 	Rejected::not_found(format!("no target {id}"))
@@ -432,7 +438,7 @@ impl Store {
 
 	/// Every target, by id.
 	pub async fn targets(&self) -> eyre::Result<Vec<Target>> {
-		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets WHERE id > 0 ORDER BY id")))
+		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets t WHERE t.id > 0 ORDER BY t.id")))
 			.fetch_all(&self.pool)
 			.await
 			.wrap_err("listing targets")?;
@@ -495,7 +501,7 @@ impl Store {
 			 WHERE t.enabled
 			   AND (NOT EXISTS (SELECT 1 FROM tracks k WHERE k.target_id = t.id)
 			        OR EXISTS (SELECT 1 FROM tracks k JOIN managing_gmails g ON g.id = k.managing_gmail_id WHERE k.target_id = t.id AND k.enabled AND g.enabled))
-			 ORDER BY id"
+			 ORDER BY t.id"
 		)))
 		.fetch_all(&self.pool)
 		.await
@@ -505,7 +511,7 @@ impl Store {
 
 	/// One target; [`Rejected::NotFound`] when there is none.
 	pub async fn target(&self, id: TargetId) -> eyre::Result<Target> {
-		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets WHERE id = ? AND id > 0")))
+		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets t WHERE t.id = ? AND t.id > 0")))
 			.bind(id.0)
 			.fetch_optional(&self.pool)
 			.await
@@ -543,9 +549,9 @@ impl Store {
 	/// Maps), if any: where ad-hoc captures and members' tracks go.
 	pub async fn find_target(&self, place_id: &str, lang: &str, gbp: Option<&GbpLocation>) -> eyre::Result<Option<Target>> {
 		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-			"SELECT {TARGET_COLUMNS} FROM targets
-			 WHERE place_id = ?1 AND lang = ?2 AND kind = IIF(?3 IS NULL, 'maps', 'gbp') AND gbp_account IS ?3 AND gbp_location IS ?4
-			 ORDER BY id LIMIT 1"
+			"SELECT {TARGET_COLUMNS} FROM targets t
+			 WHERE t.place_id = ?1 AND t.lang = ?2 AND t.kind = IIF(?3 IS NULL, 'maps', 'gbp') AND t.gbp_account IS ?3 AND t.gbp_location IS ?4
+			 ORDER BY t.id LIMIT 1"
 		)))
 		.bind(place_id)
 		.bind(lang)

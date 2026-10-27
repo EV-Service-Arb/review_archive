@@ -28,7 +28,7 @@ use ev_lib::{
 };
 use review_archive_client::{
 	Client,
-	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, TargetDto, TokensChange, TokensDto},
+	dto::{BalanceChange, GmailDto, GmailOverview, IntervalChange, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, TargetDto, TokensChange, TokensDto},
 };
 use sa_auth::{Members, Permission, PermissionSet, Tokens};
 use wasm_bindgen::{JsCast, prelude::*};
@@ -729,6 +729,7 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 					},
 				}
 			}
+			Interval {}
 			div { class: "flex flex-col gap-0.5 px-2",
 				for g in gmails {
 					div { key: "{g.gmail.id}", class: "flex items-center gap-1",
@@ -772,6 +773,53 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 				class: if telegram { "{row} mx-2 mb-3 bg-hover text-ink" } else { "{row} mx-2 mb-3 text-ink-soft" },
 				to: Route::at(tab, View::Telegram),
 				"Telegram alerts"
+			}
+		}
+	}
+}
+
+/// How often every place of every gmail is scanned.
+#[component]
+fn Interval() -> Element {
+	const EVERY: [(&str, u64); 6] = [("1h", 3600), ("6h", 6 * 3600), ("12h", 12 * 3600), ("1d", 86_400), ("2d", 2 * 86_400), ("1w", 7 * 86_400)];
+	const OWN: &str = "default"; // each place's own interval
+	let Api(api) = use_context();
+	let Refresh(refresh) = use_context();
+	let chosen = use_resource(move || {
+		let api = api.clone();
+		async move {
+			refresh();
+			api.interval().await.map_err(shown)
+		}
+	});
+	let secs = match &*chosen.read() {
+		Some(Ok(c)) => c.interval_secs,
+		Some(Err(e)) => return rsx! { div { class: "px-4 pb-1 text-accent-error", "{e}" } },
+		None => return rsx! {},
+	};
+	let current = secs.map_or_else(
+		|| OWN.to_owned(),
+		|s| EVERY.iter().find(|(_, x)| *x == s).map_or_else(|| format!("{s}s"), |(k, _)| (*k).to_owned()),
+	);
+	let custom = secs.filter(|s| !EVERY.iter().any(|(_, x)| x == s));
+	rsx! {
+		div { class: "flex items-center gap-2 px-4 pb-2 text-ink-soft",
+			span { class: "flex-1", "Scan every" }
+			Select {
+				value: Some(current),
+				on_value_change: move |v: String| {
+					act(move |c| async move { c.set_interval(&IntervalChange { interval: (v != OWN).then_some(v) }).await });
+				},
+				SelectTrigger { size: Size::Sm, class: "w-28", SelectValue {} }
+				SelectContent {
+					SelectItem { value: OWN, "{OWN}" }
+					for (k, _) in EVERY {
+						SelectItem { key: "{k}", value: k, "{k}" }
+					}
+					if let Some(s) = custom {
+						SelectItem { value: "{s}s", "{s}s" }
+					}
+				}
 			}
 		}
 	}

@@ -4,6 +4,7 @@
 use eyre::WrapErr;
 use jiff::Timestamp;
 use review_archive_core::{PersonId, fmt_ts};
+use v_utils::Timeframe;
 
 use super::Store;
 
@@ -133,5 +134,29 @@ impl Store {
 			.fetch_optional(&self.pool)
 			.await
 			.wrap_err("looking up a person by id")
+	}
+
+	/// How often the places they pay for are scanned; `None`: each place's own.
+	pub async fn interval(&self, id: PersonId) -> eyre::Result<Option<u64>> {
+		let secs: Option<i64> = sqlx::query_scalar("SELECT interval_secs FROM people WHERE id = ?")
+			.bind(id.0)
+			.fetch_one(&self.pool)
+			.await
+			.wrap_err("reading a person's interval")?;
+		secs.map(|s| u64::try_from(s).wrap_err("negative interval_secs")).transpose()
+	}
+
+	/// `None`: each place's own.
+	pub async fn set_interval(&self, id: PersonId, interval: Option<Timeframe>) -> eyre::Result<()> {
+		// parse_interval keeps it within i64
+		let secs = interval.map(|i| i.duration().as_secs() as i64);
+		let done = sqlx::query("UPDATE people SET interval_secs = ? WHERE id = ?")
+			.bind(secs)
+			.bind(id.0)
+			.execute(&self.pool)
+			.await
+			.wrap_err("setting a person's interval")?;
+		assert_eq!(done.rows_affected(), 1, "callers name a person they authenticated");
+		Ok(())
 	}
 }

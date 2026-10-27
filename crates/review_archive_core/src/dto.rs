@@ -784,6 +784,23 @@ pub struct PlaceQuery {
 	pub place: String,
 }
 
+/// `GET /me/interval`: how often the places a member pays for are scanned. A place several pay
+/// for is scanned as often as the most eager wants.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ScanInterval {
+	/// `null`: each place's own.
+	pub interval_secs: Option<u64>,
+}
+
+/// `PUT /me/interval`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct IntervalChange {
+	/// `6h`, `1d`, or seconds; at least `schedule.min_interval`. `null`: each place's own.
+	pub interval: Option<String>,
+}
+
 /// `POST /me/gmails/{id}/tracks`: watch a place under this gmail. The place is watched once
 /// however many members track it; one already watched with this language is reused.
 #[skip_serializing_none]

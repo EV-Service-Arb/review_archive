@@ -30,9 +30,9 @@ use std::fmt;
 use reqwest::{Method, RequestBuilder, StatusCode, Url};
 pub use review_archive_core::dto;
 use review_archive_core::dto::{
-	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LayoutDto, LedgerEntry, MEMBER_HEADER, Me, MemberDto, NewGmail, NewLayout,
-	NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, StatsQuery, Switch, TargetDetail,
-	TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto,
+	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailDto, GmailOverview, IntervalChange, JobAccepted, JobDto, LayoutDto, LedgerEntry, MEMBER_HEADER, Me, MemberDto, NewGmail,
+	NewLayout, NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, ScanInterval, StatsQuery,
+	Switch, TargetDetail, TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto,
 };
 use serde::de::DeserializeOwned;
 
@@ -297,6 +297,17 @@ impl Client {
 	/// `DELETE /me/gmails/{gmail}`.
 	pub async fn delete_gmail(&self, gmail: i64) -> Result<(), Error> {
 		Self::send(self.request(Method::DELETE, &format!("me/gmails/{gmail}"))?).await?;
+		Ok(())
+	}
+
+	/// `GET /me/interval`.
+	pub async fn interval(&self) -> Result<ScanInterval, Error> {
+		Self::json(self.request(Method::GET, "me/interval")?).await
+	}
+
+	/// `PUT /me/interval`.
+	pub async fn set_interval(&self, req: &IntervalChange) -> Result<(), Error> {
+		Self::send(self.request(Method::PUT, "me/interval")?.json(req)).await?;
 		Ok(())
 	}
 

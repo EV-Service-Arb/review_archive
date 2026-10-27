@@ -130,7 +130,9 @@ deleted.
 ## Scheduling
 
 - Per-target `interval_secs`, default `defaults.interval` (1 d), minimum `schedule.min_interval`
-  (1 h), ±`schedule.jitter` (10 %).
+  (1 h), ±`schedule.jitter` (10 %). A tracked target goes by its payers' `people.interval_secs`
+  instead (`PUT /me/interval`, every place they pay for): the shortest, a payer who chose
+  none counting as the target's own.
 - One scan at a time; a random pause between targets, `schedule.pause_{min,max}` (5–15 s).
 - Failure → `runs.status=failed` with the error, exponential backoff for that
   target (`schedule.backoff_base` doubling to `schedule.backoff_cap`: 1 h → 24 h), other targets continue —
@@ -234,7 +236,7 @@ Several people track their places here, grouped the way they manage them: by
 **managing gmail**, the Google manager account a small group of GBPs is attached to.
 
 - A **member** is a person: a concierge account the Service-Arb panel vouches for, kept in
-  `people(id, sub UNIQUE, email, name, first_seen)` and found or made by `sub` on every
+  `people(id, sub UNIQUE, email, name, first_seen, interval_secs)` and found or made by `sub` on every
   request. Anyone signed in to the panel is one; what they may do beyond their own `/me` is
   their `sa:review_archive:*` permissions, granted in concierge. Rows from before people had
   ids were keyed by email: each address is a person without a `sub`, claimed by the first
@@ -246,7 +248,7 @@ Several people track their places here, grouped the way they manage them: by
 - `tracks(managing_gmail_id, target_id, created_at)`. Tracking a place finds the target on
   that place, language and source, or makes one (enabling a disabled one): targets,
   reviews, captures and blobs stay shared, so two members on one place cost one scan and
-  one capture. Scheduling stays per target. The operator assigns existing targets with
+  one capture. Scheduling stays per target, its interval its payers' (see Scheduling). The operator assigns existing targets with
   `gmail add <member> <gmail>` and `track <gmail-id> <target-id>`.
 - Gmails and tracks are switched on or off by their member (`enabled`, on when added;
   `PATCH /me/gmails/{id}`, `PATCH /me/gmails/{id}/tracks/{target}`). A target someone

@@ -11,7 +11,10 @@ use review_archive::{
 	config::Config,
 	core::{
 		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
-		dto::{BalanceChange, CaptureRequest, Event, JobStatus, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, TargetPatch, TokenKind, TokensChange, TokensDto, TrackPatch},
+		dto::{
+			BalanceChange, CaptureRequest, Event, IntervalChange, JobStatus, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, ScanInterval, TargetPatch, TokenKind,
+			TokensChange, TokensDto, TrackPatch,
+		},
 		tokens::Meter,
 	},
 	sources::ReviewSource,
@@ -1442,5 +1445,48 @@ async fn a_second_test_post_within_a_minute_is_a_429() {
 	assert!(!limited(&first), "{first:?}");
 	let second = alice.test_tg_channel(ch.id).await;
 	assert!(limited(&second), "{second:?}");
+	e.server.abort();
+}
+
+/// A member's interval is every place they pay for; a place two members pay for is scanned as
+/// often as the more eager wants, and as its own interval says once neither chose.
+#[tokio::test]
+async fn a_members_interval_schedules_every_place_they_pay_for() {
+	let e = env().await;
+	let (alice, bob) = (e.member(ALICE), e.member(BOB));
+	let (a, b) = (alice.add_gmail("alice@gmail.com").await.unwrap(), bob.add_gmail("bob@gmail.com").await.unwrap());
+	let track = NewTrack {
+		place: PLACE.into(),
+		..Default::default()
+	};
+	let t = alice.track(a.id, &track).await.unwrap();
+	bob.track(b.id, &track).await.unwrap();
+	let own = t.interval_secs;
+	let scheduled = async || e.client.target(t.id).await.unwrap().target.interval_secs;
+	let every = |interval: Option<&str>| IntervalChange {
+		interval: interval.map(str::to_owned),
+	};
+	assert_eq!(alice.interval().await.unwrap(), ScanInterval { interval_secs: None });
+
+	alice.set_interval(&every(Some("6h"))).await.unwrap();
+	bob.set_interval(&every(Some("2d"))).await.unwrap();
+	assert_eq!(alice.interval().await.unwrap(), ScanInterval { interval_secs: Some(6 * 3600) });
+	assert_eq!(scheduled().await, 6 * 3600);
+	assert_eq!(bob.overview().await.unwrap()[0].locations[0].target.interval_secs, 6 * 3600, "the place is shared");
+
+	alice.set_gmail_enabled(a.id, false).await.unwrap();
+	assert_eq!(scheduled().await, 2 * 86_400, "alice pays for nothing while her gmail is off");
+	alice.set_gmail_enabled(a.id, true).await.unwrap();
+
+	alice.set_interval(&every(None)).await.unwrap();
+	assert_eq!(scheduled().await, own, "alice defers to the place, which is sooner than bob's");
+	bob.set_interval(&every(None)).await.unwrap();
+	assert_eq!(scheduled().await, own);
+
+	assert_eq!(
+		alice.set_interval(&every(Some("1m"))).await.unwrap_err().status(),
+		Some(StatusCode::BAD_REQUEST),
+		"below schedule.min_interval"
+	);
 	e.server.abort();
 }
