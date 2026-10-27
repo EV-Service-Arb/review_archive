@@ -54,6 +54,10 @@ pub(crate) fn sat_u32(n: impl TryInto<u32>) -> u32 {
 #[derive(Clone, Debug)]
 pub struct Store {
 	pool: sqlx::SqlitePool,
+	/// What a member who chose none scans by.
+	default_interval: Timeframe,
+	/// [`target_columns`] at `default_interval`.
+	target_columns: std::sync::Arc<str>,
 }
 
 /// A target to insert.
@@ -374,21 +378,27 @@ struct KnownRow {
 	text: Option<String>,
 }
 
-/// Over `targets t`. A tracked target's interval is the shortest its payers chose, each payer
-/// without a choice counting as the target's own.
-const TARGET_COLUMNS: &str = "t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang,
-	 COALESCE((SELECT MIN(COALESCE(pe.interval_secs, t.interval_secs)) FROM tracks tr
-	           JOIN managing_gmails mg ON mg.id = tr.managing_gmail_id JOIN people pe ON pe.id = mg.person_id
-	           WHERE tr.target_id = t.id AND tr.enabled AND mg.enabled), t.interval_secs) AS interval_secs,
-	 t.enabled, t.created_at";
+/// Over `targets t`. A tracked target's interval is the shortest its payers chose, a payer
+/// without a choice counting as `default_interval`; the target's own is for when nobody pays.
+fn target_columns(default_interval: Timeframe) -> String {
+	let default = default_interval.duration().as_secs();
+	format!(
+		"t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang,
+		 COALESCE((SELECT MIN(COALESCE(pe.interval_secs, {default})) FROM tracks tr
+		           JOIN managing_gmails mg ON mg.id = tr.managing_gmail_id JOIN people pe ON pe.id = mg.person_id
+		           WHERE tr.target_id = t.id AND tr.enabled AND mg.enabled), t.interval_secs) AS interval_secs,
+		 t.enabled, t.created_at"
+	)
+}
 
 fn no_target(id: TargetId) -> Rejected {
 	Rejected::not_found(format!("no target {id}"))
 }
 
 impl Store {
-	/// Opens (creating if need be) and migrates the database at `db_path`.
-	pub async fn open(db_path: &Path) -> eyre::Result<Self> {
+	/// Opens (creating if need be) and migrates the database at `db_path`; members who chose no
+	/// interval scan by `default_interval`.
+	pub async fn open(db_path: &Path, default_interval: Timeframe) -> eyre::Result<Self> {
 		if let Some(dir) = db_path.parent() {
 			tokio::fs::create_dir_all(dir).await.wrap_err_with(|| format!("creating {}", dir.display()))?;
 		}
@@ -405,7 +415,11 @@ impl Store {
 			.await
 			.wrap_err_with(|| format!("opening {}", db_path.display()))?;
 		sqlx::migrate!("./migrations").run(&pool).await.wrap_err("applying migrations")?;
-		Ok(Self { pool })
+		Ok(Self {
+			pool,
+			default_interval,
+			target_columns: target_columns(default_interval).into(),
+		})
 	}
 
 	/// A write transaction that holds the write lock from its start.
@@ -438,7 +452,7 @@ impl Store {
 
 	/// Every target, by id.
 	pub async fn targets(&self) -> eyre::Result<Vec<Target>> {
-		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets t WHERE t.id > 0 ORDER BY t.id")))
+		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {} FROM targets t WHERE t.id > 0 ORDER BY t.id", self.target_columns)))
 			.fetch_all(&self.pool)
 			.await
 			.wrap_err("listing targets")?;
@@ -496,8 +510,9 @@ impl Store {
 
 	/// Enabled targets, by id, but for those every member tracking has switched off.
 	pub(crate) async fn scheduled_targets(&self) -> eyre::Result<Vec<Target>> {
+		let columns = &self.target_columns;
 		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-			"SELECT {TARGET_COLUMNS} FROM targets t
+			"SELECT {columns} FROM targets t
 			 WHERE t.enabled
 			   AND (NOT EXISTS (SELECT 1 FROM tracks k WHERE k.target_id = t.id)
 			        OR EXISTS (SELECT 1 FROM tracks k JOIN managing_gmails g ON g.id = k.managing_gmail_id WHERE k.target_id = t.id AND k.enabled AND g.enabled))
@@ -511,7 +526,7 @@ impl Store {
 
 	/// One target; [`Rejected::NotFound`] when there is none.
 	pub async fn target(&self, id: TargetId) -> eyre::Result<Target> {
-		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {TARGET_COLUMNS} FROM targets t WHERE t.id = ? AND t.id > 0")))
+		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {} FROM targets t WHERE t.id = ? AND t.id > 0", self.target_columns)))
 			.bind(id.0)
 			.fetch_optional(&self.pool)
 			.await
@@ -548,8 +563,9 @@ impl Store {
 	/// The target on this place and language, read from this GBP location (`None`: from
 	/// Maps), if any: where ad-hoc captures and members' tracks go.
 	pub async fn find_target(&self, place_id: &str, lang: &str, gbp: Option<&GbpLocation>) -> eyre::Result<Option<Target>> {
+		let columns = &self.target_columns;
 		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-			"SELECT {TARGET_COLUMNS} FROM targets t
+			"SELECT {columns} FROM targets t
 			 WHERE t.place_id = ?1 AND t.lang = ?2 AND t.kind = IIF(?3 IS NULL, 'maps', 'gbp') AND t.gbp_account IS ?3 AND t.gbp_location IS ?4
 			 ORDER BY t.id LIMIT 1"
 		)))

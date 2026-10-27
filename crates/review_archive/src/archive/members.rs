@@ -5,7 +5,7 @@ use jiff::Timestamp;
 use review_archive_core::{
 	GbpLocation, PersonId, Rejected, ReviewId, TargetId, check_lang,
 	dto::{
-		Board, GmailDto, GmailOverview, IntervalChange, JobKind, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, PlaceDto, ReinstatementDto, ScanInterval, TargetDto, TargetPatch,
+		Board, GmailDto, GmailOverview, JobKind, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, PlaceDto, ReinstatementDto, Settings, SettingsPatch, TargetDto, TargetPatch,
 		TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage,
 	},
 	maps::cost,
@@ -215,20 +215,27 @@ impl Archive {
 		Ok(self.inner.webhooks.test_telegram(&ch.destination, text).await?)
 	}
 
-	/// How often the places the member pays for are scanned.
-	pub async fn interval(&self, member: PersonId) -> eyre::Result<ScanInterval> {
-		Ok(ScanInterval {
-			interval_secs: self.store()?.interval(member).await?,
-		})
+	/// What the member chose, beside the defaults.
+	pub async fn settings(&self, member: PersonId) -> eyre::Result<Settings> {
+		self.store()?.settings(member).await
 	}
 
-	/// Sets how often the places the member pays for are scanned; `None`: each place's own.
-	pub async fn set_interval(&self, member: PersonId, req: &IntervalChange) -> eyre::Result<()> {
-		let interval = req.interval.as_deref().map(parse_interval).transpose()?;
+	/// Chooses what the patch names.
+	pub async fn patch_settings(&self, member: PersonId, patch: &SettingsPatch) -> eyre::Result<Settings> {
+		let interval = patch.interval.as_deref().map(parse_interval).transpose()?;
 		if let Some(i) = interval {
 			self.check_interval(i)?;
 		}
-		self.store()?.set_interval(member, interval).await
+		let store = self.store()?;
+		store.choose(member, interval).await?;
+		store.settings(member).await
+	}
+
+	/// Every setting of the member's back to its default.
+	pub async fn reset_settings(&self, member: PersonId) -> eyre::Result<Settings> {
+		let store = self.store()?;
+		store.reset_settings(member).await?;
+		store.settings(member).await
 	}
 
 	/// The member's tokens, renewed up to now.

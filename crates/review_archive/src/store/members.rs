@@ -13,7 +13,7 @@ use review_archive_core::{
 };
 use sqlx::{FromRow, SqliteConnection};
 
-use super::{REVIEW_SELECT, ReviewRow, Store, TARGET_COLUMNS, TargetRow, no_target, webhooks::parse_events};
+use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow, no_target, webhooks::parse_events};
 
 #[derive(FromRow)]
 struct GmailRow {
@@ -242,8 +242,9 @@ impl Store {
 			.fetch_all(&mut *tx)
 			.await
 			.wrap_err("listing gmails")?;
+		let columns = &self.target_columns;
 		let rows: Vec<LocationRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-			"SELECT k.managing_gmail_id AS gmail_id, {TARGET_COLUMNS},
+			"SELECT k.managing_gmail_id AS gmail_id, {columns},
 			        k.enabled AS track_enabled, k.favorite,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.published_est >= ?2) AS new_7d,
 			        (SELECT COUNT(*) FROM posts p WHERE p.target_id = t.id AND p.published_est >= ?2) AS posts_7d,

@@ -23,8 +23,8 @@ use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
 	PersonId, ReviewId, TargetId,
 	dto::{
-		Board, CaptureRequest, DayStats, ErrorBody, EventPayload, ExportQuery, GmailDto, GmailOverview, IntervalChange, JobAccepted, JobDto, LayoutDto, LedgerEntry, Me, MemberDto, NewGmail,
-		NewLayout, NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, ScanInterval, StatsQuery,
+		Board, CaptureRequest, DayStats, ErrorBody, EventPayload, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LayoutDto, LedgerEntry, Me, MemberDto, NewGmail, NewLayout,
+		NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery,
 		Switch, TargetDetail, TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto, stats_csv,
 	},
 };
@@ -106,7 +106,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		.route("/me/tokens/claim", post(claim_kickbacks))
 		.route("/me/usage", get(usage))
 		.route("/me/overview", get(overview))
-		.route("/me/interval", get(interval).put(set_interval))
+		.route("/me/settings", get(settings).patch(patch_settings).delete(reset_settings))
 		.route("/me/gmails", post(add_gmail))
 		.route("/me/gmails/{gmail}", axum::routing::delete(delete_gmail).patch(set_gmail_enabled))
 		.route("/me/places", get(places))
@@ -156,6 +156,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 				.route("/", get(page.clone()))
 				.route("/telegram", get(page.clone()))
 				.route("/tokens", get(page.clone()))
+				.route("/settings", get(page.clone()))
 				.route("/act-as", get(page.clone()))
 				.route("/gmails/{*view}", get(page.clone()))
 				.route("/members/{id}/tokens", get(page.clone())) // the API's path for a balance change; its GET is the member tab's ledger
@@ -514,17 +515,22 @@ async fn overview(State(s): State<AppState>, Member(m): Member) -> ApiResult<Jso
 	Ok(Json(s.archive.overview(m).await?))
 }
 
-/// How often the places the member pays for are scanned.
-#[utoipa::path(get, path = "/me/interval", tag = "me", responses((status = 200, body = ScanInterval)))]
-async fn interval(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<ScanInterval>> {
-	Ok(Json(s.archive.interval(m).await?))
+/// What the member chose, each beside its default.
+#[utoipa::path(get, path = "/me/settings", tag = "me", responses((status = 200, body = Settings)))]
+async fn settings(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Settings>> {
+	Ok(Json(s.archive.settings(m).await?))
 }
 
-/// Sets how often the places the member pays for are scanned; a place several pay for goes by the shortest.
-#[utoipa::path(put, path = "/me/interval", tag = "me", request_body = IntervalChange, responses((status = 204), (status = 400, body = ErrorBody)))]
-async fn set_interval(State(s): State<AppState>, Member(m): Member, JsonBody(req): JsonBody<IntervalChange>) -> ApiResult<StatusCode> {
-	s.archive.set_interval(m, &req).await?;
-	Ok(StatusCode::NO_CONTENT)
+/// Chooses what the patch names; the rest stays.
+#[utoipa::path(patch, path = "/me/settings", tag = "me", request_body = SettingsPatch, responses((status = 200, body = Settings), (status = 400, body = ErrorBody)))]
+async fn patch_settings(State(s): State<AppState>, Member(m): Member, JsonBody(req): JsonBody<SettingsPatch>) -> ApiResult<Json<Settings>> {
+	Ok(Json(s.archive.patch_settings(m, &req).await?))
+}
+
+/// Every setting back to its default.
+#[utoipa::path(delete, path = "/me/settings", tag = "me", responses((status = 200, body = Settings)))]
+async fn reset_settings(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Settings>> {
+	Ok(Json(s.archive.reset_settings(m).await?))
 }
 
 /// Adds a managing gmail: the Google account a group of the member's places is managed from.

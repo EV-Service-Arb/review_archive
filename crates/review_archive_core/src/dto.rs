@@ -784,20 +784,39 @@ pub struct PlaceQuery {
 	pub place: String,
 }
 
-/// `GET /me/interval`: how often the places a member pays for are scanned. A place several pay
-/// for is scanned as often as the most eager wants.
+/// `GET /me/settings`: what the member chose, each beside what they get without choosing.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct ScanInterval {
-	/// `null`: each place's own.
-	pub interval_secs: Option<u64>,
+pub struct Settings {
+	/// Seconds between scans of each place the member pays for; a place several pay for goes by
+	/// the shortest.
+	pub interval_secs: Setting<u64>,
 }
 
-/// `PUT /me/interval`.
+/// One of [`Settings`].
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct IntervalChange {
-	/// `6h`, `1d`, or seconds; at least `schedule.min_interval`. `null`: each place's own.
+pub struct Setting<T> {
+	/// `null`: never chosen, or reset.
+	pub chosen: Option<T>,
+	/// The service's.
+	pub default: T,
+}
+
+impl<T: Copy> Setting<T> {
+	/// What applies.
+	pub fn value(&self) -> T {
+		self.chosen.unwrap_or(self.default)
+	}
+}
+
+/// `PATCH /me/settings`: absent fields stay; `DELETE /me/settings` resets them all.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(default)]
+pub struct SettingsPatch {
+	/// `6h`, `1d`, or seconds; at least `schedule.min_interval`.
 	pub interval: Option<String>,
 }
 

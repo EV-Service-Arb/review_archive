@@ -131,8 +131,8 @@ deleted.
 
 - Per-target `interval_secs`, default `defaults.interval` (1 d), minimum `schedule.min_interval`
   (1 h), ±`schedule.jitter` (10 %). A tracked target goes by its payers' `people.interval_secs`
-  instead (`PUT /me/interval`, every place they pay for): the shortest, a payer who chose
-  none counting as the target's own.
+  instead (`PATCH /me/settings`, every place they pay for): the shortest, a payer who chose
+  none counting as `defaults.interval`.
 - One scan at a time; a random pause between targets, `schedule.pause_{min,max}` (5–15 s).
 - Failure → `runs.status=failed` with the error, exponential backoff for that
   target (`schedule.backoff_base` doubling to `schedule.backoff_cap`: 1 h → 24 h), other targets continue —

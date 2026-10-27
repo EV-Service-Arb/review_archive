@@ -3,7 +3,11 @@
 
 use eyre::WrapErr;
 use jiff::Timestamp;
-use review_archive_core::{PersonId, fmt_ts};
+use review_archive_core::{
+	PersonId,
+	dto::{Setting, Settings},
+	fmt_ts,
+};
 use v_utils::Timeframe;
 
 use super::Store;
@@ -136,26 +140,42 @@ impl Store {
 			.wrap_err("looking up a person by id")
 	}
 
-	/// How often the places they pay for are scanned; `None`: each place's own.
-	pub async fn interval(&self, id: PersonId) -> eyre::Result<Option<u64>> {
+	/// What they chose, beside the defaults.
+	pub async fn settings(&self, id: PersonId) -> eyre::Result<Settings> {
 		let secs: Option<i64> = sqlx::query_scalar("SELECT interval_secs FROM people WHERE id = ?")
 			.bind(id.0)
 			.fetch_one(&self.pool)
 			.await
-			.wrap_err("reading a person's interval")?;
-		secs.map(|s| u64::try_from(s).wrap_err("negative interval_secs")).transpose()
+			.wrap_err("reading a person's settings")?;
+		Ok(Settings {
+			interval_secs: Setting {
+				chosen: secs.map(|s| u64::try_from(s).wrap_err("negative interval_secs")).transpose()?,
+				default: self.default_interval.duration().as_secs(),
+			},
+		})
 	}
 
-	/// `None`: each place's own.
-	pub async fn set_interval(&self, id: PersonId, interval: Option<Timeframe>) -> eyre::Result<()> {
+	/// Chooses what is `Some`; the rest stays.
+	pub async fn choose(&self, id: PersonId, interval: Option<Timeframe>) -> eyre::Result<()> {
 		// parse_interval keeps it within i64
 		let secs = interval.map(|i| i.duration().as_secs() as i64);
-		let done = sqlx::query("UPDATE people SET interval_secs = ? WHERE id = ?")
+		let done = sqlx::query("UPDATE people SET interval_secs = COALESCE(?, interval_secs) WHERE id = ?")
 			.bind(secs)
 			.bind(id.0)
 			.execute(&self.pool)
 			.await
-			.wrap_err("setting a person's interval")?;
+			.wrap_err("changing a person's settings")?;
+		assert_eq!(done.rows_affected(), 1, "callers name a person they authenticated");
+		Ok(())
+	}
+
+	/// Every setting back to its default.
+	pub async fn reset_settings(&self, id: PersonId) -> eyre::Result<()> {
+		let done = sqlx::query("UPDATE people SET interval_secs = NULL WHERE id = ?")
+			.bind(id.0)
+			.execute(&self.pool)
+			.await
+			.wrap_err("resetting a person's settings")?;
 		assert_eq!(done.rows_affected(), 1, "callers name a person they authenticated");
 		Ok(())
 	}

@@ -8,6 +8,7 @@ use std::{
 
 use jiff::Timestamp;
 use review_archive::{
+	config::Defaults,
 	core::{
 		Capture, Coverage, Known, Observed, ReviewId, Scan, Target, TargetId, TargetKind, Warning,
 		dto::{RunStatus, TargetPatch},
@@ -134,7 +135,7 @@ struct Env {
 async fn env() -> Env {
 	let dir = tempfile::tempdir().unwrap();
 	// laid out as a data dir, so an `Archive` can open it
-	let store = Store::open(&dir.path().join("review_archive.db")).await.unwrap();
+	let store = Store::open(&dir.path().join("review_archive.db"), Defaults::default().interval).await.unwrap();
 	let blobs = BlobStore::new(dir.path().join("blobs"));
 	let clock = FixedClock::at("2026-09-01T10:00:00Z");
 	let id = store

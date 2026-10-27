@@ -30,8 +30,8 @@ use std::fmt;
 use reqwest::{Method, RequestBuilder, StatusCode, Url};
 pub use review_archive_core::dto;
 use review_archive_core::dto::{
-	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailDto, GmailOverview, IntervalChange, JobAccepted, JobDto, LayoutDto, LedgerEntry, MEMBER_HEADER, Me, MemberDto, NewGmail,
-	NewLayout, NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, ScanInterval, StatsQuery,
+	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LayoutDto, LedgerEntry, MEMBER_HEADER, Me, MemberDto, NewGmail, NewLayout,
+	NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery,
 	Switch, TargetDetail, TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto,
 };
 use serde::de::DeserializeOwned;
@@ -300,15 +300,19 @@ impl Client {
 		Ok(())
 	}
 
-	/// `GET /me/interval`.
-	pub async fn interval(&self) -> Result<ScanInterval, Error> {
-		Self::json(self.request(Method::GET, "me/interval")?).await
+	/// `GET /me/settings`.
+	pub async fn settings(&self) -> Result<Settings, Error> {
+		Self::json(self.request(Method::GET, "me/settings")?).await
 	}
 
-	/// `PUT /me/interval`.
-	pub async fn set_interval(&self, req: &IntervalChange) -> Result<(), Error> {
-		Self::send(self.request(Method::PUT, "me/interval")?.json(req)).await?;
-		Ok(())
+	/// `PATCH /me/settings`.
+	pub async fn patch_settings(&self, patch: &SettingsPatch) -> Result<Settings, Error> {
+		Self::json(self.request(Method::PATCH, "me/settings")?.json(patch)).await
+	}
+
+	/// `DELETE /me/settings`: every setting back to its default.
+	pub async fn reset_settings(&self) -> Result<Settings, Error> {
+		Self::json(self.request(Method::DELETE, "me/settings")?).await
 	}
 
 	/// `PATCH /me/gmails/{gmail}`: on or off.

@@ -12,7 +12,7 @@ use review_archive::{
 	core::{
 		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
 		dto::{
-			BalanceChange, CaptureRequest, Event, IntervalChange, JobStatus, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, ScanInterval, TargetPatch, TokenKind,
+			BalanceChange, CaptureRequest, Event, JobStatus, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch, TokenKind,
 			TokensChange, TokensDto, TrackPatch,
 		},
 		tokens::Meter,
@@ -1449,7 +1449,8 @@ async fn a_second_test_post_within_a_minute_is_a_429() {
 }
 
 /// A member's interval is every place they pay for; a place two members pay for is scanned as
-/// often as the more eager wants, and as its own interval says once neither chose.
+/// often as the more eager wants, and by the service's default where one never chose. The
+/// place's own interval is for when nobody pays.
 #[tokio::test]
 async fn a_members_interval_schedules_every_place_they_pay_for() {
 	let e = env().await;
@@ -1461,30 +1462,43 @@ async fn a_members_interval_schedules_every_place_they_pay_for() {
 	};
 	let t = alice.track(a.id, &track).await.unwrap();
 	bob.track(b.id, &track).await.unwrap();
-	let own = t.interval_secs;
 	let scheduled = async || e.client.target(t.id).await.unwrap().target.interval_secs;
-	let every = |interval: Option<&str>| IntervalChange {
-		interval: interval.map(str::to_owned),
+	let every = |interval: &str| SettingsPatch { interval: Some(interval.into()) };
+	let day = 86_400;
+	let interval = |chosen| Settings {
+		interval_secs: Setting { chosen, default: day },
 	};
-	assert_eq!(alice.interval().await.unwrap(), ScanInterval { interval_secs: None });
+	assert_eq!(alice.settings().await.unwrap(), interval(None));
+	e.client
+		.update_target(
+			t.id,
+			&TargetPatch {
+				interval: Some("12h".into()),
+				..Default::default()
+			},
+		)
+		.await
+		.unwrap();
+	assert_eq!(scheduled().await, day, "paid for, the place's own interval is not what it goes by");
 
-	alice.set_interval(&every(Some("6h"))).await.unwrap();
-	bob.set_interval(&every(Some("2d"))).await.unwrap();
-	assert_eq!(alice.interval().await.unwrap(), ScanInterval { interval_secs: Some(6 * 3600) });
+	assert_eq!(alice.patch_settings(&every("6h")).await.unwrap(), interval(Some(6 * 3600)));
+	bob.patch_settings(&every("2d")).await.unwrap();
 	assert_eq!(scheduled().await, 6 * 3600);
 	assert_eq!(bob.overview().await.unwrap()[0].locations[0].target.interval_secs, 6 * 3600, "the place is shared");
+	assert_eq!(alice.patch_settings(&SettingsPatch::default()).await.unwrap(), interval(Some(6 * 3600)), "absent stays");
 
 	alice.set_gmail_enabled(a.id, false).await.unwrap();
-	assert_eq!(scheduled().await, 2 * 86_400, "alice pays for nothing while her gmail is off");
+	assert_eq!(scheduled().await, 2 * day, "alice pays for nothing while her gmail is off");
 	alice.set_gmail_enabled(a.id, true).await.unwrap();
 
-	alice.set_interval(&every(None)).await.unwrap();
-	assert_eq!(scheduled().await, own, "alice defers to the place, which is sooner than bob's");
-	bob.set_interval(&every(None)).await.unwrap();
-	assert_eq!(scheduled().await, own);
+	assert_eq!(alice.reset_settings().await.unwrap(), interval(None));
+	assert_eq!(scheduled().await, day, "alice is back on the default, sooner than bob's");
+	alice.untrack(a.id, t.id).await.unwrap();
+	bob.untrack(b.id, t.id).await.unwrap();
+	assert_eq!(scheduled().await, 12 * 3600, "nobody pays: the place's own");
 
 	assert_eq!(
-		alice.set_interval(&every(Some("1m"))).await.unwrap_err().status(),
+		alice.patch_settings(&every("1m")).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"below schedule.min_interval"
 	);

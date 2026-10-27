@@ -12,6 +12,7 @@ mod cards;
 mod filter;
 #[cfg(feature = "grafana")]
 mod grafana;
+mod settings;
 mod telegram;
 mod tokens;
 
@@ -28,7 +29,7 @@ use ev_lib::{
 };
 use review_archive_client::{
 	Client,
-	dto::{BalanceChange, GmailDto, GmailOverview, IntervalChange, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, TargetDto, TokensChange, TokensDto},
+	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, TargetDto, TokensChange, TokensDto},
 };
 use sa_auth::{Members, Permission, PermissionSet, Tokens};
 use wasm_bindgen::{JsCast, prelude::*};
@@ -134,6 +135,7 @@ enum View {
 	Place { gmail: i64, target: i64 },
 	Telegram,
 	Tokens,
+	Settings,
 }
 
 impl dioxus::router::ToRouteSegments for View {
@@ -144,6 +146,7 @@ impl dioxus::router::ToRouteSegments for View {
 			Self::Place { gmail, target } => write!(f, "/gmails/{gmail}/places/{target}"),
 			Self::Telegram => write!(f, "/telegram"),
 			Self::Tokens => write!(f, "/tokens"),
+			Self::Settings => write!(f, "/settings"),
 		}
 	}
 }
@@ -159,6 +162,7 @@ impl dioxus::router::FromRouteSegments for View {
 			["gmails", g, "places", t] => Ok(Self::Place { gmail: id(g)?, target: id(t)? }),
 			["telegram"] => Ok(Self::Telegram),
 			["tokens"] => Ok(Self::Tokens),
+			["settings"] => Ok(Self::Settings),
 			_ => Err(format!("no view at /{}", segments.join("/"))),
 		}
 	}
@@ -614,7 +618,7 @@ fn Workspace(view: Route) -> Element {
 	};
 	let at = view.view().clone();
 	let (picked, target) = match at {
-		View::Home | View::Telegram | View::Tokens => (None, None),
+		View::Home | View::Telegram | View::Tokens | View::Settings => (None, None),
 		View::Gmail(gmail) => (Some(gmail), None),
 		View::Place { gmail, target } => (Some(gmail), Some(target)),
 	};
@@ -647,6 +651,9 @@ fn Workspace(view: Route) -> Element {
 					(View::Tokens, _) => rsx! {
 						tokens::Ledger { gmails: gmails.clone(), tokens, tab }
 					},
+					(View::Settings, _) => rsx! {
+						settings::Page {}
+					},
 					(_, None) if gmails.is_empty() => rsx! {
 						div { class: "p-6 text-ink-soft", "Add the gmail your places are managed from, on the left." }
 					},
@@ -672,7 +679,7 @@ fn Workspace(view: Route) -> Element {
 #[component]
 fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Option<TokensDto>, tab: Option<i64>) -> Element {
 	let telegram = at == View::Telegram;
-	let aside = telegram || at == View::Tokens;
+	let aside = telegram || at == View::Tokens || at == View::Settings;
 	let mut adding = use_signal(String::new);
 	let all_on = !gmails.is_empty() && gmails.iter().all(|g| g.gmail.enabled);
 	let ids: Vec<i64> = gmails.iter().map(|g| g.gmail.id).collect();
@@ -714,6 +721,24 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 						p { "If no managing account is connected, enter the email the place is on, or its shorthand." }
 					}
 				}
+				Link {
+					class: if at == View::Settings { "rounded-md p-0.5 bg-hover text-ink" } else { "rounded-md p-0.5 hover:bg-hover" },
+					to: Route::at(tab, View::Settings),
+					title: "Settings",
+					// lucide `settings`
+					svg {
+						class: "size-3.5",
+						view_box: "0 0 24 24",
+						fill: "none",
+						stroke: "currentColor",
+						stroke_width: "2",
+						stroke_linecap: "round",
+						stroke_linejoin: "round",
+						"aria-hidden": "true",
+						path { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }
+						circle { cx: "12", cy: "12", r: "3" }
+					}
+				}
 				div { class: "flex-1" }
 				Switch {
 					checked: all_on,
@@ -729,7 +754,6 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 					},
 				}
 			}
-			Interval {}
 			div { class: "flex flex-col gap-0.5 px-2",
 				for g in gmails {
 					div { key: "{g.gmail.id}", class: "flex items-center gap-1",
@@ -773,53 +797,6 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 				class: if telegram { "{row} mx-2 mb-3 bg-hover text-ink" } else { "{row} mx-2 mb-3 text-ink-soft" },
 				to: Route::at(tab, View::Telegram),
 				"Telegram alerts"
-			}
-		}
-	}
-}
-
-/// How often every place of every gmail is scanned.
-#[component]
-fn Interval() -> Element {
-	const EVERY: [(&str, u64); 6] = [("1h", 3600), ("6h", 6 * 3600), ("12h", 12 * 3600), ("1d", 86_400), ("2d", 2 * 86_400), ("1w", 7 * 86_400)];
-	const OWN: &str = "default"; // each place's own interval
-	let Api(api) = use_context();
-	let Refresh(refresh) = use_context();
-	let chosen = use_resource(move || {
-		let api = api.clone();
-		async move {
-			refresh();
-			api.interval().await.map_err(shown)
-		}
-	});
-	let secs = match &*chosen.read() {
-		Some(Ok(c)) => c.interval_secs,
-		Some(Err(e)) => return rsx! { div { class: "px-4 pb-1 text-accent-error", "{e}" } },
-		None => return rsx! {},
-	};
-	let current = secs.map_or_else(
-		|| OWN.to_owned(),
-		|s| EVERY.iter().find(|(_, x)| *x == s).map_or_else(|| format!("{s}s"), |(k, _)| (*k).to_owned()),
-	);
-	let custom = secs.filter(|s| !EVERY.iter().any(|(_, x)| x == s));
-	rsx! {
-		div { class: "flex items-center gap-2 px-4 pb-2 text-ink-soft",
-			span { class: "flex-1", "Scan every" }
-			Select {
-				value: Some(current),
-				on_value_change: move |v: String| {
-					act(move |c| async move { c.set_interval(&IntervalChange { interval: (v != OWN).then_some(v) }).await });
-				},
-				SelectTrigger { size: Size::Sm, class: "w-28", SelectValue {} }
-				SelectContent {
-					SelectItem { value: OWN, "{OWN}" }
-					for (k, _) in EVERY {
-						SelectItem { key: "{k}", value: k, "{k}" }
-					}
-					if let Some(s) = custom {
-						SelectItem { value: "{s}s", "{s}s" }
-					}
-				}
 			}
 		}
 	}

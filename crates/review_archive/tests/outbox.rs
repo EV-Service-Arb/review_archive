@@ -15,7 +15,7 @@ use axum::{
 };
 use jiff::Timestamp;
 use review_archive::{
-	config::WebhookConfig,
+	config::{Defaults, WebhookConfig},
 	core::{
 		Coverage, Known, Observed, PersonId, ReviewId, Scan, Target, TargetKind,
 		dto::{Event, EventPayload, JobKind, JobStatus, NewTgChannel, NewWebhook, RunStatus},
@@ -122,7 +122,7 @@ async fn target(store: &Store) -> Target {
 async fn events_are_queued_with_the_scan_signed_and_retried_across_a_reopen() {
 	let dir = tempfile::tempdir().unwrap();
 	let db = dir.path().join("db.sqlite");
-	let store = Store::open(&db).await.unwrap();
+	let store = Store::open(&db, Defaults::default().interval).await.unwrap();
 	let blobs = BlobStore::new(dir.path().join("blobs"));
 	let t = target(&store).await;
 	let (rx, url, server) = receiver().await;
@@ -165,7 +165,7 @@ async fn events_are_queued_with_the_scan_signed_and_retried_across_a_reopen() {
 
 	// a restart: a new store on the same file still owes the failed one, due after the backoff
 	drop(store);
-	let store = Store::open(&db).await.unwrap();
+	let store = Store::open(&db, Defaults::default().interval).await.unwrap();
 	assert_eq!(hooks.deliver_due(&store, now).await.unwrap().delivered, 0, "not due yet");
 	let later = now.checked_add(jiff::SignedDuration::from_secs(31)).unwrap();
 	assert_eq!(hooks.deliver_due(&store, later).await.unwrap().delivered, 1);
@@ -195,7 +195,7 @@ async fn events_are_queued_with_the_scan_signed_and_retried_across_a_reopen() {
 #[tokio::test]
 async fn a_dead_receiver_is_given_up_on_and_a_removed_hook_is_owed_nothing() {
 	let dir = tempfile::tempdir().unwrap();
-	let store = Store::open(&dir.path().join("db.sqlite")).await.unwrap();
+	let store = Store::open(&dir.path().join("db.sqlite"), Defaults::default().interval).await.unwrap();
 	let blobs = BlobStore::new(dir.path().join("blobs"));
 	let t = target(&store).await;
 	// nothing listens here
@@ -238,7 +238,7 @@ async fn a_dead_receiver_is_given_up_on_and_a_removed_hook_is_owed_nothing() {
 #[tokio::test]
 async fn jobs_are_taken_oldest_first_and_a_crash_fails_the_running_one() {
 	let dir = tempfile::tempdir().unwrap();
-	let store = Store::open(&dir.path().join("db.sqlite")).await.unwrap();
+	let store = Store::open(&dir.path().join("db.sqlite"), Defaults::default().interval).await.unwrap();
 	let t = target(&store).await;
 	let now = Timestamp::now();
 	let a = store.enqueue_job(JobKind::Scan, t.id, None, None, 20, now).await.unwrap();
@@ -267,7 +267,7 @@ async fn jobs_are_taken_oldest_first_and_a_crash_fails_the_running_one() {
 #[tokio::test]
 async fn an_edited_review_that_is_back_sends_changed_and_reappeared() {
 	let dir = tempfile::tempdir().unwrap();
-	let store = Store::open(&dir.path().join("db.sqlite")).await.unwrap();
+	let store = Store::open(&dir.path().join("db.sqlite"), Defaults::default().interval).await.unwrap();
 	let blobs = BlobStore::new(dir.path().join("blobs"));
 	let t = target(&store).await;
 	let (rx, url, server) = receiver().await;
@@ -357,7 +357,7 @@ async fn person(store: &Store, sub: &str) -> PersonId {
 #[tokio::test]
 async fn telegram_channels_get_their_members_places_only() {
 	let dir = tempfile::tempdir().unwrap();
-	let store = Store::open(&dir.path().join("db.sqlite")).await.unwrap();
+	let store = Store::open(&dir.path().join("db.sqlite"), Defaults::default().interval).await.unwrap();
 	let blobs = BlobStore::new(dir.path().join("blobs"));
 	let now = Timestamp::now();
 	let watched = target(&store).await;
