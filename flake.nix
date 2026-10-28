@@ -215,10 +215,14 @@
         };
 
         # The image's Chromium: the shell has no browser UI layer to hold in memory (ARCHITECTURE.md § Memory).
-        # Its zip lays out differently per platform.
-        headlessShell =
-          let shell = pkgs.playwright-driver.components.chromium-headless-shell;
-          in if pkgs.stdenv.hostPlatform.isAarch64 then "${shell}/chrome-linux/headless_shell" else "${shell}/chrome-headless-shell-linux64/chrome-headless-shell";
+        # Its zip lays out differently per platform and per Playwright release, so the build finds the binary, and fails without exactly one that runs.
+        headlessShell = "${pkgs.runCommand "chrome-headless-shell" { } ''
+          shopt -s nullglob
+          found=(${pkgs.playwright-driver.components.chromium-headless-shell}/*/{chrome-headless-shell,headless_shell})
+          [ ''${#found[@]} -eq 1 ] && [ -x "''${found[0]}" ] || { echo "expected one headless shell, found: ''${found[*]}" >&2; exit 1; }
+          "''${found[0]}" --version
+          ln -s "''${found[0]}" $out
+        ''}";
 
         # Secret-free prod config baked into the image; the container has no `nix`,
         # so it is evaluated to TOML here. Secrets arrive from the k8s Secret.

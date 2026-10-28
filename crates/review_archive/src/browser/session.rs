@@ -92,6 +92,9 @@ pub(crate) struct Page<'s> {
 impl Session {
 	pub(crate) async fn launch(cfg: &BrowserConfig, profile_dir: &Path) -> eyre::Result<Self> {
 		let executable = cfg.executable.clone().ok_or_else(|| SessionError::new_launch("`browser.executable` is not set".to_owned()))?;
+		if !executable.is_file() {
+			return Err(SessionError::new_launch(format!("`browser.executable` {} is not a file", executable.display())).into());
+		}
 		let lean = cfg
 			.lean
 			.as_deref()

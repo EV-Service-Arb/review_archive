@@ -137,7 +137,7 @@ fn serve_whose_worker_cannot_go_on_exits_78() {
 	std::fs::write(
 		&config,
 		format!(
-			"data_dir = {:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\ntokens.start_cap_multiple = 2.0\n",
+			"data_dir = {:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\nbrowser.lean = []\ntokens.start_cap_multiple = 2.0\n",
 			dir.0.join("data")
 		),
 	)
