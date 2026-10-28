@@ -12,8 +12,8 @@ use review_archive::{
 	core::{
 		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
 		dto::{
-			BalanceChange, CaptureRequest, Event, JobStatus, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch, TokenKind,
-			TokensChange, TokensDto, TrackPatch,
+			BalanceChange, CaptureRequest, Event, JobStatus, KickbackWhy, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch,
+			TokenKind, TokensChange, TokensDto, TrackPatch,
 		},
 		tokens::Meter,
 	},
@@ -983,10 +983,47 @@ async fn an_admin_sets_a_members_tokens() {
 		[(TokenKind::Set, -992, Some("root@x.com")), (TokenKind::Accrual, 1000, None)]
 	);
 	let bad = TokensChange {
-		change: BalanceChange::Grant(0),
+		change: BalanceChange::Add(0),
 		note: None,
 	};
 	assert_eq!(admin.change_tokens(me.id, &bad).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST));
+	e.server.abort();
+}
+
+/// A grant is owed, not held: the member claims it as a kick-back, with the note that says
+/// what it is for.
+#[tokio::test]
+async fn a_grant_is_a_kickback_to_claim() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let me = alice.me().await.unwrap();
+	let admin = e.admin();
+	let grant = |note: Option<&str>| TokensChange {
+		change: BalanceChange::Grant(1000),
+		note: note.map(Into::into),
+	};
+	for note in [None, Some(" ")] {
+		assert_eq!(admin.change_tokens(me.id, &grant(note)).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST));
+	}
+	let owed = admin.change_tokens(me.id, &grant(Some("found a bug"))).await.unwrap();
+	assert_eq!(owed.balance, 1000, "not held until claimed");
+	assert_eq!(
+		owed.kickbacks.iter().map(|k| (k.amount, &k.why)).collect::<Vec<_>>(),
+		[(
+			1000,
+			&KickbackWhy::Granted {
+				by: "root@x.com".into(),
+				note: "found a bug".into()
+			}
+		)]
+	);
+
+	assert_eq!(alice.claim_kickbacks().await.unwrap().balance, 2000);
+	let claimed = &alice.ledger().await.unwrap()[0];
+	assert_eq!(
+		(claimed.kind, claimed.delta, claimed.by.as_deref(), claimed.note.as_deref(), claimed.run_id),
+		(TokenKind::Kickback, 1000, Some("root@x.com"), Some("found a bug"), None)
+	);
 	e.server.abort();
 }
 

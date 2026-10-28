@@ -5,7 +5,7 @@ use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
 use review_archive_core::{
 	PersonId, Rejected, TargetId,
-	dto::{BalanceChange, KickbackDto, LedgerEntry, TokenKind, USAGE_DAYS, Usage, UsageDay},
+	dto::{BalanceChange, KickbackDto, KickbackWhy, LedgerEntry, TokenKind, USAGE_DAYS, Usage, UsageDay},
 	fmt_ts,
 	maps::cost,
 	tokens::{Tokens, accrue, split},
@@ -44,6 +44,17 @@ struct LedgerRow {
 	label: Option<String>,
 }
 
+#[derive(FromRow)]
+struct KickbackRow {
+	at: String,
+	amount: i64,
+	run_id: Option<i64>,
+	error: Option<String>,
+	label: Option<String>,
+	by_email: Option<String>,
+	note: Option<String>,
+}
+
 impl Store {
 	/// The member's balance at `now`, renewed up to it.
 	pub async fn balance(&self, member: PersonId, now: Timestamp, cfg: &Tokens) -> eyre::Result<i64> {
@@ -53,15 +64,31 @@ impl Store {
 		Ok(b)
 	}
 
-	/// Changes the member's balance as an admin (`by`) asks; the new balance comes back.
+	/// Changes the member's balance as an admin (`by`) asks, or owes them a grant; the new
+	/// balance comes back.
 	pub async fn change_balance(&self, member: PersonId, change: BalanceChange, by: &str, note: Option<&str>, now: Timestamp, cfg: &Tokens) -> eyre::Result<i64> {
 		let mut tx = self.write().await?;
 		let balance = renewed(&mut tx, member, now, cfg).await?;
 		let (kind, delta) = match change {
 			BalanceChange::Set(n) if n >= 0 => (TokenKind::Set, n - balance),
-			BalanceChange::Grant(n) if n > 0 => (TokenKind::Grant, n),
-			BalanceChange::Purchase(n) if n > 0 => (TokenKind::Purchase, n),
-			_ => return Err(Rejected::invalid("a balance is set to 0 or more, and grants and purchases add 1 or more").into()),
+			BalanceChange::Add(n) if n > 0 => (TokenKind::Add, n),
+			BalanceChange::Grant(n) if n > 0 => {
+				let Some(note) = note.map(str::trim).filter(|n| !n.is_empty()) else {
+					return Err(Rejected::invalid("a grant says what it is for, in its note").into());
+				};
+				sqlx::query("INSERT INTO kickbacks (person_id, amount, at, by_email, note) VALUES (?, ?, ?, ?, ?)")
+					.bind(member.0)
+					.bind(n)
+					.bind(fmt_ts(now))
+					.bind(by)
+					.bind(note)
+					.execute(&mut *tx)
+					.await
+					.wrap_err("owing a grant")?;
+				tx.commit().await.wrap_err("committing a grant")?;
+				return Ok(balance);
+			}
+			_ => return Err(Rejected::invalid("a balance is set to 0 or more; adds and grants are 1 or more").into()),
 		};
 		sqlx::query("INSERT INTO token_ledger (person_id, at, delta, kind, by_email, note) VALUES (?, ?, ?, ?, ?, ?)")
 			.bind(member.0)
@@ -79,9 +106,9 @@ impl Store {
 
 	/// The member's kick-backs not claimed yet, newest first.
 	pub async fn kickbacks(&self, member: PersonId) -> eyre::Result<Vec<KickbackDto>> {
-		let rows: Vec<(i64, String, i64, Option<String>, String)> = sqlx::query_as(
-			"SELECT k.run_id, k.at, k.amount, r.error, COALESCE(t.label, t.name, t.place_id)
-			 FROM kickbacks k JOIN runs r ON r.id = k.run_id JOIN targets t ON t.id = r.target_id
+		let rows: Vec<KickbackRow> = sqlx::query_as(
+			"SELECT k.at, k.amount, k.run_id, r.error, COALESCE(t.label, t.name, t.place_id) AS label, k.by_email, k.note
+			 FROM kickbacks k LEFT JOIN runs r ON r.id = k.run_id LEFT JOIN targets t ON t.id = r.target_id
 			 WHERE k.person_id = ? AND k.claimed_at IS NULL ORDER BY k.id DESC",
 		)
 		.bind(member.0)
@@ -90,12 +117,18 @@ impl Store {
 		.wrap_err("listing pending kick-backs")?;
 		Ok(rows
 			.into_iter()
-			.map(|(run_id, at, amount, why, target_label)| KickbackDto {
-				run_id,
-				target_label,
-				at,
-				amount,
-				why: why.expect("a run that kicks back failed, or met a failure, and says which"),
+			.map(|r| KickbackDto {
+				at: r.at,
+				amount: r.amount,
+				why: match (r.run_id, r.by_email, r.note) {
+					(Some(run_id), None, None) => KickbackWhy::Failed {
+						run_id,
+						target_label: r.label.expect("a run has its target"),
+						error: r.error.expect("a run that kicks back failed, or met a failure, and says which"),
+					},
+					(None, Some(by), Some(note)) => KickbackWhy::Granted { by, note },
+					other => unreachable!("the table's CHECK: a run's, or a grant with its admin and note; got {other:?}"),
+				},
 			})
 			.collect())
 	}
@@ -106,8 +139,8 @@ impl Store {
 		let balance = renewed(&mut tx, member, now, cfg).await?;
 		let at = fmt_ts(now);
 		let added: i64 = sqlx::query_scalar::<_, i64>(
-			"INSERT INTO token_ledger (person_id, at, delta, kind, run_id)
-			 SELECT person_id, ?, amount, 'kickback', run_id FROM kickbacks WHERE person_id = ? AND claimed_at IS NULL
+			"INSERT INTO token_ledger (person_id, at, delta, kind, run_id, by_email, note)
+			 SELECT person_id, ?, amount, 'kickback', run_id, by_email, note FROM kickbacks WHERE person_id = ? AND claimed_at IS NULL
 			 RETURNING delta",
 		)
 		.bind(&at)

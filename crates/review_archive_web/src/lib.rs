@@ -29,7 +29,7 @@ use ev_lib::{
 };
 use review_archive_client::{
 	Client,
-	dto::{BalanceChange, GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, TargetDto, TokensChange, TokensDto},
+	dto::{BalanceChange, GmailDto, GmailOverview, KickbackWhy, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, TargetDto, TokensChange, TokensDto},
 };
 use sa_auth::{Members, Permission, PermissionSet, Tokens};
 use wasm_bindgen::{JsCast, prelude::*};
@@ -490,24 +490,27 @@ fn Picker(on_pick: EventHandler<MemberDto>, on_close: EventHandler<()>) -> Eleme
 fn Balance(member: i64, balance: i64) -> Element {
 	let mut balance = use_signal(|| balance);
 	let mut amount = use_signal(String::new);
+	let mut note = use_signal(String::new);
 	let mut failure = use_signal(|| None::<String>);
-	let mut change = move |to: fn(i64) -> BalanceChange| {
+	let change = move |to: fn(i64) -> BalanceChange| {
 		let n = match amount().trim().parse::<i64>() {
 			Ok(n) => n,
 			Err(e) => return failure.set(Some(format!("{:?}: {e}", amount()))),
 		};
+		let said = Some(note().trim().to_owned()).filter(|n| !n.is_empty());
 		spawn(async move {
-			match api().change_tokens(member, &TokensChange { change: to(n), note: None }).await {
+			match api().change_tokens(member, &TokensChange { change: to(n), note: said }).await {
 				Ok(t) => {
 					balance.set(t.balance);
 					amount.set(String::new());
+					note.set(String::new());
 					failure.set(None);
 				}
 				Err(e) => failure.set(Some(shown(e))),
 			}
 		});
 	};
-	let mut set = change;
+	let (mut set, mut add, mut grant) = (change, change, change);
 	rsx! {
 		// the row's click picks the member: these are not that
 		div { class: "flex shrink-0 items-center gap-1", onclick: |e| e.stop_propagation(),
@@ -522,8 +525,24 @@ fn Balance(member: i64, balance: i64) -> Element {
 				value: amount(),
 				oninput: move |e: FormEvent| amount.set(e.value()),
 			}
+			Input {
+				class: "w-28",
+				size: Size::Xs,
+				placeholder: "note",
+				value: note(),
+				oninput: move |e: FormEvent| note.set(e.value()),
+			}
 			Button { variant: ButtonVariant::Outline, size: Size::Xs, r#type: "button", onclick: move |_| set(BalanceChange::Set), "set" }
-			Button { variant: ButtonVariant::Outline, size: Size::Xs, r#type: "button", onclick: move |_| change(BalanceChange::Grant), "grant" }
+			Button { variant: ButtonVariant::Outline, size: Size::Xs, r#type: "button", onclick: move |_| add(BalanceChange::Add), "add" }
+			Button {
+				variant: ButtonVariant::Outline,
+				size: Size::Xs,
+				r#type: "button",
+				title: "owed as a kick-back, for them to claim; says what for in its note",
+				disabled: note().trim().is_empty(),
+				onclick: move |_| grant(BalanceChange::Grant),
+				"grant"
+			}
 			}
 		}
 	}
@@ -692,9 +711,14 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 					if !t.kickbacks.is_empty() {
 						button {
 							class: "rounded-md px-1.5 py-0.5 font-mono text-positive cursor-pointer hover:bg-hover",
-							title: t.kickbacks.iter().fold("added back on click, these failed:".to_owned(), |mut s, k| {
-								let why: String = k.why.chars().take(120).collect();
-								s += &format!("\n· {}, {}: {why}", k.target_label, ago(&k.at));
+							title: t.kickbacks.iter().fold("added on click:".to_owned(), |mut s, k| {
+								s += &match &k.why {
+									KickbackWhy::Failed { target_label, error, .. } => {
+										let error: String = error.chars().take(120).collect();
+										format!("\n· +{}, {target_label} failed {}: {error}", k.amount, ago(&k.at))
+									}
+									KickbackWhy::Granted { note, .. } => format!("\n· +{}, {}: {note}", k.amount, ago(&k.at)),
+								};
 								s
 							}),
 							onclick: move |_| act(|c| async move { c.claim_kickbacks().await.map(drop) }),

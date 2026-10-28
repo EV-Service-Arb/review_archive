@@ -483,7 +483,7 @@ async fn members(State(s): State<AppState>) -> ApiResult<Json<Vec<MemberDto>>> {
 	Ok(Json(s.archive.members().await?))
 }
 
-/// Sets a member's balance, or adds to it (a grant, a purchase).
+/// Sets a member's balance, adds to it, or owes them a grant.
 #[utoipa::path(post, path = "/members/{id}/tokens", tag = "me", params(("id" = i64, Path)), request_body = TokensChange,
 	responses((status = 200, body = TokensDto), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody)))]
 async fn change_tokens(State(s): State<AppState>, caller: Caller, Path(id): Path<i64>, JsonBody(req): JsonBody<TokensChange>) -> ApiResult<Json<TokensDto>> {

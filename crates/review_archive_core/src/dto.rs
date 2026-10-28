@@ -896,24 +896,43 @@ pub struct TokensDto {
 	pub daily: i64,
 	/// Where daily renewal stops.
 	pub cap: i64,
-	/// Owed back for runs that failed, newest first; claiming adds them to `balance`.
+	/// Owed to them, newest first; claiming adds them to `balance`.
 	pub kickbacks: Vec<KickbackDto>,
 }
 
-/// A run's charge, owed back to a member because the run failed.
+/// Tokens owed to a member: a failed run's charge, or an admin's grant.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct KickbackDto {
-	/// The run.
-	pub run_id: i64,
-	/// Its place.
-	pub target_label: String,
-	/// When the run ended.
+	/// When the run ended, or the grant was made.
 	pub at: String,
-	/// What they paid for it.
+	/// Tokens owed.
 	pub amount: i64,
-	/// What failed: the run's error.
-	pub why: String,
+	/// What it is for.
+	pub why: KickbackWhy,
+}
+
+/// See [`KickbackDto`].
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum KickbackWhy {
+	/// What they paid for a run that failed.
+	Failed {
+		/// The run.
+		run_id: i64,
+		/// Its place.
+		target_label: String,
+		/// What failed.
+		error: String,
+	},
+	/// Given by an admin.
+	Granted {
+		/// The admin.
+		by: String,
+		/// What for.
+		note: String,
+	},
 }
 
 /// Why a member's balance moved. Stored as its lowercase name.
@@ -924,15 +943,13 @@ pub struct KickbackDto {
 pub enum TokenKind {
 	/// Daily renewal.
 	Accrual,
-	/// Given by an admin.
-	Grant,
-	/// Bought; recorded by an admin.
-	Purchase,
+	/// Added by an admin.
+	Add,
 	/// An admin set the balance; the row is the difference.
 	Set,
 	/// A scan of their place.
 	Charge,
-	/// A charge given back, its run having failed.
+	/// A kick-back claimed: a failed run's charge, or an admin's grant.
 	Kickback,
 }
 
@@ -991,11 +1008,11 @@ pub struct TokensChange {
 	/// What changes.
 	#[serde(flatten)]
 	pub change: BalanceChange,
-	/// A payment reference, a reason.
+	/// A payment reference, a reason; a grant's is required.
 	pub note: Option<String>,
 }
 
-/// See [`TokensChange`]: `{"set": n}`, `{"grant": n}` or `{"purchase": n}`.
+/// See [`TokensChange`]: `{"set": n}`, `{"add": n}` or `{"grant": n}`.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
@@ -1003,9 +1020,9 @@ pub enum BalanceChange {
 	/// The balance becomes this.
 	Set(i64),
 	/// Adds this.
+	Add(i64),
+	/// Owes this back as a kick-back, for the member to claim: for our mistakes, as a reward.
 	Grant(i64),
-	/// Adds this, bought.
-	Purchase(i64),
 }
 
 /// `GET /members`: someone who signed in here, or an address from before people had ids.

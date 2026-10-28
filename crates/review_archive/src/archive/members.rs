@@ -266,7 +266,7 @@ impl Archive {
 		self.store()?.usage(member, Timestamp::now()).await
 	}
 
-	/// Sets or adds to the member's balance, as admin `by`.
+	/// Sets or adds to the member's balance, or owes them a grant, as admin `by`.
 	pub async fn change_tokens(&self, member: PersonId, req: &TokensChange, by: &str) -> eyre::Result<TokensDto> {
 		self.store()?
 			.change_balance(member, req.change, by, req.note.as_deref(), Timestamp::now(), &self.inner.tokens)
