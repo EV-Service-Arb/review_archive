@@ -14,7 +14,10 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 	#[cfg(feature = "grafana")]
 	let body = rsx! { crate::grafana::Location { gmail: g, target, tab } };
 	#[cfg(not(feature = "grafana"))]
-	let body = rsx! { dock::Lanes { gmail: g, target } };
+	let body = rsx! {
+		crate::filter::reviews::ReviewBar {}
+		dock::Lanes { gmail: g, target }
+	};
 	rsx! {
 		header { class: "flex h-14 shrink-0 items-center gap-3 border-b border-border px-6",
 			Link { class: "text-ink-soft hover:text-ink", to: Route::at(tab, View::Gmail(g)), "{gmail.gmail}" }

@@ -7,7 +7,10 @@ use ev_lib::uikit_dioxus::{
 use review_archive_client::dto::{GmailDto, LocationSummary, RunStatus, ScanState, TrackPatch};
 use sa_ui::TokenCost;
 
-use crate::{Badge, Route, Tone, act, ago};
+use crate::{
+	Badge, Route, Tone, act, ago,
+	filter::reviews::{Review, Reviews},
+};
 
 #[component]
 /// `all`: among every gmail's cards, so it names its gmail.
@@ -30,9 +33,23 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 	let id = gmail.id;
 	let favorite = loc.favorite;
 	let mut cut = use_signal(|| false);
+	let mut reviews: Signal<Reviews> = use_context();
+	// a tag opens the board without the reviews it counts against; the card's own click clears that
+	let narrowed = |r: Review| {
+		let to = to.clone();
+		move |e: MouseEvent| {
+			e.prevent_default();
+			e.stop_propagation();
+			reviews.set(Reviews::not(r));
+			navigator().push(to.clone());
+		}
+	};
 	rsx! {
 		div { class: "relative",
-		Link { class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" }, to,
+		Link {
+			class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" },
+			to: to.clone(),
+			onclick: move |_| reviews.set(Reviews::default()),
 			Card { class: if loc.favorite { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 border-accent-warn" } else { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 hover:border-ink-soft" },
 				div {
 					div { class: "flex min-h-7 flex-col justify-end", // a name that wraps takes the space above it
@@ -75,8 +92,15 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 							span { title: "owner's latest post, {ago(post.published_est.as_deref().unwrap_or(&post.first_seen))}:\n{post.text}", "posts 7d {loc.posts_7d}" }
 						}
 					}
-					Badge { tone: if loc.responded < loc.live { Tone::Warn } else { Tone::Ok },
-						span { title: "replied to by the owner / live", "responded {loc.responded}/{loc.live}" }
+					span { onclick: narrowed(Review::Responded),
+						Badge { tone: if loc.responded < loc.live { Tone::Warn } else { Tone::Ok },
+							span { title: "replied to by the owner / live", "responded {loc.responded}/{loc.live}" }
+						}
+					}
+					span { onclick: narrowed(Review::FiveStar),
+						Badge { tone: if loc.non_five_star > 0 { Tone::Warn } else { Tone::Ok },
+							span { title: "listed reviews under 5 stars, or unrated", "non-5-star {loc.non_five_star}" }
+						}
 					}
 					if loc.corrupted > 0 {
 						Badge { tone: Tone::Warn,

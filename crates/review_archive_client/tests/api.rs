@@ -1249,6 +1249,7 @@ async fn members_share_places_but_see_only_their_own() {
 	};
 	let replied = Observed {
 		reply: Some("Thanks".into()),
+		rating: Some(3),
 		published_est: Some(Timestamp::now() - jiff::SignedDuration::from_hours(24 * 3)),
 		..review("r3")
 	};
@@ -1258,9 +1259,9 @@ async fn members_share_places_but_see_only_their_own() {
 	let loc = &overview[0].locations[0];
 	assert_eq!(
 		(
-			loc.target.id, loc.snapshots_7d, loc.snapshots_30d, loc.new_7d, loc.live, loc.responded, loc.suspended, loc.removed, loc.reinstating
+			loc.target.id, loc.snapshots_7d, loc.snapshots_30d, loc.new_7d, loc.live, loc.responded, loc.non_five_star, loc.suspended, loc.removed, loc.reinstating
 		),
-		(t.id, 1, 2, 1, 3, 1, 0, 0, 0)
+		(t.id, 1, 2, 1, 3, 1, 1, 0, 0, 0)
 	);
 	assert_eq!(loc.listed, Some(3), "what the source says the place has");
 	assert_eq!((loc.posts_7d, loc.latest_post.clone()), (0, None));

@@ -50,6 +50,7 @@ struct LocationRow {
 	snapshots_30d: i64,
 	live: i64,
 	responded: i64,
+	non_five_star: i64,
 	captured: i64,
 	corrupted: i64,
 	listed: Option<i64>,
@@ -254,6 +255,7 @@ impl Store {
 			        (SELECT COUNT(*) FROM captures c JOIN reviews r ON r.id = c.review_id WHERE r.target_id = t.id AND c.captured_at >= ?3) AS snapshots_30d,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.gone_at IS NULL) AS live,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.gone_at IS NULL AND r.reply IS NOT NULL) AS responded,
+			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.gone_at IS NULL AND r.rating IS NOT 5) AS non_five_star,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND EXISTS (SELECT 1 FROM captures c WHERE c.review_id = r.id)) AS captured,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND EXISTS (SELECT 1 FROM captures c WHERE c.review_id = r.id)
 			          AND NOT EXISTS (SELECT 1 FROM captures c WHERE c.review_id = r.id AND c.corrupted IS NOT 1)) AS corrupted,
@@ -317,6 +319,7 @@ impl Store {
 				snapshots_30d: r.snapshots_30d,
 				live: r.live,
 				responded: r.responded,
+				non_five_star: r.non_five_star,
 				captured: r.captured,
 				corrupted: r.corrupted,
 				listed: r.listed,

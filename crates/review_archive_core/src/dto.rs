@@ -665,6 +665,8 @@ pub struct LocationSummary {
 	pub live: i64,
 	/// Of which the owner has replied to.
 	pub responded: i64,
+	/// Of which rated under 5 stars, or not rated.
+	pub non_five_star: i64,
 	/// Reviews with a screenshot stored, gone ones too.
 	pub captured: i64,
 	/// Of which every screenshot is corrupted.

@@ -562,6 +562,8 @@ fn Workspace(view: Route) -> Element {
 	});
 	let refresh = use_context_provider(|| Refresh(Signal::new(0)));
 	use_context_provider(|| Signal::new(filter::Filter::default()));
+	#[cfg(not(feature = "grafana"))]
+	use_context_provider(|| Signal::new(filter::reviews::Reviews::default()));
 	let failure = use_context_provider(|| Failure(Signal::new(None)));
 	let overview = use_resource(move || {
 		let client = client.clone();

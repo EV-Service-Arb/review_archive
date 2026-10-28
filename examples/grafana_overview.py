@@ -18,7 +18,7 @@ ROOT = """(
       "enabled": enabled, "snapshots_7d": snapshots_7d, "snapshots_30d": snapshots_30d,
       "live": live, "listed": listed, "new_7d": new_7d, "posts_7d": posts_7d,
       "post": latest_post.text, "post_at": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,
-      "responded": responded, "suspended": suspended, "removed": removed, "reinstating": reinstating, "held": held,
+      "responded": responded, "non_five_star": non_five_star, "suspended": suspended, "removed": removed, "reinstating": reinstating, "held": held,
       "last_run_at": last_run_at, "last_run_status": last_run_status, "last_run_error": last_run_error,
       "scan": scan.state, "scan_since": scan.since, "scan_ahead": scan.ahead, "scan_cost": scan_cost
     }
@@ -68,6 +68,7 @@ CARD_COLUMNS = [
 	("post", "post", "string"),
 	("post_at", "post_at", "string"),
 	("responded", "responded", "number"),
+	("non_five_star", "non_five_star", "number"),
 	("suspended", "suspended", "number"),
 	("removed", "removed", "number"),
 	("reinstating", "reinstating", "number"),
@@ -97,6 +98,7 @@ CONTENT = """<div class="ra-grid">
     <span class="ok" title="posted over the last 7 days, removed ones included">new 7d +{{new_7d}}</span>
     {{#if post}}<span class="ok" title="owner's latest post, {{ago post_at}}:&#10;{{post}}">posts 7d {{posts_7d}}</span>{{/if}}
     <span class="{{#if (lt responded live)}}warn{{else}}ok{{/if}}" title="replied to by the owner / live">responded {{responded}}/{{live}}</span>
+    <span class="{{#if non_five_star}}warn{{else}}ok{{/if}}" title="listed reviews under 5 stars, or unrated">non-5-star {{non_five_star}}</span>
     {{#if suspended}}<span class="bad" title="5-star reviews gone from the listing">suspended {{suspended}}</span>{{/if}}
     {{#if removed}}<span class="bad">removed {{removed}}</span>{{/if}}
     {{#if reinstating}}<span class="warn">reinstating {{reinstating}}</span>{{/if}}

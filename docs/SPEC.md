@@ -263,7 +263,8 @@ Several people track their places here, grouped the way they manage them: by
 - A member's board of a tracked place has four columns, each by its own time:
   Snapshotted (listed, by first sighting), Suspended (gone with 5 stars, no open appeal, by
   `gone_at`), Removed (any other gone, no open appeal, by `gone_at`), Reinstating (gone, open
-  appeal, by `requested_at`).
+  appeal, by `requested_at`). The board narrows by 5-star and responded, each required or ruled
+  out; a card's `non-5-star` and `responded` tags open it with that one ruled out.
 
 ### Tokens
 

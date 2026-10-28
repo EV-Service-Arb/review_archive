@@ -1,5 +1,8 @@
-//! What narrows the locations grid: a regex over a place's text, and facets each required or
-//! ruled out. One per tab, kept across its views.
+//! What narrows the locations grid and a place's board: a regex over a place's text, and facets
+//! each required or ruled out. One per tab, kept across its views.
+
+#[cfg(not(feature = "grafana"))]
+pub(crate) mod reviews;
 
 use std::collections::HashMap;
 
@@ -97,30 +100,17 @@ pub(crate) fn Bar(shown: usize, total: usize) -> Element {
 				}
 			}
 			for f in Facet::iter() {
-				Toggle {
+				Tri {
 					key: "{f:?}",
-					variant: ToggleVariant::Outline,
-					size: Size::Sm,
-					class: match filter.read().facets.get(&f) {
-						Some(true) => "text-positive",
-						Some(false) => "text-accent-error",
-						None => "text-ink-soft",
-					},
-					pressed: filter.read().facets.contains_key(&f),
-					// any → must → must not → any
-					on_pressed_change: move |_| {
+					label: f.to_string(),
+					state: filter.read().facets.get(&f).copied(),
+					on_change: move |s| {
 						let mut w = filter.write();
-						match w.facets.get(&f) {
-							None => w.facets.insert(f, true),
-							Some(true) => w.facets.insert(f, false),
-							Some(false) => w.facets.remove(&f),
+						match s {
+							Some(want) => w.facets.insert(f, want),
+							None => w.facets.remove(&f),
 						};
 					},
-					match filter.read().facets.get(&f) {
-						Some(true) => rsx! { "✓ {f}" },
-						Some(false) => rsx! { "✗ {f}" },
-						None => rsx! { "{f}" },
-					}
 				}
 			}
 			div { class: "flex-1" }
@@ -132,6 +122,36 @@ pub(crate) fn Bar(shown: usize, total: usize) -> Element {
 				disabled: *filter.read() == Filter::default(),
 				onclick: move |_| filter.set(Filter::default()),
 				"Clear"
+			}
+		}
+	}
+}
+
+/// A facet's toggle: `state` true, required; false, ruled out; absent, either.
+#[component]
+fn Tri(label: String, state: Option<bool>, on_change: EventHandler<Option<bool>>) -> Element {
+	rsx! {
+		Toggle {
+			variant: ToggleVariant::Outline,
+			size: Size::Sm,
+			class: match state {
+				Some(true) => "text-positive",
+				Some(false) => "text-accent-error",
+				None => "text-ink-soft",
+			},
+			pressed: state.is_some(),
+			// any → must → must not → any
+			on_pressed_change: move |_| {
+				on_change(match state {
+					None => Some(true),
+					Some(true) => Some(false),
+					Some(false) => None,
+				})
+			},
+			match state {
+				Some(true) => rsx! { "✓ {label}" },
+				Some(false) => rsx! { "✗ {label}" },
+				None => rsx! { "{label}" },
 			}
 		}
 	}

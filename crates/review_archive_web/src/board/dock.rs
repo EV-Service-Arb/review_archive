@@ -8,7 +8,7 @@ use dioxus::{prelude::*, web::WebEventExt};
 use review_archive_client::dto::{BoardCard, NewLayout};
 use tilers_dioxus::{Band, Config, DockPanel, Group, GroupId, MinSize, PackedApi, PackedArea, PanelId, Step};
 
-use crate::{Api, Badge, Refresh, Tone, act, ago, host, may, shown};
+use crate::{Api, Badge, Refresh, Tone, act, ago, filter::reviews::Reviews, host, may, shown};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Column {
@@ -77,9 +77,11 @@ pub fn Lanes(gmail: i64, target: i64) -> Element {
 	});
 	let dragging = use_signal(|| None::<Drag>);
 	let mut panels = use_signal(Vec::<DockPanel>::new);
+	let reviews: Signal<Reviews> = use_context();
 	use_effect(move || {
 		let Some(Ok(b)) = &*board.read() else { return };
-		let mut lists = [b.snapshotted.clone(), b.suspended.clone(), b.removed.clone(), b.reinstating.clone()].into_iter();
+		let reviews = reviews.read();
+		let mut lists = [&b.snapshotted, &b.suspended, &b.removed, &b.reinstating].into_iter().map(|l| reviews.keep(l.clone()));
 		let tiles = LANES.iter().map(|&(column, id, title)| {
 			let cards = lists.next().expect("a list per lane");
 			DockPanel {
