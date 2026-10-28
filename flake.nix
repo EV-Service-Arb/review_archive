@@ -163,6 +163,14 @@
           };
         };
 
+        # Grafana without what no browser here loads: its source maps and API explorer
+        grafanaPruned = pkgs.runCommand "grafana-pruned" { } ''
+          cp -r --no-preserve=mode ${pkgs.grafana} $out
+          chmod +x $out/bin/grafana
+          find $out/share/grafana/public -name '*.map' -delete
+          rm -r $out/share/grafana/public/build-swagger
+        '';
+
         # `serve`'s `grafana.server`: `serve` gives it its socket, data dir, root URL, `RA_API` and its
         # sign-in settings; the rest is fixed here, cut to what the dashboards use (ARCHITECTURE.md § Memory).
         # `logFile`: dev's, appended to; otherwise warnings and up on serve's stderr.
@@ -184,15 +192,15 @@
           export GF_UNIFIED_ALERTING_ENABLED=false GF_NEWS_NEWS_FEED_ENABLED=false GF_PUBLIC_DASHBOARDS_ENABLED=false GF_SNAPSHOTS_ENABLED=false
           export GF_QUERY_HISTORY_ENABLED=false GF_EXPLORE_ENABLED=false GF_CLOUD_MIGRATION_ENABLED=false GF_RECORDED_QUERIES_ENABLED=false
           export GF_PROFILE_ENABLED=false GF_HELP_ENABLED=false
-          # its own, not the pod's, which is serve's (ARCHITECTURE.md § Memory); Infinity inherits it
+          # its own, not the pod's, sized to the whole container (ARCHITECTURE.md § Memory); Infinity inherits it
           export GOMEMLIMIT=100MiB
           ${if logFile then ''
             log="''${XDG_STATE_HOME:-$HOME/.local/state}/review_archive/grafana.log"
             mkdir -p "$(dirname "$log")"
-            exec ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana >>"$log" 2>&1
+            exec ${grafanaPruned}/bin/grafana server --homepath ${grafanaPruned}/share/grafana >>"$log" 2>&1
           '' else ''
             export GF_LOG_MODE=console GF_LOG_LEVEL=warn
-            exec ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana
+            exec ${grafanaPruned}/bin/grafana server --homepath ${grafanaPruned}/share/grafana
           ''}
         '';
 
@@ -306,6 +314,7 @@
             nix build .#${pname}-container    OCI image with chromium-headless-shell (Linux only), its binary checked to start it
             nix build .#mfe                   the dashboard bundle (served under /mfe/)
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
+                                              (/?grafana=true: drawn by Grafana)
             nix run .#publish -- major|minor|patch [note]
                                               live tests, then tag the next vX.Y.Z and push it: CI ships the image
             nix run .#help                    this

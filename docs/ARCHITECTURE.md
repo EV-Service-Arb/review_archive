@@ -36,16 +36,16 @@ crates/review_archive/          the engine (features: maps, store)
   src/places.rs                 Places API search for URLs without an id
 crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, background loops; thin over `Archive`
   src/http.rs                   the API and its OpenAPI document (utoipa, `GET /openapi.json`), `/mfe/`, the page at `/`,
-                                `/grafana/` to the Grafana `serve` runs (`grafana`, `--dev-member` only)
-  src/auth.rs                   who is calling: the panel's assertion (`sa_auth`), a person by `sub`; the
-                                permission guards; whose `/me` it is (`X-Member`)
+                                `/grafana/` to the Grafana `serve` runs (`grafana`), its queries tokened (§ Invariants)
+  src/auth.rs                   who is calling: the panel's assertion (`sa_auth`), a person by `sub`, a Grafana
+                                query's token; the permission guards; whose `/me` it is (`X-Member`)
   src/worker.rs                 the browser's worker (queued jobs, then due targets) and the deliverer
   src/settings.rs               the environment (ev_lib `settings!`): secrets, APP_ENV
   src/config.rs                 the config (v_utils `Settings`): data dir, bind, and every library and server section
 crates/review_archive_client/   typed async client of the HTTP API through the panel, on the core's DTOs; native and wasm
 crates/review_archive_web/      the dashboard MFE (dioxus, wasm), over the client; `package.sh` lays out /mfe/, `index.html` is `/`;
-                                its `grafana` feature frames Grafana's overview and a place's board in one frame, booted with the
-                                page and steered between them (`nix run .#with-grafana`); the board is `ra-location` through the
+                                with `?grafana=true` (kept per browser tab) it frames Grafana's overview and a place's board in one
+                                frame, booted with the page and steered between them; the board is `ra-location` through the
                                 tilers plugin (`evmain-tilers-app`): the lanes and the runs, each a panel, drops posted up to the page
 grafana/                        those dashboards, over the API through the Infinity datasource; each written by its
                                 `examples/grafana_*.py`
@@ -224,6 +224,12 @@ with its own platform implements `sources::ReviewSource` and records through
   The walk scrolls the feed vertically only, with the side panel open; a corrupted shot is
   marked, never retaken in the same pass.
 
+- **Grafana holds no identity.** It signs no one in, and its fetches reach the API as a viewer only
+  through a token `serve` wrote into the `ra-api` queries of that viewer's `/grafana/api/ds/query`, after
+  authenticating it as any request: good on GETs, for that query's life. Anything else Grafana sends
+  carries no one, and is a 401. The panel's Grafana route takes POSTs without CSRF on this. A Grafana
+  that fails is reported and `/grafana/` answers 502; the archive and the legacy UI go on.
+
 ## Testing
 
 Live tests never sign in to Google, nor reuse a signed-in profile: they walk as `browser.guest`,
@@ -237,6 +243,9 @@ by card, so each layer is cut to that (`browser/session.rs`, `selectors.rs`):
 ```text
 cgroup (burst)
 ├─ server + encodes
+├─ Grafana            not leased: always on top of the base. ~300 MB (~185 of it its binary's pages), its own
+│                     `GOMEMLIMIT`, alerting, news, explore and the like off (`grafanaServer`); and its Infinity
+│                     plugin server, ~80 MB at a board's load
 ├─ node driver        a capped heap, no optimizing JIT (`leanNode`, the image's `PLAYWRIGHT_NODE_EXE`): it
 │                     carries every screenshot as base64
 ├─ browser process    one launch: the headed UA is cached in the profile, no probe Chromium; the network

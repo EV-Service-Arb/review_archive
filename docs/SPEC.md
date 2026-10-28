@@ -310,7 +310,8 @@ exposure for it. Tokens price that, and the members whose places are scanned pay
 ### Auth
 
 Served behind the Service-Arb panel at `sa.evinvest.ltd`: its `/api/review_archive/*` reaches
-the API (the prefix stripped), its `/review_archive/mfe/*` the bundle. Nothing else reaches
+the API (the prefix stripped), its `/review_archive/mfe/*` the bundle, and its
+`/api/review_archive/grafana/*` this service's `/grafana/*`, Grafana's `root_url`. Nothing else reaches
 the service.
 
 - Every authenticated request carries the panel's assertion in `x-sa-assertion` (`sa_auth`):
@@ -326,13 +327,15 @@ the service.
   their gmails track. With `sa:review_archive:members:act_as`, `X-Member: <person id>` acts as
   that member: their gmails, boards and channels, their writes; anyone else sending it gets 403.
 - `POST /me/tg-channels/{id}/test` posts at most once a minute per person (429).
-- CSRF is the panel's: it checks its own header on every write before forwarding.
+- CSRF is the panel's: it checks its own header on every write before forwarding. Its Grafana route
+  does not: a Grafana query is a POST that only reads, its fetches GETs as the viewer
+  (ARCHITECTURE.md § Invariants).
 - `serve --dev-member <alias | permissions | none>` (loopback, outside production): every
   request is one person holding that, without the panel, for a local dashboard
   (`nix run .#dev-mfe`): the member with gmails, so it shows what the worker scans; with
   several, the one `--dev-as <person id>` names; before anyone has one, a made-up `dev`. Each
   `serve` sets their balance to a new member's (`tokens.start_cap_multiple` caps).
-  `--no-login-check` (outside production; `nix run .#with-grafana` passes it): no boot check of the
+  `--no-login-check` (outside production; `nix run .#dev-mfe` passes it): no boot check of the
   Google accounts, and every one signed out fails walks without ending `serve`.
 
 ### Telegram
@@ -361,6 +364,8 @@ in. Design: Figma "review_archive / dashboard", on ev_lib's `uikit`. One holding
 `X-Member`; the open tabs outlive a full load of the page, per browser tab. Where it is is its URL — `/gmails/{id}`,
 `/gmails/{id}/places/{target}`, `/telegram`, `/tokens` (the ledger), under `/members/{id}`
 for a member's tab. Standalone (`--dev-member`), the binary serves the same page at `/`.
+`?grafana=true` on its URL has Grafana draw the overview and a place's board, for that browser tab
+(`?grafana=false` undoes it); otherwise the legacy UI does.
 
 ## Library
 
