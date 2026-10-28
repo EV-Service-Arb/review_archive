@@ -154,7 +154,7 @@ impl Archive {
 		store.enqueue_job(JobKind::Scan, target, None, Some(member), self.inner.defaults.max_queued_jobs, now).await
 	}
 
-	/// A tracked place's reviews: snapshotted, removed, reinstating.
+	/// A tracked place's reviews: snapshotted, suspended, removed, reinstating.
 	pub async fn board(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<Board> {
 		self.store()?.board(member, gmail, target).await
 	}

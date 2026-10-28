@@ -1,5 +1,5 @@
 //! The dashboard: a person's managing gmails, the places each tracks, and per place a board
-//! of its reviews — snapshotted, removed, reinstating. The Service-Arb panel mounts it and
+//! of its reviews — snapshotted, suspended, removed, reinstating. The Service-Arb panel mounts it and
 //! forwards its calls to the archive: the panel's session cookie and CSRF header sign them.
 //! One who may act as others gets tabs: their own dashboard, and any member's, acting as them.
 

@@ -260,9 +260,10 @@ Several people track their places here, grouped the way they manage them: by
   the review again sets `reinstated_at` in its transaction, and it returns to the
   Snapshotted column with a "reinstated after N d" badge. A gmail with appeals on record
   cannot be removed.
-- A member's board of a tracked place has three columns, each by its own time:
-  Snapshotted (listed, by first sighting), Removed (gone, no open appeal, by `gone_at`),
-  Reinstating (gone, open appeal, by `requested_at`).
+- A member's board of a tracked place has four columns, each by its own time:
+  Snapshotted (listed, by first sighting), Suspended (gone with 5 stars, no open appeal, by
+  `gone_at`), Removed (any other gone, no open appeal, by `gone_at`), Reinstating (gone, open
+  appeal, by `requested_at`).
 
 ### Tokens
 

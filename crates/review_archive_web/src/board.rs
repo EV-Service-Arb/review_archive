@@ -1,6 +1,6 @@
-//! One place's reviews in three tiles of a dock. A card is dragged from Removed to Reinstating when
-//! its reinstatement was asked of Google, and back when that is withdrawn; the columns keep
-//! their own order, and a review a scan lists again goes back to Snapshotted by itself.
+//! One place's reviews in four tiles of a dock. A card is dragged from Suspended (5 stars) or Removed
+//! to Reinstating when its reinstatement was asked of Google, and back when that is withdrawn; the
+//! columns keep their own order, and a review a scan lists again goes back to Snapshotted by itself.
 
 use std::rc::Rc;
 
@@ -13,12 +13,24 @@ use crate::{Api, Badge, Refresh, Route, Tone, View, act, ago, host, may, shown};
 #[derive(Clone, Copy, PartialEq)]
 enum Column {
 	Snapshotted,
+	Suspended,
 	Removed,
 	Reinstating,
 }
 
-const LANES: [(Column, &str, &str); 3] = [
+impl Column {
+	/// Where a gone review without an open appeal sits.
+	fn gone(rating: Option<i64>) -> Self {
+		match rating {
+			Some(5) => Self::Suspended,
+			_ => Self::Removed,
+		}
+	}
+}
+
+const LANES: [(Column, &str, &str); 4] = [
 	(Column::Snapshotted, "snapshotted", "Snapshotted"),
+	(Column::Suspended, "suspended", "Suspended"),
 	(Column::Removed, "removed", "Removed"),
 	(Column::Reinstating, "reinstating", "Reinstating"),
 ];
@@ -51,8 +63,11 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 	let Api(api) = use_context();
 	let Refresh(refresh) = use_context();
 	let (g, target) = (gmail.id, location.target.id);
-	// a layout saved without the extra tiles would never show them
-	let dock_key = format!("review-archive-board{}", EXTRA.iter().map(|t| format!("-{t}")).collect::<String>());
+	// a layout saved without some tile would never show it
+	let dock_key = format!(
+		"review-archive-board{}",
+		LANES.iter().map(|l| l.1).chain(EXTRA.iter().copied()).map(|t| format!("-{t}")).collect::<String>()
+	);
 	let board = use_resource({
 		let api = api.clone();
 		move || {
@@ -70,11 +85,11 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 			async move { api.layouts(&dock_key).await.map_err(shown) }
 		}
 	});
-	let dragging = use_signal(|| None::<(i64, Column)>);
+	let dragging = use_signal(|| None::<Drag>);
 	let mut panels = use_signal(Vec::<DockPanel>::new);
 	use_effect(move || {
 		let Some(Ok(b)) = &*board.read() else { return };
-		let mut lists = [b.snapshotted.clone(), b.removed.clone(), b.reinstating.clone()].into_iter();
+		let mut lists = [b.snapshotted.clone(), b.suspended.clone(), b.removed.clone(), b.reinstating.clone()].into_iter();
 		let tiles = LANES.iter().map(|&(column, id, title)| {
 			let cards = lists.next().expect("a list per lane");
 			DockPanel {
@@ -136,7 +151,10 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 			api.load(&p.layout).expect("a published layout loads: this dock saved it");
 			return;
 		}
-		let tiles: Vec<Vec<&str>> = [vec!["snapshotted"], vec!["removed", "reinstating"]].into_iter().chain(EXTRA.iter().map(|t| vec![*t])).collect();
+		let tiles: Vec<Vec<&str>> = [vec!["snapshotted"], vec!["suspended", "removed", "reinstating"]]
+			.into_iter()
+			.chain(EXTRA.iter().map(|t| vec![*t]))
+			.collect();
 		let w = api.cols() / tiles.len() as u32;
 		for (i, tabs) in tiles.iter().enumerate() {
 			let group = Group {
@@ -178,18 +196,28 @@ pub fn Board(gmail: GmailDto, location: LocationSummary, tab: Option<i64>) -> El
 	}
 }
 
-/// What dropping a card from `from` onto `to` means, if anything.
-fn drop_means(from: Column, to: Column) -> Option<bool> {
-	match (from, to) {
-		(Column::Removed, Column::Reinstating) => Some(true),
-		(Column::Reinstating, Column::Removed) => Some(false),
-		_ => None,
+/// A card on the move: its review, the lane it left, and the lane it sits in while gone without an appeal.
+#[derive(Clone, Copy, PartialEq)]
+struct Drag {
+	review: i64,
+	from: Column,
+	gone: Column,
+}
+
+impl Drag {
+	/// What dropping it onto `to` means, if anything.
+	fn onto(self, to: Column) -> Option<bool> {
+		match (self.from, to) {
+			(Column::Suspended | Column::Removed, Column::Reinstating) => Some(true),
+			(Column::Reinstating, to) if to == self.gone => Some(false),
+			_ => None,
+		}
 	}
 }
 
 #[component]
-fn Lane(column: Column, cards: Vec<BoardCard>, gmail: i64, dragging: Signal<Option<(i64, Column)>>) -> Element {
-	let accepts = dragging().is_some_and(|(_, from)| drop_means(from, column).is_some());
+fn Lane(column: Column, cards: Vec<BoardCard>, gmail: i64, dragging: Signal<Option<Drag>>) -> Element {
+	let accepts = dragging().is_some_and(|d| d.onto(column).is_some());
 	rsx! {
 		section {
 			class: if accepts { "flex h-full flex-col gap-3 overflow-y-auto p-3 font-sans leading-normal outline-2 -outline-offset-2 outline-dashed outline-primary-ink bg-primary/5" } else { "flex h-full flex-col gap-3 overflow-y-auto p-3 font-sans leading-normal" },
@@ -200,8 +228,9 @@ fn Lane(column: Column, cards: Vec<BoardCard>, gmail: i64, dragging: Signal<Opti
 			},
 			ondrop: move |e| {
 				e.prevent_default();
-				let Some((review, from)) = dragging.take() else { return };
-				match drop_means(from, column) {
+				let Some(d) = dragging.take() else { return };
+				let review = d.review;
+				match d.onto(column) {
 					Some(true) => act(move |c| async move { c.reinstate(gmail, review).await.map(drop) }),
 					Some(false) => act(move |c| async move { c.withdraw_reinstatement(gmail, review).await }),
 					None => {}
@@ -215,13 +244,13 @@ fn Lane(column: Column, cards: Vec<BoardCard>, gmail: i64, dragging: Signal<Opti
 }
 
 #[component]
-fn Card(card: BoardCard, column: Column, mut dragging: Signal<Option<(i64, Column)>>) -> Element {
+fn Card(card: BoardCard, column: Column, mut dragging: Signal<Option<Drag>>) -> Element {
 	let r = &card.review;
 	let movable = column != Column::Snapshotted;
 	let stars = "★".repeat(r.rating.unwrap_or(0).clamp(0, 5) as usize);
 	let when = match column {
 		Column::Snapshotted => r.published_raw.clone().unwrap_or_else(|| format!("seen {}", ago(&r.first_seen))),
-		Column::Removed => format!("gone {}", r.gone_at.as_deref().map(ago).unwrap_or_default()),
+		Column::Suspended | Column::Removed => format!("gone {}", r.gone_at.as_deref().map(ago).unwrap_or_default()),
 		Column::Reinstating => format!("requested {}", card.reinstatement.as_ref().map(|x| ago(&x.requested_at)).unwrap_or_default()),
 	};
 	let reinstated = card
@@ -229,7 +258,7 @@ fn Card(card: BoardCard, column: Column, mut dragging: Signal<Option<(i64, Colum
 		.as_ref()
 		.filter(|_| column == Column::Snapshotted)
 		.and_then(|x| Some(days_between(&x.requested_at, x.reinstated_at.as_deref()?)));
-	let id = r.id;
+	let (id, gone) = (r.id, Column::gone(r.rating));
 	rsx! {
 		article {
 			class: if movable { "rounded-lg border border-border bg-card p-3 cursor-grab" } else { "rounded-lg border border-border bg-card p-3" },
@@ -239,7 +268,7 @@ fn Card(card: BoardCard, column: Column, mut dragging: Signal<Option<(i64, Colum
 				if let Some(dt) = e.as_web_event().data_transfer() {
 					dt.set_data("text/plain", &id.to_string()).expect("setting drag data during dragstart");
 				}
-				dragging.set(Some((id, column)));
+				dragging.set(Some(Drag { review: id, from: column, gone }));
 			},
 			ondragend: move |_| dragging.set(None),
 			if let Some(url) = r.capture_url.clone() {

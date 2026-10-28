@@ -100,7 +100,7 @@
               }
             ]
           },
-          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
+          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"suspended\": suspended, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
           "columns": [
             {
               "selector": "live",
@@ -115,6 +115,11 @@
             {
               "selector": "responded",
               "text": "responded",
+              "type": "number"
+            },
+            {
+              "selector": "suspended",
+              "text": "suspended",
               "type": "number"
             },
             {
@@ -174,8 +179,9 @@
               "live": 0,
               "new 7d": 1,
               "responded %": 2,
-              "removed": 3,
-              "reinstating": 4
+              "suspended": 3,
+              "removed": 4,
+              "reinstating": 5
             }
           }
         }
@@ -198,6 +204,21 @@
               {
                 "id": "unit",
                 "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "suspended"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
               }
             ]
           },
@@ -289,7 +310,7 @@
               }
             ]
           },
-          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
+          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"suspended\": suspended, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
           "columns": [
             {
               "selector": "gmail",
@@ -377,6 +398,11 @@
               "type": "number"
             },
             {
+              "selector": "suspended",
+              "text": "suspended",
+              "type": "number"
+            },
+            {
               "selector": "removed",
               "text": "removed",
               "type": "number"
@@ -440,7 +466,7 @@
         "contentPartials": [],
         "helpers": "const h = context.handlebars;\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('lt', (a, b) => a < b);\nh.registerHelper('allGmails', () => context.grafana.replaceVariables('${gmail}') === '');\nh.registerHelper('on', (r) => r.enabled && r.gmail_on);\nh.registerHelper('dot', (r) => r.scan === 'queued' ? 'warn' : r.scan === 'running' ? 'run' : (r.last_run_status || 'never'));\nh.registerHelper('scanline', (r) => r.scan === 'queued'\n  ? 'queued · ' + (r.scan_ahead ? r.scan_ahead + ' ahead' : 'next') + ' · since ' + ago(r.scan_since) + ' · '\n  : r.scan === 'running' ? 'scanning · started ' + ago(r.scan_since) + ' · ' : '');\nh.registerHelper('lastline', (r) => r.last_run_at ? 'last run ' + ago(r.last_run_at) + ' · ' : '');",
         "defaultContent": "No place to show.",
-        "content": "<div class=\"ra-grid\">\n{{#each data}}\n<div class=\"ra-card{{#unless (on this)}} ra-off{{/unless}}\" data-i=\"{{@index}}\">\n  <div class=\"ra-head\">\n    <div class=\"ra-label\">{{label}}</div>\n    {{#if address}}<div class=\"ra-soft ra-cut\" title=\"{{address}}\">{{address}}</div>{{/if}}\n    <div class=\"ra-pid\">{{place_id}}</div>\n    {{#if (allGmails)}}<div class=\"ra-soft ra-cut ra-small\">{{gmail_name}}</div>{{/if}}\n  </div>\n  <button class=\"ra-switch{{#if enabled}} on{{/if}}\" data-act=\"enable\" title=\"scanned on the schedule\" {{#unless gmail_on}}disabled{{/unless}}></button>\n  <div class=\"ra-big\"><b>{{snapshots_7d}}</b> snapshots 7d <span>{{snapshots_30d}}</span> 30d</div>\n  <div class=\"ra-badges\">\n    <span class=\"ok\" title=\"archived and still listed / listed on Google\">live {{live}}{{#if listed}}/{{listed}}{{/if}}</span>\n    <span class=\"ok\" title=\"posted over the last 7 days, removed ones included\">new 7d +{{new_7d}}</span>\n    {{#if post}}<span class=\"ok\" title=\"owner's latest post, {{ago post_at}}:&#10;{{post}}\">posts 7d {{posts_7d}}</span>{{/if}}\n    <span class=\"{{#if (lt responded live)}}warn{{else}}ok{{/if}}\" title=\"replied to by the owner / live\">responded {{responded}}/{{live}}</span>\n    {{#if removed}}<span class=\"bad\">removed {{removed}}</span>{{/if}}\n    {{#if reinstating}}<span class=\"warn\">reinstating {{reinstating}}</span>{{/if}}\n    {{#if held}}<span class=\"warn\" title=\"not scanned: every member tracking it is out of tokens\">out of tokens</span>{{/if}}\n  </div>\n  <div class=\"ra-run\">\n    <i class=\"ra-dot ra-dot-{{dot this}}\"></i>{{scanline this}}{{lastline this}}<span title=\"{{last_run_error}}\">{{#if last_run_status}}{{last_run_status}}{{else}}never scanned{{/if}}</span>\n    {{#if scan}}<span class=\"ra-spin\"></span>{{else}}<button class=\"ra-scan\" data-act=\"scan\" title=\"scan now, on top of the schedule: {{scan_cost}} tokens\">↻ {{scan_cost}}</button>{{/if}}\n  </div>\n</div>\n{{/each}}\n</div>",
+        "content": "<div class=\"ra-grid\">\n{{#each data}}\n<div class=\"ra-card{{#unless (on this)}} ra-off{{/unless}}\" data-i=\"{{@index}}\">\n  <div class=\"ra-head\">\n    <div class=\"ra-label\">{{label}}</div>\n    {{#if address}}<div class=\"ra-soft ra-cut\" title=\"{{address}}\">{{address}}</div>{{/if}}\n    <div class=\"ra-pid\">{{place_id}}</div>\n    {{#if (allGmails)}}<div class=\"ra-soft ra-cut ra-small\">{{gmail_name}}</div>{{/if}}\n  </div>\n  <button class=\"ra-switch{{#if enabled}} on{{/if}}\" data-act=\"enable\" title=\"scanned on the schedule\" {{#unless gmail_on}}disabled{{/unless}}></button>\n  <div class=\"ra-big\"><b>{{snapshots_7d}}</b> snapshots 7d <span>{{snapshots_30d}}</span> 30d</div>\n  <div class=\"ra-badges\">\n    <span class=\"ok\" title=\"archived and still listed / listed on Google\">live {{live}}{{#if listed}}/{{listed}}{{/if}}</span>\n    <span class=\"ok\" title=\"posted over the last 7 days, removed ones included\">new 7d +{{new_7d}}</span>\n    {{#if post}}<span class=\"ok\" title=\"owner's latest post, {{ago post_at}}:&#10;{{post}}\">posts 7d {{posts_7d}}</span>{{/if}}\n    <span class=\"{{#if (lt responded live)}}warn{{else}}ok{{/if}}\" title=\"replied to by the owner / live\">responded {{responded}}/{{live}}</span>\n    {{#if suspended}}<span class=\"bad\" title=\"5-star reviews gone from the listing\">suspended {{suspended}}</span>{{/if}}\n    {{#if removed}}<span class=\"bad\">removed {{removed}}</span>{{/if}}\n    {{#if reinstating}}<span class=\"warn\">reinstating {{reinstating}}</span>{{/if}}\n    {{#if held}}<span class=\"warn\" title=\"not scanned: every member tracking it is out of tokens\">out of tokens</span>{{/if}}\n  </div>\n  <div class=\"ra-run\">\n    <i class=\"ra-dot ra-dot-{{dot this}}\"></i>{{scanline this}}{{lastline this}}<span title=\"{{last_run_error}}\">{{#if last_run_status}}{{last_run_status}}{{else}}never scanned{{/if}}</span>\n    {{#if scan}}<span class=\"ra-spin\"></span>{{else}}<button class=\"ra-scan\" data-act=\"scan\" title=\"scan now, on top of the schedule: {{scan_cost}} tokens\">↻ {{scan_cost}}</button>{{/if}}\n  </div>\n</div>\n{{/each}}\n</div>",
         "afterRender": "const up = (m) => window.parent.postMessage(m, window.location.origin);\ncontext.element.querySelectorAll('.ra-card').forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  const ids = { gmail: row.gmail, target: row.target };\n  card.addEventListener('click', () => up({ kind: 'ra-open', ...ids }));\n  card.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', (e) => {\n    e.stopPropagation();\n    up(b.dataset.act === 'scan' ? { kind: 'ra-scan', ...ids } : { kind: 'ra-enable', ...ids, on: !row.enabled });\n  }));\n});",
         "styles": ".ra-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }\n.ra-card { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; cursor: pointer; }\n.ra-card:hover { border-color: rgba(128,128,128,.7); }\n.ra-off { opacity: .5; }\n.ra-head { padding-right: 48px; min-width: 0; }\n.ra-label { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-soft { opacity: .65; }\n.ra-cut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-small { font-size: 11px; }\n.ra-pid { font-family: monospace; font-size: 11px; opacity: .65; overflow: hidden; text-overflow: ellipsis; }\n.ra-big b { font-size: 28px; line-height: 1; }\n.ra-big span { font-size: 15px; opacity: .65; margin-left: 12px; }\n.ra-badges { display: flex; flex-wrap: wrap; gap: 6px; }\n.ra-badges span { font-size: 11px; padding: 1px 8px; border-radius: 999px; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }\n.bad { background: rgba(242,73,92,.15); color: #f2495c; }\n.ra-run { margin-top: auto; display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,.3); font-size: 11px; opacity: .8; }\n.ra-dot { width: 6px; height: 6px; border-radius: 999px; background: #8e8e8e; flex-shrink: 0; }\n.ra-dot-ok { background: #73bf69; } .ra-dot-partial, .ra-dot-warn { background: #ff9830; } .ra-dot-failed { background: #f2495c; }\n.ra-dot-run { background: #73bf69; animation: ra-pulse 1.5s ease-in-out infinite; }\n@keyframes ra-pulse { 50% { opacity: .3; } }\n.ra-scan { margin-left: auto; padding: 2px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }\n.ra-scan:hover { background: rgba(128,128,128,.2); }\n.ra-spin { margin-left: auto; width: 12px; height: 12px; border: 2px solid rgba(128,128,128,.4); border-top-color: currentColor; border-radius: 999px; animation: ra-turn 1s linear infinite; }\n@keyframes ra-turn { to { transform: rotate(360deg); } }\n.ra-switch { position: absolute; top: 16px; right: 16px; width: 32px; height: 18px; border: 0; border-radius: 999px; background: rgba(128,128,128,.4); cursor: pointer; }\n.ra-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 999px; background: #fff; transition: left .15s; }\n.ra-switch.on { background: #73bf69; }\n.ra-switch.on::after { left: 16px; }\n.ra-switch:disabled { cursor: not-allowed; opacity: .5; }"
       }
@@ -486,7 +512,7 @@
               }
             ]
           },
-          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
+          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"suspended\": suspended, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
           "columns": [
             {
               "selector": "label",
@@ -531,6 +557,11 @@
             {
               "selector": "responded",
               "text": "responded",
+              "type": "number"
+            },
+            {
+              "selector": "suspended",
+              "text": "suspended",
               "type": "number"
             },
             {

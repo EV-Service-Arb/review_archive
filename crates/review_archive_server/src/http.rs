@@ -601,7 +601,7 @@ async fn scan_tracked(State(s): State<AppState>, Member(m): Member, Path((gmail,
 	Ok((StatusCode::ACCEPTED, Json(JobAccepted { job_id })))
 }
 
-/// A tracked place's reviews in three columns: snapshotted, removed, reinstating.
+/// A tracked place's reviews in four columns: snapshotted, suspended, removed, reinstating.
 #[utoipa::path(get, path = "/me/gmails/{gmail}/locations/{target}/board", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)),
 	responses((status = 200, body = Board), (status = 404, body = ErrorBody)))]
 async fn board(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>) -> ApiResult<Json<Board>> {

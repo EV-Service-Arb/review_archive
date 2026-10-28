@@ -671,7 +671,9 @@ pub struct LocationSummary {
 	pub corrupted: i64,
 	/// How many reviews Google says the place has, as of the last scan that read it.
 	pub listed: Option<i64>,
-	/// Gone, with no open appeal from this gmail.
+	/// Gone with 5 stars, with no open appeal from this gmail.
+	pub suspended: i64,
+	/// Gone with fewer stars, or none, with no open appeal from this gmail.
 	pub removed: i64,
 	/// Gone, with an open appeal from this gmail.
 	pub reinstating: i64,
@@ -757,7 +759,9 @@ pub struct BoardCard {
 pub struct Board {
 	/// Listed now, newest first sighting first; a reinstated one carries its appeal.
 	pub snapshotted: Vec<BoardCard>,
-	/// Gone without an open appeal, most recently gone first.
+	/// Gone with 5 stars, without an open appeal, most recently gone first.
+	pub suspended: Vec<BoardCard>,
+	/// Gone with fewer stars, or none, without an open appeal, most recently gone first.
 	pub removed: Vec<BoardCard>,
 	/// Gone with an open appeal, most recently requested first.
 	pub reinstating: Vec<BoardCard>,

@@ -54,6 +54,7 @@ struct LocationRow {
 	corrupted: i64,
 	listed: Option<i64>,
 	gone: i64,
+	suspended: i64,
 	reinstating: i64,
 	last_run_at: Option<String>,
 	last_run_status: Option<String>,
@@ -258,6 +259,9 @@ impl Store {
 			          AND NOT EXISTS (SELECT 1 FROM captures c WHERE c.review_id = r.id AND c.corrupted IS NOT 1)) AS corrupted,
 			        t.listed,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.gone_at IS NOT NULL) AS gone,
+			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.gone_at IS NOT NULL AND r.rating = 5
+			          AND NOT EXISTS (SELECT 1 FROM reinstatements x WHERE x.review_id = r.id AND x.managing_gmail_id = k.managing_gmail_id
+			            AND x.withdrawn_at IS NULL AND x.reinstated_at IS NULL)) AS suspended,
 			        (SELECT COUNT(*) FROM reviews r JOIN reinstatements x ON x.review_id = r.id
 			          WHERE r.target_id = t.id AND r.gone_at IS NOT NULL AND x.managing_gmail_id = k.managing_gmail_id
 			            AND x.withdrawn_at IS NULL AND x.reinstated_at IS NULL) AS reinstating,
@@ -316,7 +320,8 @@ impl Store {
 				captured: r.captured,
 				corrupted: r.corrupted,
 				listed: r.listed,
-				removed: r.gone - r.reinstating,
+				suspended: r.suspended,
+				removed: r.gone - r.suspended - r.reinstating,
 				reinstating: r.reinstating,
 				last_run_at: r.last_run_at,
 				last_run_status: status,
@@ -333,7 +338,7 @@ impl Store {
 		Ok(out)
 	}
 
-	/// A tracked target's reviews in the board's three columns, as this gmail sees them.
+	/// A tracked target's reviews in the board's four columns, as this gmail sees them.
 	// ponytail: every live review in one answer; page `snapshotted` when a place's list outgrows a screen's worth of JSON
 	pub async fn board(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<Board> {
 		self.check_track(member, gmail, target).await?;
@@ -360,12 +365,15 @@ impl Store {
 			let open = card.reinstatement.as_ref().is_some_and(|x| x.reinstated_at.is_none());
 			match (card.review.gone_at.is_some(), open) {
 				(false, _) => board.snapshotted.push(card),
+				(true, false) if card.review.rating == Some(5) => board.suspended.push(card),
 				(true, false) => board.removed.push(card),
 				(true, true) => board.reinstating.push(card),
 			}
 		}
 		board.snapshotted.sort_by(|a, b| (&b.review.first_seen, b.review.id).cmp(&(&a.review.first_seen, a.review.id)));
-		board.removed.sort_by(|a, b| (&b.review.gone_at, b.review.id).cmp(&(&a.review.gone_at, a.review.id)));
+		for gone in [&mut board.suspended, &mut board.removed] {
+			gone.sort_by(|a, b| (&b.review.gone_at, b.review.id).cmp(&(&a.review.gone_at, a.review.id)));
+		}
 		let requested = |c: &BoardCard| c.reinstatement.as_ref().map(|x| x.requested_at.clone());
 		board.reinstating.sort_by_key(|c| std::cmp::Reverse((requested(c), c.review.id)));
 		Ok(board)
