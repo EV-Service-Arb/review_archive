@@ -6,13 +6,15 @@
 
   inputs = {
     v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
+    # the Chromium patchright-core 1.63 can drive: playwright 1.64's (Chrome 156) closes on a persistent launch
+    nixpkgs-chromium.url = "github:NixOS/nixpkgs/e73de5be04e0eff4190a1432b946d469c794e7b4";
     browser_manipulation = {
       url = "github:valeratrades/browser_manipulation?ref=v0.4.4";
       inputs.v_flakes.follows = "v_flakes";
     };
   };
 
-  outputs = { self, v_flakes, browser_manipulation }:
+  outputs = { self, v_flakes, nixpkgs-chromium, browser_manipulation }:
     let
       inherit (v_flakes) flake-utils pre-commit-hooks;
       manifest = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package;
@@ -218,7 +220,7 @@
         # Its zip lays out differently per platform and per Playwright release, so the build finds the binary, and fails without exactly one.
         headlessShell = "${pkgs.runCommand "chrome-headless-shell" { } ''
           shopt -s nullglob
-          found=(${pkgs.playwright-driver.components.chromium-headless-shell}/*/{chrome-headless-shell,headless_shell})
+          found=(${nixpkgs-chromium.legacyPackages.${system}.playwright-driver.components.chromium-headless-shell}/*/{chrome-headless-shell,headless_shell})
           [ ''${#found[@]} -eq 1 ] && [ -x "''${found[0]}" ] || { echo "expected one headless shell, found: ''${found[*]}" >&2; exit 1; }
           ln -s "''${found[0]}" $out
         ''}";
