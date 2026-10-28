@@ -47,15 +47,26 @@ CARD = [
 ]
 
 
+# The page's review filter, a variable per `filter::reviews::Review` (by its Debug name): "true", the
+# card must hold; "false", must not; "", either. Infinity's JSONata gives null for an absent field.
+NARROW = {
+	"FiveStar": "review.rating = 5",
+	"Responded": '$type(review.reply) = "string"',
+	"New7d": '$type(review.published_est) = "string" and $toMillis(review.published_est) >= $millis() - 7 * 86400000',
+}
+KEPT = " and ".join(f'("${{{v}}}" = "" or ({holds}) = ("${{{v}}}" = "true"))' for v, holds in NARROW.items())
+
+
 # Infinity reads a root as JSONata only when it starts with `$` or `(`, and fails the query on an
 # empty result where `$append([], …)` gives an empty frame.
 def lane_root(lane):
 	fields = ", ".join(f'"{name}": {path}' for name, path, _ in CARD)
-	return f"$append([], $$.{lane}.{{{fields}}})"
+	return f"$append([], $$.{lane}[{KEPT}].{{{fields}}})"
 
 
 # String concatenation, not template literals: nothing here may read as a dashboard variable.
 HELPERS = """const h = context.handlebars;
+context.markdown.inline.ruler.enableOnly(['text', 'html_inline', 'entity']); // the panel reads its HTML as Markdown: an `_` in a name would open an <em>
 const ago = (ts) => {
   if (!ts) return '';
   const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));
@@ -161,7 +172,7 @@ LANES = [("snapshotted", "Snapshotted"), ("suspended", "Suspended"), ("removed",
 
 
 def count(lane):
-	q = query(BOARD, [("n", "n", "string")], root=f'$append([], {{"n": $string($count($$.{lane}))}})')
+	q = query(BOARD, [("n", "n", "string")], root=f'$append([], {{"n": $string($count($$.{lane}[{KEPT}]))}})')
 	return {"name": f"n_{lane}", "type": "query", "hide": 2, "datasource": DS, "refresh": 1, "query": {"queryType": "infinity", "infinityQuery": q}, "current": {}, "options": []}
 
 
@@ -200,7 +211,7 @@ dashboard = {
 	"editable": True,
 	"time": {"from": "now-30d", "to": "now"},
 	"refresh": "1m",
-	"templating": {"list": [hidden("member"), hidden("gmail"), hidden("target"), hidden("rev"), hidden("api")] + [count(lane) for lane, _ in LANES]},
+	"templating": {"list": [hidden("member"), hidden("gmail"), hidden("target"), hidden("rev"), hidden("api")] + [hidden(v) for v in NARROW] + [count(lane) for lane, _ in LANES]},
 	"panels": [lane_panel(i, lane, title) for i, (lane, title) in enumerate(LANES)]
 	+ [
 		{

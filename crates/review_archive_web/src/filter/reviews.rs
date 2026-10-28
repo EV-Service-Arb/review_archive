@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use ev_lib::uikit_dioxus::{Button, ButtonVariant, Size};
+#[cfg(not(feature = "grafana"))]
 use review_archive_client::dto::BoardCard;
 use strum::IntoEnumIterator;
 
@@ -13,21 +14,30 @@ pub(crate) enum Review {
 	FiveStar,
 	#[strum(to_string = "responded")]
 	Responded,
+	#[strum(to_string = "new 7d")]
+	New7d,
 }
 
+#[cfg(not(feature = "grafana"))] // Grafana narrows the board's queries by them: `examples/grafana_location.py`
 impl Review {
 	fn holds(self, c: &BoardCard) -> bool {
 		match self {
 			Self::FiveStar => c.review.rating == Some(5),
 			Self::Responded => c.review.reply.is_some(),
+			Self::New7d => c
+				.review
+				.published_est
+				.as_deref()
+				.is_some_and(|t| t.parse::<jiff::Timestamp>().expect("the archive writes timestamps as RFC 3339").as_second() >= js_sys::Date::now() as i64 / 1000 - 7 * 86_400),
 		}
 	}
 }
 
 /// true, the review must have it; false, must not; absent, either.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct Reviews(HashMap<Review, bool>);
+pub(crate) struct Reviews(pub(crate) HashMap<Review, bool>);
 
+#[cfg(not(feature = "grafana"))]
 impl Reviews {
 	pub(crate) fn not(r: Review) -> Self {
 		Self(HashMap::from([(r, false)]))

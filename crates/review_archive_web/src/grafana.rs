@@ -12,9 +12,14 @@ use dioxus::{
 	web::WebEventExt,
 };
 use review_archive_client::dto::NewLayout;
+use strum::IntoEnumIterator;
 use wasm_bindgen::{JsCast, prelude::*};
 
-use crate::{Refresh, Route, View, act, may};
+use crate::{
+	Refresh, Route, View, act,
+	filter::reviews::{Review, Reviews},
+	may,
+};
 
 const KIOSK: &str = "?kiosk&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks";
 
@@ -255,11 +260,13 @@ fn Slot(class: String, path: String, on: Option<EventHandler<Up>>) -> Element {
 pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 	let Frame { me, .. } = use_context();
 	let Refresh(refresh) = use_context();
+	let mut reviews: Signal<Reviews> = use_context();
 	let member = tab.unwrap_or(me);
 	let gmail = gmail.map(|g| g.to_string()).unwrap_or_default();
 	let path = format!("d/ra-overview/{KIOSK}&var-member={member}&var-gmail={gmail}&var-keys={keys}&var-rev={}", refresh());
 	let on = move |up: Up| match up {
 		Up::Open { gmail, target } => {
+			reviews.set(Reviews::default());
 			navigator().push(Route::at(tab, View::Place { gmail, target }));
 		}
 		Up::Scan { gmail, target } => act(move |c| async move { c.scan_tracked(gmail, target).await.map(drop) }),
@@ -271,15 +278,20 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 	}
 }
 
-/// `ra-location` for the place: its lanes and runs. `api` is where its cards' captures are.
+/// `ra-location` for the place: its lanes and runs, narrowed by [`Reviews`] (`var-<Review:?>`: true, false, or empty for either).
+/// `api` is where its cards' captures are.
 #[component]
 pub fn Location(gmail: i64, target: i64, tab: Option<i64>) -> Element {
 	let Frame { me, .. } = use_context();
 	let Refresh(refresh) = use_context();
+	let reviews: Signal<Reviews> = use_context();
 	let member = tab.unwrap_or(me);
 	let api = js_sys::encode_uri_component(crate::base().as_str());
+	let narrowed: String = Review::iter()
+		.map(|r| format!("&var-{r:?}={}", reviews.read().0.get(&r).map(bool::to_string).unwrap_or_default()))
+		.collect();
 	let path = format!(
-		"a/evmain-tilers-app/d/ra-location{KIOSK}&_tilers.host&var-member={member}&var-gmail={gmail}&var-target={target}&var-api={api}&var-rev={}",
+		"a/evmain-tilers-app/d/ra-location{KIOSK}&_tilers.host&var-member={member}&var-gmail={gmail}&var-target={target}&var-api={api}{narrowed}&var-rev={}",
 		refresh()
 	);
 	let on = move |up: Up| match up {

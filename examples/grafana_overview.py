@@ -98,7 +98,7 @@ CONTENT = """<div class="ra-grid">
     <span class="ok" title="posted over the last 7 days, removed ones included">new 7d +{{new_7d}}</span>
     {{#if post}}<span class="ok" title="owner's latest post, {{ago post_at}}:&#10;{{post}}">posts 7d {{posts_7d}}</span>{{/if}}
     <span class="{{#if (lt responded live)}}warn{{else}}ok{{/if}}" title="replied to by the owner / live">responded {{responded}}/{{live}}</span>
-    <span class="{{#if non_five_star}}warn{{else}}ok{{/if}}" title="listed reviews under 5 stars, or unrated">non-5-star {{non_five_star}}</span>
+    <span class="soft" title="listed reviews under 5 stars, or unrated">non-5-star {{non_five_star}}</span>
     {{#if suspended}}<span class="bad" title="5-star reviews gone from the listing">suspended {{suspended}}</span>{{/if}}
     {{#if removed}}<span class="bad">removed {{removed}}</span>{{/if}}
     {{#if reinstating}}<span class="warn">reinstating {{reinstating}}</span>{{/if}}
@@ -114,6 +114,7 @@ CONTENT = """<div class="ra-grid">
 
 # String concatenation, not template literals: nothing here may read as a dashboard variable.
 HELPERS = """const h = context.handlebars;
+context.markdown.inline.ruler.enableOnly(['text', 'html_inline', 'entity']); // the panel reads its HTML as Markdown: an `_` in a name would open an <em>
 const ago = (ts) => {
   if (!ts) return '';
   const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));
@@ -162,6 +163,7 @@ STYLES = """.ra-grid { display: grid; grid-template-columns: repeat(auto-fill, m
 .ok { background: rgba(115,191,105,.15); color: #73bf69; }
 .warn { background: rgba(255,152,48,.15); color: #ff9830; }
 .bad { background: rgba(242,73,92,.15); color: #f2495c; }
+.soft { background: rgba(107,127,160,.15); color: #6b7fa0; }
 .ra-run { margin-top: auto; display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,.3); font-size: 11px; opacity: .8; }
 .ra-dot { width: 6px; height: 6px; border-radius: 999px; background: #8e8e8e; flex-shrink: 0; }
 .ra-dot-ok { background: #73bf69; } .ra-dot-partial, .ra-dot-warn { background: #ff9830; } .ra-dot-failed { background: #f2495c; }
@@ -190,7 +192,7 @@ dashboard = {
 			"id": 1,
 			"type": "stat",
 			"title": "Across locations",
-			"gridPos": {"x": 0, "y": 0, "w": 24, "h": 4},
+			"gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
 			"datasource": DS,
 			"targets": [
 				query(
@@ -233,13 +235,14 @@ dashboard = {
 				"textMode": "value_and_name",
 				"orientation": "vertical",
 				"justifyMode": "center",
+				"text": {"titleSize": 13, "valueSize": 20},
 			},
 		},
 		{
 			"id": 2,
 			"type": "marcusolsson-dynamictext-panel",
 			"title": "Locations",
-			"gridPos": {"x": 0, "y": 4, "w": 24, "h": 18},
+			"gridPos": {"x": 0, "y": 3, "w": 24, "h": 19},
 			"datasource": DS,
 			"targets": [query(CARD_COLUMNS)],
 			"options": {

@@ -98,7 +98,7 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 						}
 					}
 					span { onclick: narrowed(Review::FiveStar),
-						Badge { tone: if loc.non_five_star > 0 { Tone::Warn } else { Tone::Ok },
+						Badge { tone: Tone::Neutral,
 							span { title: "listed reviews under 5 stars, or unrated", "non-5-star {loc.non_five_star}" }
 						}
 					}

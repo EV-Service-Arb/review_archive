@@ -1,7 +1,6 @@
 //! What narrows the locations grid and a place's board: a regex over a place's text, and facets
 //! each required or ruled out. One per tab, kept across its views.
 
-#[cfg(not(feature = "grafana"))]
 pub(crate) mod reviews;
 
 use std::collections::HashMap;
@@ -16,16 +15,6 @@ use strum::IntoEnumIterator;
 enum Facet {
 	#[strum(to_string = "favorite")]
 	Favorite,
-	#[strum(to_string = "responded")]
-	Responded,
-	#[strum(to_string = "suspended")]
-	Suspended,
-	#[strum(to_string = "removed")]
-	Removed,
-	#[strum(to_string = "reinstating")]
-	Reinstating,
-	#[strum(to_string = "new 7d")]
-	New7d,
 	#[strum(to_string = "posted 7d")]
 	Posted7d,
 	#[strum(to_string = "out of tokens")]
@@ -42,11 +31,6 @@ impl Facet {
 	fn holds(self, g: &GmailDto, l: &LocationSummary) -> bool {
 		match self {
 			Self::Favorite => l.favorite,
-			Self::Responded => l.responded >= l.live,
-			Self::Suspended => l.suspended > 0,
-			Self::Removed => l.removed > 0,
-			Self::Reinstating => l.reinstating > 0,
-			Self::New7d => l.new_7d > 0,
 			Self::Posted7d => l.posts_7d > 0,
 			Self::OutOfTokens => l.held,
 			Self::Failing => matches!(l.last_run_status, Some(RunStatus::Failed | RunStatus::Partial)),

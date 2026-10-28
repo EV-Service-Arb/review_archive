@@ -562,7 +562,6 @@ fn Workspace(view: Route) -> Element {
 	});
 	let refresh = use_context_provider(|| Refresh(Signal::new(0)));
 	use_context_provider(|| Signal::new(filter::Filter::default()));
-	#[cfg(not(feature = "grafana"))]
 	use_context_provider(|| Signal::new(filter::reviews::Reviews::default()));
 	let failure = use_context_provider(|| Failure(Signal::new(None)));
 	let overview = use_resource(move || {
@@ -991,21 +990,23 @@ fn tracked(held: &[(i64, i64)], gmail: i64, address: &str, t: &TargetDto) -> Str
 	}
 }
 
+#[cfg(not(feature = "grafana"))]
 #[derive(Clone, Copy, PartialEq)]
 enum Tone {
 	Ok,
-	#[cfg(not(feature = "grafana"))]
 	Bad,
 	Warn,
+	Neutral,
 }
 
+#[cfg(not(feature = "grafana"))]
 #[component]
 fn Badge(tone: Tone, children: Element) -> Element {
 	let (variant, class) = match tone {
 		Tone::Ok => (BadgeVariant::Success, ""),
-		#[cfg(not(feature = "grafana"))]
 		Tone::Bad => (BadgeVariant::Outline, "border-transparent bg-accent-error/15 text-accent-error"),
 		Tone::Warn => (BadgeVariant::Outline, "border-transparent bg-accent-warn/15 text-accent-warn"),
+		Tone::Neutral => (BadgeVariant::Outline, "border-transparent bg-accent-trace/15 text-accent-trace"),
 	};
 	rsx! {
 		uikit_dioxus::Badge { variant, class, {children} }
