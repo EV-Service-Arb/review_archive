@@ -244,6 +244,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-chromium": {
+      "locked": {
+        "lastModified": 1782467914,
+        "narHash": "sha256-pGvFkM8N0xEkIIXDe5YYfbEAvHrk4IxBrjB/x8OomhE=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "e73de5be04e0eff4190a1432b946d469c794e7b4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "e73de5be04e0eff4190a1432b946d469c794e7b4",
+        "type": "github"
+      }
+    },
     "pre-commit-hooks": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -284,6 +300,7 @@
     "root": {
       "inputs": {
         "browser_manipulation": "browser_manipulation",
+        "nixpkgs-chromium": "nixpkgs-chromium",
         "v_flakes": "v_flakes"
       }
     },
