@@ -1,140 +1,884 @@
 {
   "uid": "ra-location",
   "title": "review_archive · location",
-  "tags": ["review_archive"],
+  "tags": [
+    "review_archive"
+  ],
   "schemaVersion": 41,
   "editable": true,
-  "time": { "from": "now-30d", "to": "now" },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
   "refresh": "1m",
   "templating": {
     "list": [
-      { "name": "target", "label": "target id", "type": "textbox", "query": "", "current": { "text": "", "value": "" } }
+      {
+        "name": "member",
+        "type": "textbox",
+        "hide": 2,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      },
+      {
+        "name": "gmail",
+        "type": "textbox",
+        "hide": 2,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      },
+      {
+        "name": "target",
+        "type": "textbox",
+        "hide": 2,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      },
+      {
+        "name": "rev",
+        "type": "textbox",
+        "hide": 2,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      },
+      {
+        "name": "api",
+        "type": "textbox",
+        "hide": 2,
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      },
+      {
+        "name": "n_snapshotted",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "ra-api"
+        },
+        "refresh": 1,
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "A",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "ra-api"
+            },
+            "type": "json",
+            "source": "url",
+            "format": "table",
+            "parser": "backend",
+            "url": "/me/gmails/${gmail}/locations/${target}/board",
+            "url_options": {
+              "method": "GET",
+              "params": [
+                {
+                  "key": "rev",
+                  "value": "${rev}"
+                }
+              ],
+              "headers": [
+                {
+                  "key": "x-member",
+                  "value": "${member}"
+                }
+              ]
+            },
+            "columns": [
+              {
+                "selector": "n",
+                "text": "n",
+                "type": "string"
+              }
+            ],
+            "root_selector": "$append([], {\"n\": $string($count($$.snapshotted))})"
+          }
+        },
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "n_suspended",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "ra-api"
+        },
+        "refresh": 1,
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "A",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "ra-api"
+            },
+            "type": "json",
+            "source": "url",
+            "format": "table",
+            "parser": "backend",
+            "url": "/me/gmails/${gmail}/locations/${target}/board",
+            "url_options": {
+              "method": "GET",
+              "params": [
+                {
+                  "key": "rev",
+                  "value": "${rev}"
+                }
+              ],
+              "headers": [
+                {
+                  "key": "x-member",
+                  "value": "${member}"
+                }
+              ]
+            },
+            "columns": [
+              {
+                "selector": "n",
+                "text": "n",
+                "type": "string"
+              }
+            ],
+            "root_selector": "$append([], {\"n\": $string($count($$.suspended))})"
+          }
+        },
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "n_removed",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "ra-api"
+        },
+        "refresh": 1,
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "A",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "ra-api"
+            },
+            "type": "json",
+            "source": "url",
+            "format": "table",
+            "parser": "backend",
+            "url": "/me/gmails/${gmail}/locations/${target}/board",
+            "url_options": {
+              "method": "GET",
+              "params": [
+                {
+                  "key": "rev",
+                  "value": "${rev}"
+                }
+              ],
+              "headers": [
+                {
+                  "key": "x-member",
+                  "value": "${member}"
+                }
+              ]
+            },
+            "columns": [
+              {
+                "selector": "n",
+                "text": "n",
+                "type": "string"
+              }
+            ],
+            "root_selector": "$append([], {\"n\": $string($count($$.removed))})"
+          }
+        },
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "n_reinstating",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "ra-api"
+        },
+        "refresh": 1,
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "A",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "ra-api"
+            },
+            "type": "json",
+            "source": "url",
+            "format": "table",
+            "parser": "backend",
+            "url": "/me/gmails/${gmail}/locations/${target}/board",
+            "url_options": {
+              "method": "GET",
+              "params": [
+                {
+                  "key": "rev",
+                  "value": "${rev}"
+                }
+              ],
+              "headers": [
+                {
+                  "key": "x-member",
+                  "value": "${member}"
+                }
+              ]
+            },
+            "columns": [
+              {
+                "selector": "n",
+                "text": "n",
+                "type": "string"
+              }
+            ],
+            "root_selector": "$append([], {\"n\": $string($count($$.reinstating))})"
+          }
+        },
+        "current": {},
+        "options": []
+      }
     ]
   },
   "panels": [
     {
+      "id": 10,
+      "type": "marcusolsson-dynamictext-panel",
+      "title": "Snapshotted · ${n_snapshotted}",
+      "dock": {
+        "minW": 220,
+        "minH": 120
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 22
+      },
+      "transparent": true,
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/me/gmails/${gmail}/locations/${target}/board",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
+            ]
+          },
+          "columns": [
+            {
+              "selector": "id",
+              "text": "id",
+              "type": "number"
+            },
+            {
+              "selector": "author",
+              "text": "author",
+              "type": "string"
+            },
+            {
+              "selector": "rating",
+              "text": "rating",
+              "type": "number"
+            },
+            {
+              "selector": "text",
+              "text": "text",
+              "type": "string"
+            },
+            {
+              "selector": "reply",
+              "text": "reply",
+              "type": "string"
+            },
+            {
+              "selector": "published_raw",
+              "text": "published_raw",
+              "type": "string"
+            },
+            {
+              "selector": "first_seen",
+              "text": "first_seen",
+              "type": "string"
+            },
+            {
+              "selector": "gone_at",
+              "text": "gone_at",
+              "type": "string"
+            },
+            {
+              "selector": "capture_url",
+              "text": "capture_url",
+              "type": "string"
+            },
+            {
+              "selector": "corrupted",
+              "text": "corrupted",
+              "type": "boolean"
+            },
+            {
+              "selector": "requested_at",
+              "text": "requested_at",
+              "type": "string"
+            },
+            {
+              "selector": "reinstated_at",
+              "text": "reinstated_at",
+              "type": "string"
+            }
+          ],
+          "root_selector": "$append([], $$.snapshotted.{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at})"
+        }
+      ],
+      "options": {
+        "renderMode": "allRows",
+        "wrap": false,
+        "editors": [
+          "helpers",
+          "afterRender",
+          "styles",
+          "default"
+        ],
+        "contentPartials": [],
+        "helpers": "const h = context.handlebars;\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('stars', (n) => '★'.repeat(Math.max(0, Math.min(5, n || 0))));\nh.registerHelper('days', (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / 86400000));\nh.registerHelper('capture', (url) => context.grafana.replaceVariables('${api}').replace(/\\/$/, '') + url);",
+        "defaultContent": "<div class=\"ra-lane\" data-lane=\"snapshotted\"></div>",
+        "content": "<div class=\"ra-lane\" data-lane=\"snapshotted\">\n{{#each data}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>{{#if published_raw}}{{published_raw}}{{else}}seen {{ago first_seen}}{{/if}}</span>\n    <div class=\"ra-badges\">\n      {{#if reinstated_at}}<span class=\"ok\">reinstated after {{days requested_at reinstated_at}}d</span>{{/if}}\n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/each}}\n</div>",
+        "afterRender": "const lane = context.element.querySelector('.ra-lane');\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
+        "styles": ".ra-lane { display: flex; flex-direction: column; gap: 12px; min-height: 100%; padding: 12px; box-sizing: border-box; }\n.ra-lane.ra-accepts { outline: 2px dashed #5794f2; outline-offset: -2px; background: rgba(87,148,242,.05); }\n.ra-card { padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; }\n.ra-card[draggable=true] { cursor: grab; }\n.ra-card img { display: block; width: 100%; border-radius: 6px; background: rgba(128,128,128,.15); }\n.ra-who { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }\n.ra-stars { color: #ff9830; }\n.ra-author { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-text { margin: 4px 0 0; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }\n.ra-reply { margin-top: 8px; padding-left: 8px; border-left: 2px solid rgba(128,128,128,.3); }\n.ra-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; opacity: .8; }\n.ra-badges { display: flex; gap: 6px; }\n.ra-badges span { padding: 1px 8px; border-radius: 999px; white-space: nowrap; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }"
+      }
+    },
+    {
+      "id": 11,
+      "type": "marcusolsson-dynamictext-panel",
+      "title": "Suspended · ${n_suspended}",
+      "dock": {
+        "minW": 220,
+        "minH": 120
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 22
+      },
+      "transparent": true,
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/me/gmails/${gmail}/locations/${target}/board",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
+            ]
+          },
+          "columns": [
+            {
+              "selector": "id",
+              "text": "id",
+              "type": "number"
+            },
+            {
+              "selector": "author",
+              "text": "author",
+              "type": "string"
+            },
+            {
+              "selector": "rating",
+              "text": "rating",
+              "type": "number"
+            },
+            {
+              "selector": "text",
+              "text": "text",
+              "type": "string"
+            },
+            {
+              "selector": "reply",
+              "text": "reply",
+              "type": "string"
+            },
+            {
+              "selector": "published_raw",
+              "text": "published_raw",
+              "type": "string"
+            },
+            {
+              "selector": "first_seen",
+              "text": "first_seen",
+              "type": "string"
+            },
+            {
+              "selector": "gone_at",
+              "text": "gone_at",
+              "type": "string"
+            },
+            {
+              "selector": "capture_url",
+              "text": "capture_url",
+              "type": "string"
+            },
+            {
+              "selector": "corrupted",
+              "text": "corrupted",
+              "type": "boolean"
+            },
+            {
+              "selector": "requested_at",
+              "text": "requested_at",
+              "type": "string"
+            },
+            {
+              "selector": "reinstated_at",
+              "text": "reinstated_at",
+              "type": "string"
+            }
+          ],
+          "root_selector": "$append([], $$.suspended.{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at})"
+        }
+      ],
+      "options": {
+        "renderMode": "allRows",
+        "wrap": false,
+        "editors": [
+          "helpers",
+          "afterRender",
+          "styles",
+          "default"
+        ],
+        "contentPartials": [],
+        "helpers": "const h = context.handlebars;\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('stars', (n) => '★'.repeat(Math.max(0, Math.min(5, n || 0))));\nh.registerHelper('days', (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / 86400000));\nh.registerHelper('capture', (url) => context.grafana.replaceVariables('${api}').replace(/\\/$/, '') + url);",
+        "defaultContent": "<div class=\"ra-lane\" data-lane=\"suspended\"></div>",
+        "content": "<div class=\"ra-lane\" data-lane=\"suspended\">\n{{#each data}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>gone {{ago gone_at}}</span>\n    <div class=\"ra-badges\">\n      \n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/each}}\n</div>",
+        "afterRender": "const lane = context.element.querySelector('.ra-lane');\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
+        "styles": ".ra-lane { display: flex; flex-direction: column; gap: 12px; min-height: 100%; padding: 12px; box-sizing: border-box; }\n.ra-lane.ra-accepts { outline: 2px dashed #5794f2; outline-offset: -2px; background: rgba(87,148,242,.05); }\n.ra-card { padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; }\n.ra-card[draggable=true] { cursor: grab; }\n.ra-card img { display: block; width: 100%; border-radius: 6px; background: rgba(128,128,128,.15); }\n.ra-who { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }\n.ra-stars { color: #ff9830; }\n.ra-author { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-text { margin: 4px 0 0; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }\n.ra-reply { margin-top: 8px; padding-left: 8px; border-left: 2px solid rgba(128,128,128,.3); }\n.ra-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; opacity: .8; }\n.ra-badges { display: flex; gap: 6px; }\n.ra-badges span { padding: 1px 8px; border-radius: 999px; white-space: nowrap; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }"
+      }
+    },
+    {
+      "id": 12,
+      "type": "marcusolsson-dynamictext-panel",
+      "title": "Removed · ${n_removed}",
+      "dock": {
+        "minW": 220,
+        "minH": 120
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 22
+      },
+      "transparent": true,
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/me/gmails/${gmail}/locations/${target}/board",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
+            ]
+          },
+          "columns": [
+            {
+              "selector": "id",
+              "text": "id",
+              "type": "number"
+            },
+            {
+              "selector": "author",
+              "text": "author",
+              "type": "string"
+            },
+            {
+              "selector": "rating",
+              "text": "rating",
+              "type": "number"
+            },
+            {
+              "selector": "text",
+              "text": "text",
+              "type": "string"
+            },
+            {
+              "selector": "reply",
+              "text": "reply",
+              "type": "string"
+            },
+            {
+              "selector": "published_raw",
+              "text": "published_raw",
+              "type": "string"
+            },
+            {
+              "selector": "first_seen",
+              "text": "first_seen",
+              "type": "string"
+            },
+            {
+              "selector": "gone_at",
+              "text": "gone_at",
+              "type": "string"
+            },
+            {
+              "selector": "capture_url",
+              "text": "capture_url",
+              "type": "string"
+            },
+            {
+              "selector": "corrupted",
+              "text": "corrupted",
+              "type": "boolean"
+            },
+            {
+              "selector": "requested_at",
+              "text": "requested_at",
+              "type": "string"
+            },
+            {
+              "selector": "reinstated_at",
+              "text": "reinstated_at",
+              "type": "string"
+            }
+          ],
+          "root_selector": "$append([], $$.removed.{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at})"
+        }
+      ],
+      "options": {
+        "renderMode": "allRows",
+        "wrap": false,
+        "editors": [
+          "helpers",
+          "afterRender",
+          "styles",
+          "default"
+        ],
+        "contentPartials": [],
+        "helpers": "const h = context.handlebars;\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('stars', (n) => '★'.repeat(Math.max(0, Math.min(5, n || 0))));\nh.registerHelper('days', (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / 86400000));\nh.registerHelper('capture', (url) => context.grafana.replaceVariables('${api}').replace(/\\/$/, '') + url);",
+        "defaultContent": "<div class=\"ra-lane\" data-lane=\"removed\"></div>",
+        "content": "<div class=\"ra-lane\" data-lane=\"removed\">\n{{#each data}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>gone {{ago gone_at}}</span>\n    <div class=\"ra-badges\">\n      \n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/each}}\n</div>",
+        "afterRender": "const lane = context.element.querySelector('.ra-lane');\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
+        "styles": ".ra-lane { display: flex; flex-direction: column; gap: 12px; min-height: 100%; padding: 12px; box-sizing: border-box; }\n.ra-lane.ra-accepts { outline: 2px dashed #5794f2; outline-offset: -2px; background: rgba(87,148,242,.05); }\n.ra-card { padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; }\n.ra-card[draggable=true] { cursor: grab; }\n.ra-card img { display: block; width: 100%; border-radius: 6px; background: rgba(128,128,128,.15); }\n.ra-who { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }\n.ra-stars { color: #ff9830; }\n.ra-author { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-text { margin: 4px 0 0; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }\n.ra-reply { margin-top: 8px; padding-left: 8px; border-left: 2px solid rgba(128,128,128,.3); }\n.ra-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; opacity: .8; }\n.ra-badges { display: flex; gap: 6px; }\n.ra-badges span { padding: 1px 8px; border-radius: 999px; white-space: nowrap; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }"
+      }
+    },
+    {
+      "id": 13,
+      "type": "marcusolsson-dynamictext-panel",
+      "title": "Reinstating · ${n_reinstating}",
+      "dock": {
+        "minW": 220,
+        "minH": 120
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 22
+      },
+      "transparent": true,
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/me/gmails/${gmail}/locations/${target}/board",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
+            ]
+          },
+          "columns": [
+            {
+              "selector": "id",
+              "text": "id",
+              "type": "number"
+            },
+            {
+              "selector": "author",
+              "text": "author",
+              "type": "string"
+            },
+            {
+              "selector": "rating",
+              "text": "rating",
+              "type": "number"
+            },
+            {
+              "selector": "text",
+              "text": "text",
+              "type": "string"
+            },
+            {
+              "selector": "reply",
+              "text": "reply",
+              "type": "string"
+            },
+            {
+              "selector": "published_raw",
+              "text": "published_raw",
+              "type": "string"
+            },
+            {
+              "selector": "first_seen",
+              "text": "first_seen",
+              "type": "string"
+            },
+            {
+              "selector": "gone_at",
+              "text": "gone_at",
+              "type": "string"
+            },
+            {
+              "selector": "capture_url",
+              "text": "capture_url",
+              "type": "string"
+            },
+            {
+              "selector": "corrupted",
+              "text": "corrupted",
+              "type": "boolean"
+            },
+            {
+              "selector": "requested_at",
+              "text": "requested_at",
+              "type": "string"
+            },
+            {
+              "selector": "reinstated_at",
+              "text": "reinstated_at",
+              "type": "string"
+            }
+          ],
+          "root_selector": "$append([], $$.reinstating.{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at})"
+        }
+      ],
+      "options": {
+        "renderMode": "allRows",
+        "wrap": false,
+        "editors": [
+          "helpers",
+          "afterRender",
+          "styles",
+          "default"
+        ],
+        "contentPartials": [],
+        "helpers": "const h = context.handlebars;\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('stars', (n) => '★'.repeat(Math.max(0, Math.min(5, n || 0))));\nh.registerHelper('days', (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / 86400000));\nh.registerHelper('capture', (url) => context.grafana.replaceVariables('${api}').replace(/\\/$/, '') + url);",
+        "defaultContent": "<div class=\"ra-lane\" data-lane=\"reinstating\"></div>",
+        "content": "<div class=\"ra-lane\" data-lane=\"reinstating\">\n{{#each data}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>requested {{ago requested_at}}</span>\n    <div class=\"ra-badges\">\n      \n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/each}}\n</div>",
+        "afterRender": "const lane = context.element.querySelector('.ra-lane');\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
+        "styles": ".ra-lane { display: flex; flex-direction: column; gap: 12px; min-height: 100%; padding: 12px; box-sizing: border-box; }\n.ra-lane.ra-accepts { outline: 2px dashed #5794f2; outline-offset: -2px; background: rgba(87,148,242,.05); }\n.ra-card { padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; }\n.ra-card[draggable=true] { cursor: grab; }\n.ra-card img { display: block; width: 100%; border-radius: 6px; background: rgba(128,128,128,.15); }\n.ra-who { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }\n.ra-stars { color: #ff9830; }\n.ra-author { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-text { margin: 4px 0 0; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }\n.ra-reply { margin-top: 8px; padding-left: 8px; border-left: 2px solid rgba(128,128,128,.3); }\n.ra-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; opacity: .8; }\n.ra-badges { display: flex; gap: 6px; }\n.ra-badges span { padding: 1px 8px; border-radius: 999px; white-space: nowrap; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }"
+      }
+    },
+    {
       "id": 1,
       "type": "state-timeline",
       "title": "Runs",
-      "dock": { "minH": 48 },
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 5 },
-      "transparent": true,
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "/targets/${target}/runs",
-          "url_options": { "method": "GET", "params": [{ "key": "limit", "value": "500" }] },
-          "columns": [
-            { "selector": "started_at", "text": "time", "type": "timestamp" },
-            { "selector": "status", "text": "status", "type": "string" }
-          ]
-        }
-      ],
-      "transformations": [{ "id": "sortBy", "options": { "sort": [{ "field": "time" }] } }],
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "ok": { "color": "green", "index": 0 },
-                "partial": { "color": "orange", "index": 1 },
-                "failed": { "color": "red", "index": 2 }
-              }
-            }
-          ]
-        },
-        "overrides": []
+      "dock": {
+        "minH": 48
       },
-      "options": { "showValue": "never", "mergeValues": false, "rowHeight": 0.8, "legend": { "showLegend": false } }
-    },
-    {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Reviews per run",
-      "dock": { "minH": 140 },
-      "gridPos": { "x": 0, "y": 9, "w": 24, "h": 9 },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
       "transparent": true,
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
           "type": "json",
           "source": "url",
           "format": "table",
           "parser": "backend",
           "url": "/targets/${target}/runs",
-          "url_options": { "method": "GET", "params": [{ "key": "limit", "value": "500" }] },
-          "columns": [
-            { "selector": "started_at", "text": "time", "type": "timestamp" },
-            { "selector": "new", "text": "new", "type": "number" },
-            { "selector": "gone", "text": "gone", "type": "number" },
-            { "selector": "changed", "text": "changed", "type": "number" },
-            { "selector": "seen", "text": "seen", "type": "number" }
-          ]
-        }
-      ],
-      "transformations": [{ "id": "sortBy", "options": { "sort": [{ "field": "time" }] } }],
-      "fieldConfig": {
-        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1 }, "decimals": 0 },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "seen" },
-            "properties": [
-              { "id": "custom.drawStyle", "value": "line" },
-              { "id": "custom.fillOpacity", "value": 0 },
-              { "id": "custom.axisPlacement", "value": "right" }
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              },
+              {
+                "key": "limit",
+                "value": "500"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
             ]
           },
-          { "matcher": { "id": "byName", "options": "new" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
-          { "matcher": { "id": "byName", "options": "gone" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
-        ]
-      },
-      "options": { "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
-    },
-    {
-      "id": 3,
-      "type": "stat",
-      "title": "Last run",
-      "dock": { "minH": 90 },
-      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 4 },
-      "transparent": true,
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "ra-api" },
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "/targets/${target}/runs",
-          "url_options": { "method": "GET", "params": [{ "key": "limit", "value": "1" }] },
           "columns": [
-            { "selector": "status", "text": "status", "type": "string" },
-            { "selector": "seen", "text": "seen", "type": "number" },
-            { "selector": "tokens", "text": "tokens", "type": "number" }
+            {
+              "selector": "started_at",
+              "text": "time",
+              "type": "timestamp"
+            },
+            {
+              "selector": "status",
+              "text": "status",
+              "type": "string"
+            }
           ]
+        }
+      ],
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "time"
+              }
+            ]
+          }
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "fixed", "fixedColor": "text" },
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [
             {
               "type": "value",
               "options": {
-                "ok": { "color": "green", "index": 0 },
-                "partial": { "color": "orange", "index": 1 },
-                "failed": { "color": "red", "index": 2 }
+                "ok": {
+                  "color": "green",
+                  "index": 0
+                },
+                "partial": {
+                  "color": "orange",
+                  "index": 1
+                },
+                "failed": {
+                  "color": "red",
+                  "index": 2
+                }
               }
             }
           ]
@@ -142,7 +886,281 @@
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": false },
+        "showValue": "never",
+        "mergeValues": false,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Reviews per run",
+      "dock": {
+        "minH": 140
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 11,
+        "w": 8,
+        "h": 11
+      },
+      "transparent": true,
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/targets/${target}/runs",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              },
+              {
+                "key": "limit",
+                "value": "500"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
+            ]
+          },
+          "columns": [
+            {
+              "selector": "started_at",
+              "text": "time",
+              "type": "timestamp"
+            },
+            {
+              "selector": "new",
+              "text": "new",
+              "type": "number"
+            },
+            {
+              "selector": "gone",
+              "text": "gone",
+              "type": "number"
+            },
+            {
+              "selector": "changed",
+              "text": "changed",
+              "type": "number"
+            },
+            {
+              "selector": "seen",
+              "text": "seen",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "time"
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seen"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "new"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gone"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Last run",
+      "dock": {
+        "minH": 90
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 5
+      },
+      "transparent": true,
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "ra-api"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "ra-api"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "/targets/${target}/runs",
+          "url_options": {
+            "method": "GET",
+            "params": [
+              {
+                "key": "rev",
+                "value": "${rev}"
+              },
+              {
+                "key": "limit",
+                "value": "1"
+              }
+            ],
+            "headers": [
+              {
+                "key": "x-member",
+                "value": "${member}"
+              }
+            ]
+          },
+          "columns": [
+            {
+              "selector": "status",
+              "text": "status",
+              "type": "string"
+            },
+            {
+              "selector": "seen",
+              "text": "seen",
+              "type": "number"
+            },
+            {
+              "selector": "tokens",
+              "text": "tokens",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "ok": {
+                  "color": "green",
+                  "index": 0
+                },
+                "partial": {
+                  "color": "orange",
+                  "index": 1
+                },
+                "failed": {
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
         "colorMode": "value",
         "graphMode": "none",
         "textMode": "value_and_name",
