@@ -292,109 +292,88 @@
         "h": 10
       },
       "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "ra-api"
+        "type": "datasource",
+        "uid": "-- Dashboard --"
       },
       "targets": [
         {
           "refId": "A",
           "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "ra-api"
+            "type": "datasource",
+            "uid": "-- Dashboard --"
           },
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "/me/overview",
-          "url_options": {
-            "method": "GET",
-            "params": [
+          "panelId": 2,
+          "withTransforms": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "gmail": true,
+              "gmail_name": true,
+              "gmail_on": true,
+              "target": true,
+              "address": true,
+              "place_id": true,
+              "favorite": true,
+              "post": true,
+              "post_at": true,
+              "corrupted": true,
+              "captured": true,
+              "non_five_star": true,
+              "held": true,
+              "last_run_error": true,
+              "scan": true,
+              "scan_since": true,
+              "scan_ahead": true,
+              "scan_cost": true
+            },
+            "renameByName": {
+              "label": "location",
+              "enabled": "on",
+              "snapshots_7d": "snapshots 7d",
+              "snapshots_30d": "snapshots 30d",
+              "live": "live",
+              "listed": "listed",
+              "new_7d": "new 7d",
+              "posts_7d": "posts 7d",
+              "responded": "responded",
+              "suspended": "suspended",
+              "removed": "removed",
+              "reinstating": "reinstating",
+              "last_run_at": "last run",
+              "last_run_status": "status"
+            },
+            "indexByName": {
+              "label": 0,
+              "enabled": 1,
+              "snapshots_7d": 2,
+              "snapshots_30d": 3,
+              "live": 4,
+              "listed": 5,
+              "new_7d": 6,
+              "posts_7d": 7,
+              "responded": 8,
+              "suspended": 9,
+              "removed": 10,
+              "reinstating": 11,
+              "last_run_at": 12,
+              "last_run_status": 13
+            }
+          }
+        },
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
               {
-                "key": "rev",
-                "value": "${rev}"
-              }
-            ],
-            "headers": [
-              {
-                "key": "x-member",
-                "value": "${member}"
+                "targetField": "last run",
+                "destinationType": "time"
               }
             ]
-          },
-          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    locations.{\n      \"key\": $string($g.id) & \":\" & $string(target.id),\n      \"gmail\": $g.id, \"gmail_name\": $g.gmail, \"gmail_on\": $g.enabled,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"favorite\": favorite, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"corrupted\": corrupted, \"captured\": captured, \"non_five_star\": non_five_star, \"suspended\": suspended, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    }\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
-          "columns": [
-            {
-              "selector": "label",
-              "text": "location",
-              "type": "string"
-            },
-            {
-              "selector": "enabled",
-              "text": "on",
-              "type": "boolean"
-            },
-            {
-              "selector": "snapshots_7d",
-              "text": "snapshots 7d",
-              "type": "number"
-            },
-            {
-              "selector": "snapshots_30d",
-              "text": "snapshots 30d",
-              "type": "number"
-            },
-            {
-              "selector": "live",
-              "text": "live",
-              "type": "number"
-            },
-            {
-              "selector": "listed",
-              "text": "listed",
-              "type": "number"
-            },
-            {
-              "selector": "new_7d",
-              "text": "new 7d",
-              "type": "number"
-            },
-            {
-              "selector": "posts_7d",
-              "text": "posts 7d",
-              "type": "number"
-            },
-            {
-              "selector": "responded",
-              "text": "responded",
-              "type": "number"
-            },
-            {
-              "selector": "suspended",
-              "text": "suspended",
-              "type": "number"
-            },
-            {
-              "selector": "removed",
-              "text": "removed",
-              "type": "number"
-            },
-            {
-              "selector": "reinstating",
-              "text": "reinstating",
-              "type": "number"
-            },
-            {
-              "selector": "last_run_at",
-              "text": "last run",
-              "type": "timestamp"
-            },
-            {
-              "selector": "last_run_status",
-              "text": "status",
-              "type": "string"
-            }
-          ]
+          }
         }
       ],
       "fieldConfig": {

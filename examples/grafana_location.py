@@ -57,11 +57,17 @@ NARROW = {
 KEPT = " and ".join(f'("${{{v}}}" = "" or ({holds}) = ("${{{v}}}" = "true"))' for v, holds in NARROW.items())
 
 
-# Infinity reads a root as JSONata only when it starts with `$` or `(`, and fails the query on an
-# empty result where `$append([], …)` gives an empty frame.
+LANES = [("snapshotted", "Snapshotted"), ("suspended", "Suspended"), ("removed", "Removed"), ("reinstating", "Reinstating")]
+COUNTS = [(f"n_{lane}", f"n_{lane}", "number") for lane, _ in LANES]
+
+
+# The lane's cards (`lane` set) after one row of every lane's count, which titles the lanes (`n_<lane>`):
+# a lane in a tab not shown queries nothing, and a variable's own query would fetch the board again.
+# Infinity reads a root as JSONata only when it starts with `$` or `(`.
 def lane_root(lane):
 	fields = ", ".join(f'"{name}": {path}' for name, path, _ in CARD)
-	return f"$append([], $$.{lane}[{KEPT}].{{{fields}}})"
+	counts = ", ".join(f'"n_{l}": $count($$.{l}[{KEPT}])' for l, _ in LANES)
+	return f'$append([{{"lane": "", {counts}}}], $$.{lane}[{KEPT}].{{{fields}, "lane": "{lane}"}})'
 
 
 # String concatenation, not template literals: nothing here may read as a dashboard variable.
@@ -91,9 +97,9 @@ WHEN = {
 def content(lane):
 	reinstated = '{{#if reinstated_at}}<span class="ok">reinstated after {{days requested_at reinstated_at}}d</span>{{/if}}' if lane == "snapshotted" else ""
 	return f"""<div class="ra-lane" data-lane="{lane}">
-{{{{#each data}}}}
+{{{{#each data}}}}{{{{#if lane}}}}
 <article class="ra-card" data-i="{{{{@index}}}}">
-  {{{{#if capture_url}}}}<img src="{{{{capture capture_url}}}}">{{{{/if}}}}
+  {{{{#if capture_url}}}}<img loading="lazy" src="{{{{capture capture_url}}}}">{{{{/if}}}}
   <div class="ra-who"><span class="ra-stars">{{{{stars rating}}}}</span><span class="ra-author">{{{{author}}}}</span></div>
   {{{{#if text}}}}<p class="ra-text">{{{{text}}}}</p>{{{{/if}}}}
   {{{{#if reply}}}}<p class="ra-text ra-reply">{{{{reply}}}}</p>{{{{/if}}}}
@@ -106,7 +112,7 @@ def content(lane):
     </div>
   </div>
 </article>
-{{{{/each}}}}
+{{{{/if}}}}{{{{/each}}}}
 </div>"""
 
 
@@ -115,6 +121,14 @@ def content(lane):
 # (asked of Google), and back to where it sits gone (withdrawn); the page
 # (crates/review_archive_web/src/grafana.rs) does the write.
 AFTER_RENDER = """const lane = context.element.querySelector('.ra-lane');
+// the default content's data is {}: no answer yet
+if (Array.isArray(context.data)) {
+  const n = context.data.find((row) => row.lane === '');
+  const vars = Object.fromEntries(Object.keys(n).filter((k) => k.startsWith('n_')).map((k) => ['var-' + k, String(n[k])]));
+  const loc = context.grafana.locationService;
+  const shown = loc.getSearchObject();
+  if (Object.keys(vars).some((k) => String(shown[k]) !== vars[k])) loc.partial(vars, true);
+}
 const up = (m) => window.parent.postMessage(m, window.location.origin);
 const onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'
   ? 'ra-reinstate'
@@ -168,13 +182,6 @@ STYLES = """.ra-lane { display: flex; flex-direction: column; gap: 12px; min-hei
 .ok { background: rgba(115,191,105,.15); color: #73bf69; }
 .warn { background: rgba(255,152,48,.15); color: #ff9830; }"""
 
-LANES = [("snapshotted", "Snapshotted"), ("suspended", "Suspended"), ("removed", "Removed"), ("reinstating", "Reinstating")]
-
-
-def count(lane):
-	q = query(BOARD, [("n", "n", "string")], root=f'$append([], {{"n": $string($count($$.{lane}[{KEPT}]))}})')
-	return {"name": f"n_{lane}", "type": "query", "hide": 2, "datasource": DS, "refresh": 1, "query": {"queryType": "infinity", "infinityQuery": q}, "current": {}, "options": []}
-
 
 def lane_panel(i, lane, title):
 	return {
@@ -186,7 +193,7 @@ def lane_panel(i, lane, title):
 		"gridPos": {"x": 8 * min(i, 1), "y": 0, "w": 8, "h": 22},
 		"transparent": True,
 		"datasource": DS,
-		"targets": [query(BOARD, [(name, name, ty) for name, _, ty in CARD], root=lane_root(lane))],
+		"targets": [query(BOARD, [(name, name, ty) for name, _, ty in CARD] + [("lane", "lane", "string")] + COUNTS, root=lane_root(lane))],
 		"options": {
 			"renderMode": "allRows",
 			"wrap": False,
@@ -211,7 +218,7 @@ dashboard = {
 	"editable": True,
 	"time": {"from": "now-30d", "to": "now"},
 	"refresh": "1m",
-	"templating": {"list": [hidden("member"), hidden("gmail"), hidden("target"), hidden("rev"), hidden("api")] + [hidden(v) for v in NARROW] + [count(lane) for lane, _ in LANES]},
+	"templating": {"list": [hidden("member"), hidden("gmail"), hidden("target"), hidden("rev"), hidden("api")] + [hidden(v) for v in NARROW] + [hidden(f"n_{lane}") for lane, _ in LANES]},
 	"panels": [lane_panel(i, lane, title) for i, (lane, title) in enumerate(LANES)]
 	+ [
 		{

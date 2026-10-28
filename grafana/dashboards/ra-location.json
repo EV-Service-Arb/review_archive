@@ -103,202 +103,46 @@
       },
       {
         "name": "n_snapshotted",
-        "type": "query",
+        "type": "textbox",
         "hide": 2,
-        "datasource": {
-          "type": "yesoreyeram-infinity-datasource",
-          "uid": "ra-api"
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
         },
-        "refresh": 1,
-        "query": {
-          "queryType": "infinity",
-          "infinityQuery": {
-            "refId": "A",
-            "datasource": {
-              "type": "yesoreyeram-infinity-datasource",
-              "uid": "ra-api"
-            },
-            "type": "json",
-            "source": "url",
-            "format": "table",
-            "parser": "backend",
-            "url": "/me/gmails/${gmail}/locations/${target}/board",
-            "url_options": {
-              "method": "GET",
-              "params": [
-                {
-                  "key": "rev",
-                  "value": "${rev}"
-                }
-              ],
-              "headers": [
-                {
-                  "key": "x-member",
-                  "value": "${member}"
-                }
-              ]
-            },
-            "columns": [
-              {
-                "selector": "n",
-                "text": "n",
-                "type": "string"
-              }
-            ],
-            "root_selector": "$append([], {\"n\": $string($count($$.snapshotted[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]))})"
-          }
-        },
-        "current": {},
         "options": []
       },
       {
         "name": "n_suspended",
-        "type": "query",
+        "type": "textbox",
         "hide": 2,
-        "datasource": {
-          "type": "yesoreyeram-infinity-datasource",
-          "uid": "ra-api"
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
         },
-        "refresh": 1,
-        "query": {
-          "queryType": "infinity",
-          "infinityQuery": {
-            "refId": "A",
-            "datasource": {
-              "type": "yesoreyeram-infinity-datasource",
-              "uid": "ra-api"
-            },
-            "type": "json",
-            "source": "url",
-            "format": "table",
-            "parser": "backend",
-            "url": "/me/gmails/${gmail}/locations/${target}/board",
-            "url_options": {
-              "method": "GET",
-              "params": [
-                {
-                  "key": "rev",
-                  "value": "${rev}"
-                }
-              ],
-              "headers": [
-                {
-                  "key": "x-member",
-                  "value": "${member}"
-                }
-              ]
-            },
-            "columns": [
-              {
-                "selector": "n",
-                "text": "n",
-                "type": "string"
-              }
-            ],
-            "root_selector": "$append([], {\"n\": $string($count($$.suspended[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]))})"
-          }
-        },
-        "current": {},
         "options": []
       },
       {
         "name": "n_removed",
-        "type": "query",
+        "type": "textbox",
         "hide": 2,
-        "datasource": {
-          "type": "yesoreyeram-infinity-datasource",
-          "uid": "ra-api"
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
         },
-        "refresh": 1,
-        "query": {
-          "queryType": "infinity",
-          "infinityQuery": {
-            "refId": "A",
-            "datasource": {
-              "type": "yesoreyeram-infinity-datasource",
-              "uid": "ra-api"
-            },
-            "type": "json",
-            "source": "url",
-            "format": "table",
-            "parser": "backend",
-            "url": "/me/gmails/${gmail}/locations/${target}/board",
-            "url_options": {
-              "method": "GET",
-              "params": [
-                {
-                  "key": "rev",
-                  "value": "${rev}"
-                }
-              ],
-              "headers": [
-                {
-                  "key": "x-member",
-                  "value": "${member}"
-                }
-              ]
-            },
-            "columns": [
-              {
-                "selector": "n",
-                "text": "n",
-                "type": "string"
-              }
-            ],
-            "root_selector": "$append([], {\"n\": $string($count($$.removed[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]))})"
-          }
-        },
-        "current": {},
         "options": []
       },
       {
         "name": "n_reinstating",
-        "type": "query",
+        "type": "textbox",
         "hide": 2,
-        "datasource": {
-          "type": "yesoreyeram-infinity-datasource",
-          "uid": "ra-api"
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
         },
-        "refresh": 1,
-        "query": {
-          "queryType": "infinity",
-          "infinityQuery": {
-            "refId": "A",
-            "datasource": {
-              "type": "yesoreyeram-infinity-datasource",
-              "uid": "ra-api"
-            },
-            "type": "json",
-            "source": "url",
-            "format": "table",
-            "parser": "backend",
-            "url": "/me/gmails/${gmail}/locations/${target}/board",
-            "url_options": {
-              "method": "GET",
-              "params": [
-                {
-                  "key": "rev",
-                  "value": "${rev}"
-                }
-              ],
-              "headers": [
-                {
-                  "key": "x-member",
-                  "value": "${member}"
-                }
-              ]
-            },
-            "columns": [
-              {
-                "selector": "n",
-                "text": "n",
-                "type": "string"
-              }
-            ],
-            "root_selector": "$append([], {\"n\": $string($count($$.reinstating[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]))})"
-          }
-        },
-        "current": {},
         "options": []
       }
     ]
@@ -410,9 +254,34 @@
               "selector": "reinstated_at",
               "text": "reinstated_at",
               "type": "string"
+            },
+            {
+              "selector": "lane",
+              "text": "lane",
+              "type": "string"
+            },
+            {
+              "selector": "n_snapshotted",
+              "text": "n_snapshotted",
+              "type": "number"
+            },
+            {
+              "selector": "n_suspended",
+              "text": "n_suspended",
+              "type": "number"
+            },
+            {
+              "selector": "n_removed",
+              "text": "n_removed",
+              "type": "number"
+            },
+            {
+              "selector": "n_reinstating",
+              "text": "n_reinstating",
+              "type": "number"
             }
           ],
-          "root_selector": "$append([], $$.snapshotted[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))].{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at})"
+          "root_selector": "$append([{\"lane\": \"\", \"n_snapshotted\": $count($$.snapshotted[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_suspended\": $count($$.suspended[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_removed\": $count($$.removed[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_reinstating\": $count($$.reinstating[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))])}], $$.snapshotted[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))].{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at, \"lane\": \"snapshotted\"})"
         }
       ],
       "options": {
@@ -427,8 +296,8 @@
         "contentPartials": [],
         "helpers": "const h = context.handlebars;\ncontext.markdown.inline.ruler.enableOnly(['text', 'html_inline', 'entity']); // the panel reads its HTML as Markdown: an `_` in a name would open an <em>\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('stars', (n) => '★'.repeat(Math.max(0, Math.min(5, n || 0))));\nh.registerHelper('days', (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / 86400000));\nh.registerHelper('capture', (url) => context.grafana.replaceVariables('${api}').replace(/\\/$/, '') + url);",
         "defaultContent": "<div class=\"ra-lane\" data-lane=\"snapshotted\"></div>",
-        "content": "<div class=\"ra-lane\" data-lane=\"snapshotted\">\n{{#each data}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>{{#if published_raw}}{{published_raw}}{{else}}seen {{ago first_seen}}{{/if}}</span>\n    <div class=\"ra-badges\">\n      {{#if reinstated_at}}<span class=\"ok\">reinstated after {{days requested_at reinstated_at}}d</span>{{/if}}\n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/each}}\n</div>",
-        "afterRender": "const lane = context.element.querySelector('.ra-lane');\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
+        "content": "<div class=\"ra-lane\" data-lane=\"snapshotted\">\n{{#each data}}{{#if lane}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img loading=\"lazy\" src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>{{#if published_raw}}{{published_raw}}{{else}}seen {{ago first_seen}}{{/if}}</span>\n    <div class=\"ra-badges\">\n      {{#if reinstated_at}}<span class=\"ok\">reinstated after {{days requested_at reinstated_at}}d</span>{{/if}}\n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/if}}{{/each}}\n</div>",
+        "afterRender": "const lane = context.element.querySelector('.ra-lane');\n// the default content's data is {}: no answer yet\nif (Array.isArray(context.data)) {\n  const n = context.data.find((row) => row.lane === '');\n  const vars = Object.fromEntries(Object.keys(n).filter((k) => k.startsWith('n_')).map((k) => ['var-' + k, String(n[k])]));\n  const loc = context.grafana.locationService;\n  const shown = loc.getSearchObject();\n  if (Object.keys(vars).some((k) => String(shown[k]) !== vars[k])) loc.partial(vars, true);\n}\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
         "styles": ".ra-lane { display: flex; flex-direction: column; gap: 12px; min-height: 100%; padding: 12px; box-sizing: border-box; }\n.ra-lane.ra-accepts { outline: 2px dashed #5794f2; outline-offset: -2px; background: rgba(87,148,242,.05); }\n.ra-card { padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; }\n.ra-card[draggable=true] { cursor: grab; }\n.ra-card img { display: block; width: 100%; border-radius: 6px; background: rgba(128,128,128,.15); }\n.ra-who { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }\n.ra-stars { color: #ff9830; }\n.ra-author { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-text { margin: 4px 0 0; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }\n.ra-reply { margin-top: 8px; padding-left: 8px; border-left: 2px solid rgba(128,128,128,.3); }\n.ra-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; opacity: .8; }\n.ra-badges { display: flex; gap: 6px; }\n.ra-badges span { padding: 1px 8px; border-radius: 999px; white-space: nowrap; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }"
       }
     },
@@ -538,9 +407,34 @@
               "selector": "reinstated_at",
               "text": "reinstated_at",
               "type": "string"
+            },
+            {
+              "selector": "lane",
+              "text": "lane",
+              "type": "string"
+            },
+            {
+              "selector": "n_snapshotted",
+              "text": "n_snapshotted",
+              "type": "number"
+            },
+            {
+              "selector": "n_suspended",
+              "text": "n_suspended",
+              "type": "number"
+            },
+            {
+              "selector": "n_removed",
+              "text": "n_removed",
+              "type": "number"
+            },
+            {
+              "selector": "n_reinstating",
+              "text": "n_reinstating",
+              "type": "number"
             }
           ],
-          "root_selector": "$append([], $$.suspended[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))].{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at})"
+          "root_selector": "$append([{\"lane\": \"\", \"n_snapshotted\": $count($$.snapshotted[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_suspended\": $count($$.suspended[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_removed\": $count($$.removed[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_reinstating\": $count($$.reinstating[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))])}], $$.suspended[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))].{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at, \"lane\": \"suspended\"})"
         }
       ],
       "options": {
@@ -555,8 +449,8 @@
         "contentPartials": [],
         "helpers": "const h = context.handlebars;\ncontext.markdown.inline.ruler.enableOnly(['text', 'html_inline', 'entity']); // the panel reads its HTML as Markdown: an `_` in a name would open an <em>\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('stars', (n) => '★'.repeat(Math.max(0, Math.min(5, n || 0))));\nh.registerHelper('days', (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / 86400000));\nh.registerHelper('capture', (url) => context.grafana.replaceVariables('${api}').replace(/\\/$/, '') + url);",
         "defaultContent": "<div class=\"ra-lane\" data-lane=\"suspended\"></div>",
-        "content": "<div class=\"ra-lane\" data-lane=\"suspended\">\n{{#each data}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>gone {{ago gone_at}}</span>\n    <div class=\"ra-badges\">\n      \n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/each}}\n</div>",
-        "afterRender": "const lane = context.element.querySelector('.ra-lane');\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
+        "content": "<div class=\"ra-lane\" data-lane=\"suspended\">\n{{#each data}}{{#if lane}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img loading=\"lazy\" src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>gone {{ago gone_at}}</span>\n    <div class=\"ra-badges\">\n      \n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/if}}{{/each}}\n</div>",
+        "afterRender": "const lane = context.element.querySelector('.ra-lane');\n// the default content's data is {}: no answer yet\nif (Array.isArray(context.data)) {\n  const n = context.data.find((row) => row.lane === '');\n  const vars = Object.fromEntries(Object.keys(n).filter((k) => k.startsWith('n_')).map((k) => ['var-' + k, String(n[k])]));\n  const loc = context.grafana.locationService;\n  const shown = loc.getSearchObject();\n  if (Object.keys(vars).some((k) => String(shown[k]) !== vars[k])) loc.partial(vars, true);\n}\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
         "styles": ".ra-lane { display: flex; flex-direction: column; gap: 12px; min-height: 100%; padding: 12px; box-sizing: border-box; }\n.ra-lane.ra-accepts { outline: 2px dashed #5794f2; outline-offset: -2px; background: rgba(87,148,242,.05); }\n.ra-card { padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; }\n.ra-card[draggable=true] { cursor: grab; }\n.ra-card img { display: block; width: 100%; border-radius: 6px; background: rgba(128,128,128,.15); }\n.ra-who { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }\n.ra-stars { color: #ff9830; }\n.ra-author { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-text { margin: 4px 0 0; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }\n.ra-reply { margin-top: 8px; padding-left: 8px; border-left: 2px solid rgba(128,128,128,.3); }\n.ra-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; opacity: .8; }\n.ra-badges { display: flex; gap: 6px; }\n.ra-badges span { padding: 1px 8px; border-radius: 999px; white-space: nowrap; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }"
       }
     },
@@ -666,9 +560,34 @@
               "selector": "reinstated_at",
               "text": "reinstated_at",
               "type": "string"
+            },
+            {
+              "selector": "lane",
+              "text": "lane",
+              "type": "string"
+            },
+            {
+              "selector": "n_snapshotted",
+              "text": "n_snapshotted",
+              "type": "number"
+            },
+            {
+              "selector": "n_suspended",
+              "text": "n_suspended",
+              "type": "number"
+            },
+            {
+              "selector": "n_removed",
+              "text": "n_removed",
+              "type": "number"
+            },
+            {
+              "selector": "n_reinstating",
+              "text": "n_reinstating",
+              "type": "number"
             }
           ],
-          "root_selector": "$append([], $$.removed[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))].{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at})"
+          "root_selector": "$append([{\"lane\": \"\", \"n_snapshotted\": $count($$.snapshotted[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_suspended\": $count($$.suspended[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_removed\": $count($$.removed[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_reinstating\": $count($$.reinstating[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))])}], $$.removed[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))].{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at, \"lane\": \"removed\"})"
         }
       ],
       "options": {
@@ -683,8 +602,8 @@
         "contentPartials": [],
         "helpers": "const h = context.handlebars;\ncontext.markdown.inline.ruler.enableOnly(['text', 'html_inline', 'entity']); // the panel reads its HTML as Markdown: an `_` in a name would open an <em>\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('stars', (n) => '★'.repeat(Math.max(0, Math.min(5, n || 0))));\nh.registerHelper('days', (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / 86400000));\nh.registerHelper('capture', (url) => context.grafana.replaceVariables('${api}').replace(/\\/$/, '') + url);",
         "defaultContent": "<div class=\"ra-lane\" data-lane=\"removed\"></div>",
-        "content": "<div class=\"ra-lane\" data-lane=\"removed\">\n{{#each data}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>gone {{ago gone_at}}</span>\n    <div class=\"ra-badges\">\n      \n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/each}}\n</div>",
-        "afterRender": "const lane = context.element.querySelector('.ra-lane');\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
+        "content": "<div class=\"ra-lane\" data-lane=\"removed\">\n{{#each data}}{{#if lane}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img loading=\"lazy\" src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>gone {{ago gone_at}}</span>\n    <div class=\"ra-badges\">\n      \n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/if}}{{/each}}\n</div>",
+        "afterRender": "const lane = context.element.querySelector('.ra-lane');\n// the default content's data is {}: no answer yet\nif (Array.isArray(context.data)) {\n  const n = context.data.find((row) => row.lane === '');\n  const vars = Object.fromEntries(Object.keys(n).filter((k) => k.startsWith('n_')).map((k) => ['var-' + k, String(n[k])]));\n  const loc = context.grafana.locationService;\n  const shown = loc.getSearchObject();\n  if (Object.keys(vars).some((k) => String(shown[k]) !== vars[k])) loc.partial(vars, true);\n}\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
         "styles": ".ra-lane { display: flex; flex-direction: column; gap: 12px; min-height: 100%; padding: 12px; box-sizing: border-box; }\n.ra-lane.ra-accepts { outline: 2px dashed #5794f2; outline-offset: -2px; background: rgba(87,148,242,.05); }\n.ra-card { padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; }\n.ra-card[draggable=true] { cursor: grab; }\n.ra-card img { display: block; width: 100%; border-radius: 6px; background: rgba(128,128,128,.15); }\n.ra-who { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }\n.ra-stars { color: #ff9830; }\n.ra-author { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-text { margin: 4px 0 0; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }\n.ra-reply { margin-top: 8px; padding-left: 8px; border-left: 2px solid rgba(128,128,128,.3); }\n.ra-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; opacity: .8; }\n.ra-badges { display: flex; gap: 6px; }\n.ra-badges span { padding: 1px 8px; border-radius: 999px; white-space: nowrap; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }"
       }
     },
@@ -794,9 +713,34 @@
               "selector": "reinstated_at",
               "text": "reinstated_at",
               "type": "string"
+            },
+            {
+              "selector": "lane",
+              "text": "lane",
+              "type": "string"
+            },
+            {
+              "selector": "n_snapshotted",
+              "text": "n_snapshotted",
+              "type": "number"
+            },
+            {
+              "selector": "n_suspended",
+              "text": "n_suspended",
+              "type": "number"
+            },
+            {
+              "selector": "n_removed",
+              "text": "n_removed",
+              "type": "number"
+            },
+            {
+              "selector": "n_reinstating",
+              "text": "n_reinstating",
+              "type": "number"
             }
           ],
-          "root_selector": "$append([], $$.reinstating[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))].{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at})"
+          "root_selector": "$append([{\"lane\": \"\", \"n_snapshotted\": $count($$.snapshotted[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_suspended\": $count($$.suspended[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_removed\": $count($$.removed[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))]), \"n_reinstating\": $count($$.reinstating[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))])}], $$.reinstating[(\"${FiveStar}\" = \"\" or (review.rating = 5) = (\"${FiveStar}\" = \"true\")) and (\"${Responded}\" = \"\" or ($type(review.reply) = \"string\") = (\"${Responded}\" = \"true\")) and (\"${New7d}\" = \"\" or ($type(review.published_est) = \"string\" and $toMillis(review.published_est) >= $millis() - 7 * 86400000) = (\"${New7d}\" = \"true\"))].{\"id\": review.id, \"author\": review.author, \"rating\": review.rating, \"text\": review.text, \"reply\": review.reply, \"published_raw\": review.published_raw, \"first_seen\": review.first_seen, \"gone_at\": review.gone_at, \"capture_url\": review.capture_url, \"corrupted\": review.capture_corrupted, \"requested_at\": reinstatement.requested_at, \"reinstated_at\": reinstatement.reinstated_at, \"lane\": \"reinstating\"})"
         }
       ],
       "options": {
@@ -811,8 +755,8 @@
         "contentPartials": [],
         "helpers": "const h = context.handlebars;\ncontext.markdown.inline.ruler.enableOnly(['text', 'html_inline', 'entity']); // the panel reads its HTML as Markdown: an `_` in a name would open an <em>\nconst ago = (ts) => {\n  if (!ts) return '';\n  const s = Math.max(0, Math.floor((Date.now() - Date.parse(ts)) / 1000));\n  if (s < 90) return 'just now';\n  if (s < 90 * 60) return Math.floor(s / 60) + 'm ago';\n  if (s < 36 * 3600) return Math.floor(s / 3600) + 'h ago';\n  return Math.floor(s / 86400) + 'd ago';\n};\nh.registerHelper('ago', ago);\nh.registerHelper('stars', (n) => '★'.repeat(Math.max(0, Math.min(5, n || 0))));\nh.registerHelper('days', (from, to) => Math.floor((Date.parse(to) - Date.parse(from)) / 86400000));\nh.registerHelper('capture', (url) => context.grafana.replaceVariables('${api}').replace(/\\/$/, '') + url);",
         "defaultContent": "<div class=\"ra-lane\" data-lane=\"reinstating\"></div>",
-        "content": "<div class=\"ra-lane\" data-lane=\"reinstating\">\n{{#each data}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>requested {{ago requested_at}}</span>\n    <div class=\"ra-badges\">\n      \n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/each}}\n</div>",
-        "afterRender": "const lane = context.element.querySelector('.ra-lane');\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
+        "content": "<div class=\"ra-lane\" data-lane=\"reinstating\">\n{{#each data}}{{#if lane}}\n<article class=\"ra-card\" data-i=\"{{@index}}\">\n  {{#if capture_url}}<img loading=\"lazy\" src=\"{{capture capture_url}}\">{{/if}}\n  <div class=\"ra-who\"><span class=\"ra-stars\">{{stars rating}}</span><span class=\"ra-author\">{{author}}</span></div>\n  {{#if text}}<p class=\"ra-text\">{{text}}</p>{{/if}}\n  {{#if reply}}<p class=\"ra-text ra-reply\">{{reply}}</p>{{/if}}\n  <div class=\"ra-foot\">\n    <span>requested {{ago requested_at}}</span>\n    <div class=\"ra-badges\">\n      \n      {{#if corrupted}}<span class=\"warn\" title=\"the screenshot is cut off; the next scan retakes it\">corrupted</span>{{/if}}\n      {{#if reply}}<span class=\"ok\">responded</span>{{else}}<span class=\"warn\">no reply</span>{{/if}}\n    </div>\n  </div>\n</article>\n{{/if}}{{/each}}\n</div>",
+        "afterRender": "const lane = context.element.querySelector('.ra-lane');\n// the default content's data is {}: no answer yet\nif (Array.isArray(context.data)) {\n  const n = context.data.find((row) => row.lane === '');\n  const vars = Object.fromEntries(Object.keys(n).filter((k) => k.startsWith('n_')).map((k) => ['var-' + k, String(n[k])]));\n  const loc = context.grafana.locationService;\n  const shown = loc.getSearchObject();\n  if (Object.keys(vars).some((k) => String(shown[k]) !== vars[k])) loc.partial(vars, true);\n}\nconst up = (m) => window.parent.postMessage(m, window.location.origin);\nconst onto = (d, to) => (d.from === 'suspended' || d.from === 'removed') && to === 'reinstating'\n  ? 'ra-reinstate'\n  : d.from === 'reinstating' && to === d.gone ? 'ra-withdraw' : null;\nconst dragged = () => document.body.dataset.raDrag && JSON.parse(document.body.dataset.raDrag);\nconst done = () => {\n  delete document.body.dataset.raDrag;\n  document.querySelectorAll('.ra-accepts').forEach((l) => l.classList.remove('ra-accepts'));\n};\n// Grafana's sanitizer drops `draggable` from the content\nconst movable = lane.dataset.lane === 'snapshotted' ? [] : lane.querySelectorAll('.ra-card');\nmovable.forEach((card) => {\n  const row = context.data[Number(card.dataset.i)];\n  card.draggable = true;\n  card.querySelectorAll('img').forEach((img) => (img.draggable = false));\n  card.addEventListener('dragstart', (e) => {\n    e.dataTransfer.setData('text/plain', String(row.id)); // Firefox starts no drag without data\n    const d = { review: row.id, from: lane.dataset.lane, gone: row.rating === 5 ? 'suspended' : 'removed' };\n    document.body.dataset.raDrag = JSON.stringify(d);\n    document.querySelectorAll('.ra-lane').forEach((l) => l.classList.toggle('ra-accepts', !!onto(d, l.dataset.lane)));\n  });\n  card.addEventListener('dragend', done);\n});\n// a lane in a tab is drawn once shown, which a drag over its tab may do\nlane.classList.toggle('ra-accepts', !!(dragged() && onto(dragged(), lane.dataset.lane)));\nlane.addEventListener('dragover', (e) => {\n  const d = dragged();\n  if (d && onto(d, lane.dataset.lane)) e.preventDefault();\n});\nlane.addEventListener('drop', (e) => {\n  e.preventDefault();\n  const d = dragged();\n  done();\n  const kind = d && onto(d, lane.dataset.lane);\n  if (kind) up({ kind, review: d.review });\n});",
         "styles": ".ra-lane { display: flex; flex-direction: column; gap: 12px; min-height: 100%; padding: 12px; box-sizing: border-box; }\n.ra-lane.ra-accepts { outline: 2px dashed #5794f2; outline-offset: -2px; background: rgba(87,148,242,.05); }\n.ra-card { padding: 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; }\n.ra-card[draggable=true] { cursor: grab; }\n.ra-card img { display: block; width: 100%; border-radius: 6px; background: rgba(128,128,128,.15); }\n.ra-who { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }\n.ra-stars { color: #ff9830; }\n.ra-author { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.ra-text { margin: 4px 0 0; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }\n.ra-reply { margin-top: 8px; padding-left: 8px; border-left: 2px solid rgba(128,128,128,.3); }\n.ra-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11px; opacity: .8; }\n.ra-badges { display: flex; gap: 6px; }\n.ra-badges span { padding: 1px 8px; border-radius: 999px; white-space: nowrap; }\n.ok { background: rgba(115,191,105,.15); color: #73bf69; }\n.warn { background: rgba(255,152,48,.15); color: #ff9830; }"
       }
     },

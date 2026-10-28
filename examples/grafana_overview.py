@@ -3,6 +3,8 @@
 import json
 
 DS = {"type": "yesoreyeram-infinity-datasource", "uid": "ra-api"}
+# another panel's query results, so its URL is fetched once
+SHARED = {"type": "datasource", "uid": "-- Dashboard --"}
 
 # Grafana interpolates ${gmail} and ${keys} before Infinity evaluates the JSONata; JSONata's own
 # $names must not be a dashboard variable's. Infinity's JSONata (jsonata-go) gives null, not
@@ -84,6 +86,24 @@ CARD_COLUMNS = [
 	("scan_ahead", "scan_ahead", "number"),
 	("scan_cost", "scan_cost", "number"),
 ]
+
+# the cards' columns the table shows, under its names, in its order
+TABLE = {
+	"label": "location",
+	"enabled": "on",
+	"snapshots_7d": "snapshots 7d",
+	"snapshots_30d": "snapshots 30d",
+	"live": "live",
+	"listed": "listed",
+	"new_7d": "new 7d",
+	"posts_7d": "posts 7d",
+	"responded": "responded",
+	"suspended": "suspended",
+	"removed": "removed",
+	"reinstating": "reinstating",
+	"last_run_at": "last run",
+	"last_run_status": "status",
+}
 
 CONTENT = """<div class="ra-grid">
 {{#each data}}
@@ -252,26 +272,11 @@ dashboard = {
 			"type": "table",
 			"title": "All locations",
 			"gridPos": {"x": 0, "y": 22, "w": 24, "h": 10},
-			"datasource": DS,
-			"targets": [
-				query(
-					[
-						("label", "location", "string"),
-						("enabled", "on", "boolean"),
-						("snapshots_7d", "snapshots 7d", "number"),
-						("snapshots_30d", "snapshots 30d", "number"),
-						("live", "live", "number"),
-						("listed", "listed", "number"),
-						("new_7d", "new 7d", "number"),
-						("posts_7d", "posts 7d", "number"),
-						("responded", "responded", "number"),
-						("suspended", "suspended", "number"),
-						("removed", "removed", "number"),
-						("reinstating", "reinstating", "number"),
-						("last_run_at", "last run", "timestamp"),
-						("last_run_status", "status", "string"),
-					]
-				)
+			"datasource": SHARED,
+			"targets": [{"refId": "A", "datasource": SHARED, "panelId": 2, "withTransforms": True}],
+			"transformations": [
+				{"id": "organize", "options": {"excludeByName": {name: True for name, _, _ in CARD_COLUMNS if name not in TABLE}, "renameByName": TABLE, "indexByName": {name: i for i, name in enumerate(TABLE)}}},
+				{"id": "convertFieldType", "options": {"conversions": [{"targetField": "last run", "destinationType": "time"}]}},
 			],
 			"fieldConfig": {
 				"defaults": {"custom": {"align": "auto", "filterable": True}},
