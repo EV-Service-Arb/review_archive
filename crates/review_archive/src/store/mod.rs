@@ -370,6 +370,7 @@ struct KnownRow {
 	source_review_id: String,
 	content_hash: String,
 	capture_pending: bool,
+	replied: bool,
 	gone_at: Option<String>,
 	published_est: Option<String>,
 	published_raw: Option<String>,
@@ -607,7 +608,7 @@ impl Store {
 		.wrap_err("loading a target's scan state")?
 		.ok_or_else(|| no_target(target))?;
 		let rows: Vec<KnownRow> = sqlx::query_as(
-			"SELECT id, source_review_id, content_hash, capture_pending, gone_at, published_est, published_raw, author, rating, text
+			"SELECT id, source_review_id, content_hash, capture_pending, reply IS NOT NULL AS replied, gone_at, published_est, published_raw, author, rating, text
 			 FROM reviews WHERE target_id = ?",
 		)
 		.bind(target.0)
@@ -620,6 +621,7 @@ impl Store {
 				id: ReviewId(r.id),
 				content_hash: r.content_hash,
 				capture_pending: r.capture_pending,
+				replied: r.replied,
 				gone: r.gone_at.is_some(),
 				published_est: r.published_est.as_deref().map(parse_ts).transpose()?,
 				published_raw: r.published_raw,

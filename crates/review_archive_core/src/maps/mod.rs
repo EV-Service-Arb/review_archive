@@ -138,8 +138,8 @@ impl Walked {
 
 /// The scan of a target: capture what is new or pending, and stop after a full screen of
 /// archived cards in a row (everything older is archived too) — but only once past where
-/// the last walk was cut short, with every pending review found or passed, and never on a
-/// target's first scan, which reads the whole list.
+/// the last walk was cut short, with every review not [completed](crate::KnownReview::completed)
+/// found or passed, and never on a target's first scan, which reads the whole list.
 #[derive(Debug)]
 pub struct NewestFirst<'a> {
 	known: &'a Known,
@@ -150,8 +150,8 @@ pub struct NewestFirst<'a> {
 	caught_up: bool,
 	/// Past [`Known::cut_after`] (from the start, when there is none).
 	past_cut: bool,
-	/// Pending reviews not yet read, with the earliest each can have been posted.
-	pending: HashMap<&'a str, Timestamp>,
+	/// Reviews not completed and not yet read, with the earliest each can have been posted.
+	unfinished: HashMap<&'a str, Timestamp>,
 	/// The latest the last dated card read can have been posted.
 	last_card_at: Option<Timestamp>,
 }
@@ -159,10 +159,10 @@ pub struct NewestFirst<'a> {
 impl<'a> NewestFirst<'a> {
 	/// A policy against what `known` holds; `now` dates the cards' relative dates.
 	pub fn new(known: &'a Known, now: Timestamp) -> Self {
-		let pending = known
+		let unfinished = known
 			.reviews
 			.iter()
-			.filter(|(_, k)| k.capture_pending && !k.gone)
+			.filter(|(_, k)| !k.completed() && !k.gone)
 			.filter_map(|(id, k)| Some((id.as_str(), k.earliest()?)))
 			.collect();
 		Self {
@@ -171,20 +171,20 @@ impl<'a> NewestFirst<'a> {
 			known_run: 0,
 			caught_up: false,
 			past_cut: known.cut_after.is_none(),
-			pending,
+			unfinished,
 			last_card_at: None,
 		}
 	}
 
-	/// Pending reviews the walk has neither read nor gone past.
+	/// Unfinished reviews the walk has neither read nor gone past.
 	fn unreached(&self) -> usize {
-		self.pending.values().filter(|&&earliest| self.last_card_at.is_none_or(|last| earliest <= last)).count()
+		self.unfinished.values().filter(|&&earliest| self.last_card_at.is_none_or(|last| earliest <= last)).count()
 	}
 
 	/// The scan the walk amounts to. `max` is the limit it was given: a scheduled scan that
 	/// hits it before reaching archived cards leaves a gap, which is a warning — and
 	/// [`Scan::cut_after`], so that the next scan fills it. So does one cut short with
-	/// reviews still without a screenshot below it — once: a gap-filling scan that still
+	/// unfinished reviews below it — once: a gap-filling scan that still
 	/// cannot reach them leaves them pending. A walk that never got past the old cut keeps
 	/// it, even at an idle feed. A target's first scan stopping at its limit leaves no gap:
 	/// that limit is how deep the archive goes.
@@ -208,13 +208,13 @@ impl<'a> NewestFirst<'a> {
 			// a first scan reads the whole list, whatever ad-hoc captures archived of it
 			last
 		} else if unreached > 0 && !filling_gap {
-			// caught up, but reviews still without a screenshot lie deeper than this scan may
-			// read: the next one reads deeper, once
+			// caught up, but unfinished reviews lie deeper than this scan may read: the next
+			// one reads deeper, once
 			last
 		} else {
 			if unreached > 0 {
 				scan.warnings.push(Warning::Limit(format!(
-					"{unreached} reviews still without a screenshot lie deeper than a scan reads; they stay pending"
+					"{unreached} reviews still without a screenshot or an owner's reply lie deeper than a scan reads; they stay unread"
 				)));
 			}
 			None
@@ -228,7 +228,8 @@ impl<'a> NewestFirst<'a> {
 				.push(Warning::Limit("out of tokens before the end of the list; the next scan goes on from its last card".to_owned()));
 		}
 		if end.cut_short() && unreached > 0 && cut_after.is_some() {
-			scan.warnings.push(Warning::Limit(format!("{unreached} reviews still without a screenshot were not reached")));
+			scan.warnings
+				.push(Warning::Limit(format!("{unreached} reviews still without a screenshot or an owner's reply were not reached")));
 		}
 		scan.cut_after = cut_after;
 		scan
@@ -236,9 +237,9 @@ impl<'a> NewestFirst<'a> {
 }
 
 impl WalkPolicy for NewestFirst<'_> {
-	/// Not when the count is the last scan's and nothing is owed below the top of the list.
+	/// Not when the count is the last scan's and every review is completed.
 	fn wants_list(&self, total: Option<u64>) -> bool {
-		let owed = self.known.initial || self.known.cut_after.is_some() || self.known.reviews.values().any(|k| k.capture_pending && !k.gone);
+		let owed = self.known.initial || self.known.cut_after.is_some() || self.known.reviews.values().any(|k| !k.completed() && !k.gone);
 		owed || total.is_none() || total != self.known.listed
 	}
 
@@ -249,7 +250,7 @@ impl WalkPolicy for NewestFirst<'_> {
 	fn observe(&mut self, card: &Card) {
 		let at = card.date_raw.as_deref().and_then(|d| relative_date::estimate(d, self.now));
 		self.last_card_at = at.or(self.last_card_at);
-		self.pending.remove(card.id.as_str());
+		self.unfinished.remove(card.id.as_str());
 		if !self.past_cut {
 			let cut = self.known.cut_after.as_deref();
 			// the cut card itself, or one that is surely older than it (it may be gone)
@@ -438,6 +439,7 @@ mod tests {
 						id: ReviewId(i as i64),
 						content_hash: String::new(),
 						capture_pending: pending.contains(&id.as_str()),
+						replied: true,
 						gone: false,
 						published_est: Some("2026-08-25T00:00:00Z".parse().unwrap()),
 						published_raw: Some("a week ago".into()),
@@ -557,7 +559,10 @@ mod tests {
 		(0..SCREEN).for_each(|i| p.observe(&card(&format!("k{i}"), "a day ago").0));
 		assert!(!p.satisfied(), "the pending one (posted 2026-08-18 at the earliest) is further down");
 		let capped = p.conclude(walked(vec![card("k0", "a day ago")], WalkEnd::Cap, true, None), 10, now());
-		assert_eq!(capped.warnings, [Warning::Limit("1 reviews still without a screenshot were not reached".into())]);
+		assert_eq!(
+			capped.warnings,
+			[Warning::Limit("1 reviews still without a screenshot or an owner's reply were not reached".into())]
+		);
 		assert_eq!(capped.cut_after.as_deref(), Some("k0"), "the next scan reads deeper, with the larger limit");
 		p.observe(&card("older", "2 months ago").0);
 		assert!(p.satisfied(), "walked past it: it is gone from the list, or its date moved");
@@ -578,7 +583,9 @@ mod tests {
 		assert_eq!(s.cut_after, None);
 		assert_eq!(
 			s.warnings,
-			[Warning::Limit("1 reviews still without a screenshot lie deeper than a scan reads; they stay pending".into())]
+			[Warning::Limit(
+				"1 reviews still without a screenshot or an owner's reply lie deeper than a scan reads; they stay unread".into()
+			)]
 		);
 	}
 

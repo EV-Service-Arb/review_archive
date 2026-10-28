@@ -49,11 +49,11 @@ Out — do not build, even as an option:
   date as printed); it is kept once per distinct text (`posts`), with when it was first
   and last seen. Only the latest shows there: two posts between scans keep the newer.
 - Open the Reviews tab. When the place's review count is the one the last scan read
-  (`targets.listed`; ad-hoc captures do not set it), and no gap or pending screenshot is
-  owed, stop there: the run lists nothing and judges nothing. Otherwise sort by *Newest*,
-  scroll the feed. Stop when a full screen of
+  (`targets.listed`; ad-hoc captures do not set it), no gap is owed, and every review is
+  completed — screenshotted, and replied to by the owner — stop there: the run lists nothing
+  and judges nothing. Otherwise sort by *Newest*, scroll the feed. Stop when a full screen of
   cards is already known (cards still without a screenshot do not count, and the walk
-  goes on until it has read or passed every one of those), or at `max_reviews_per_scan`
+  goes on until it has read or passed every review not completed), or at `max_reviews_per_scan`
   (default 200).
   First scan of a target walks the whole list (bounded by
   `max_reviews_initial`, default 2000), whatever ad-hoc captures stored before it.
