@@ -81,6 +81,11 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 							span { title: "reviews whose every screenshot is cut off / reviews with one; the next scan retakes them", "corrupted {loc.corrupted}/{loc.captured}" }
 						}
 					}
+					if loc.suspended > 0 {
+						Badge { tone: Tone::Bad,
+							span { title: "5-star reviews gone from the listing", "suspended {loc.suspended}" }
+						}
+					}
 					if loc.removed > 0 {
 						Badge { tone: Tone::Bad, "removed {loc.removed}" }
 					}

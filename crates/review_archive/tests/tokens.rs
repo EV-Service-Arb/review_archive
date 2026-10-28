@@ -10,7 +10,7 @@ use review_archive::{
 	config::Config,
 	core::{
 		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId, Warning,
-		dto::{BalanceChange, LocationSummary, NewGmail, NewTarget, ScanState, TokenKind, UsageDay},
+		dto::{BalanceChange, KickbackWhy, LocationSummary, NewGmail, NewTarget, ScanState, TokenKind, UsageDay},
 		schedule::Schedule,
 		tokens::{Meter, Tokens},
 	},
@@ -178,7 +178,7 @@ async fn renewal_stops_at_the_cap_and_never_takes_back() {
 	assert_eq!(store.balance(a, day(4) + SignedDuration::from_hours(5), &cfg).await.unwrap(), 415, "once a day");
 	assert_eq!(store.balance(a, day(100), &cfg).await.unwrap(), 500);
 
-	let bought = store.change_balance(a, BalanceChange::Purchase(200), "root", Some("inv-1"), day(100), &cfg).await.unwrap();
+	let bought = store.change_balance(a, BalanceChange::Add(200), "root", Some("inv-1"), day(100), &cfg).await.unwrap();
 	assert_eq!(bought, 700);
 	assert_eq!(store.balance(a, day(130), &cfg).await.unwrap(), 700, "above the cap stays");
 
@@ -409,8 +409,15 @@ async fn a_failure_is_kicked_back() {
 	let tokens = archive.tokens(a).await.unwrap();
 	assert_eq!(tokens.balance, 80, "charged all the same");
 	assert_eq!(
-		tokens.kickbacks.iter().map(|k| (k.run_id, k.amount, k.why.as_str())).collect::<Vec<_>>(),
-		[(rec.run.0, 20, "screenshot of x failed")]
+		tokens.kickbacks.iter().map(|k| (k.amount, &k.why)).collect::<Vec<_>>(),
+		[(
+			20,
+			&KickbackWhy::Failed {
+				run_id: rec.run.0,
+				target_label: t.place_id.clone(),
+				error: "screenshot of x failed".into()
+			}
+		)]
 	);
 
 	let claimed = archive.claim_kickbacks(a).await.unwrap();
@@ -449,7 +456,15 @@ async fn a_purged_places_tokens_stay_under_other() {
 	archive.purge_untracked(Timestamp::now() + SignedDuration::from_hours(24 * 7)).await.unwrap();
 	let tokens = archive.tokens(a).await.unwrap();
 	assert_eq!(tokens.balance, 70);
-	assert_eq!(tokens.kickbacks.iter().map(|k| (k.target_label.as_str(), k.amount)).collect::<Vec<_>>(), [("other", 10)]);
+	let labels: Vec<_> = tokens
+		.kickbacks
+		.iter()
+		.map(|k| match &k.why {
+			KickbackWhy::Failed { target_label, .. } => (target_label.as_str(), k.amount),
+			KickbackWhy::Granted { .. } => unreachable!("none granted"),
+		})
+		.collect();
+	assert_eq!(labels, [("other", 10)]);
 	let charges: Vec<_> = archive
 		.ledger(a)
 		.await

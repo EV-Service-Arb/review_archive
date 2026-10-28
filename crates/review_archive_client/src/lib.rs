@@ -264,7 +264,7 @@ impl Client {
 		Self::json(self.request(Method::GET, "members")?).await
 	}
 
-	/// `POST /members/{id}/tokens`: sets a member's balance or adds to it.
+	/// `POST /members/{id}/tokens`: sets a member's balance, adds to it, or owes them a grant.
 	pub async fn change_tokens(&self, member: i64, change: &TokensChange) -> Result<TokensDto, Error> {
 		Self::json(self.request(Method::POST, &format!("members/{member}/tokens"))?.json(change)).await
 	}

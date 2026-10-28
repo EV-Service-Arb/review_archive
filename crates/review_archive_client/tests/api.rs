@@ -12,8 +12,8 @@ use review_archive::{
 	core::{
 		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
 		dto::{
-			BalanceChange, CaptureRequest, Event, JobStatus, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch, TokenKind,
-			TokensChange, TokensDto, TrackPatch,
+			BalanceChange, CaptureRequest, Event, JobStatus, KickbackWhy, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch,
+			TokenKind, TokensChange, TokensDto, TrackPatch,
 		},
 		tokens::Meter,
 	},
@@ -983,10 +983,47 @@ async fn an_admin_sets_a_members_tokens() {
 		[(TokenKind::Set, -992, Some("root@x.com")), (TokenKind::Accrual, 1000, None)]
 	);
 	let bad = TokensChange {
-		change: BalanceChange::Grant(0),
+		change: BalanceChange::Add(0),
 		note: None,
 	};
 	assert_eq!(admin.change_tokens(me.id, &bad).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST));
+	e.server.abort();
+}
+
+/// A grant is owed, not held: the member claims it as a kick-back, with the note that says
+/// what it is for.
+#[tokio::test]
+async fn a_grant_is_a_kickback_to_claim() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let me = alice.me().await.unwrap();
+	let admin = e.admin();
+	let grant = |note: Option<&str>| TokensChange {
+		change: BalanceChange::Grant(1000),
+		note: note.map(Into::into),
+	};
+	for note in [None, Some(" ")] {
+		assert_eq!(admin.change_tokens(me.id, &grant(note)).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST));
+	}
+	let owed = admin.change_tokens(me.id, &grant(Some("found a bug"))).await.unwrap();
+	assert_eq!(owed.balance, 1000, "not held until claimed");
+	assert_eq!(
+		owed.kickbacks.iter().map(|k| (k.amount, &k.why)).collect::<Vec<_>>(),
+		[(
+			1000,
+			&KickbackWhy::Granted {
+				by: "root@x.com".into(),
+				note: "found a bug".into()
+			}
+		)]
+	);
+
+	assert_eq!(alice.claim_kickbacks().await.unwrap().balance, 2000);
+	let claimed = &alice.ledger().await.unwrap()[0];
+	assert_eq!(
+		(claimed.kind, claimed.delta, claimed.by.as_deref(), claimed.note.as_deref(), claimed.run_id),
+		(TokenKind::Kickback, 1000, Some("root@x.com"), Some("found a bug"), None)
+	);
 	e.server.abort();
 }
 
@@ -1221,9 +1258,9 @@ async fn members_share_places_but_see_only_their_own() {
 	let loc = &overview[0].locations[0];
 	assert_eq!(
 		(
-			loc.target.id, loc.snapshots_7d, loc.snapshots_30d, loc.new_7d, loc.live, loc.responded, loc.removed, loc.reinstating
+			loc.target.id, loc.snapshots_7d, loc.snapshots_30d, loc.new_7d, loc.live, loc.responded, loc.suspended, loc.removed, loc.reinstating
 		),
-		(t.id, 1, 2, 1, 3, 1, 0, 0)
+		(t.id, 1, 2, 1, 3, 1, 0, 0, 0)
 	);
 	assert_eq!(loc.listed, Some(3), "what the source says the place has");
 	assert_eq!((loc.posts_7d, loc.latest_post.clone()), (0, None));
@@ -1287,8 +1324,9 @@ async fn members_share_places_but_see_only_their_own() {
 	e.server.abort();
 }
 
-/// A removed review moves to Reinstating when asked, back when withdrawn — on record
-/// either way — and returns to Snapshotted, with its appeal, once a scan lists it again.
+/// A gone review sits in Suspended when it gave 5 stars, in Removed otherwise; either moves to
+/// Reinstating when asked, back when withdrawn — on record either way — and returns to
+/// Snapshotted, with its appeal, once a scan lists it again.
 #[tokio::test]
 async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 	let e = env().await;
@@ -1304,41 +1342,53 @@ async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 		)
 		.await
 		.unwrap();
-	record(&e, t.id, vec![review("kept"), review("removed")]).await;
+	let low = Observed {
+		rating: Some(2),
+		..review("removed")
+	};
+	record(&e, t.id, vec![review("kept"), review("suspended"), low.clone()]).await;
 	record(&e, t.id, vec![review("kept")]).await;
 
 	let columns = |b: &review_archive::core::dto::Board| {
-		let ids = |cs: &[review_archive::core::dto::BoardCard]| cs.iter().map(|c| c.review.source_review_id.clone()).collect::<Vec<_>>();
-		(ids(&b.snapshotted), ids(&b.removed), ids(&b.reinstating))
+		let ids = |cs: &[review_archive::core::dto::BoardCard]| cs.iter().map(|c| c.review.source_review_id.clone()).collect::<Vec<String>>();
+		(ids(&b.snapshotted), ids(&b.suspended), ids(&b.removed), ids(&b.reinstating))
 	};
+	let counts = |l: &review_archive::core::dto::LocationSummary| (l.suspended, l.removed, l.reinstating);
 	let board = alice.board(g.id, t.id).await.unwrap();
-	assert_eq!(columns(&board), (vec!["kept".into()], vec!["removed".into()], vec![]));
-	let (kept, removed) = (board.snapshotted[0].review.id, board.removed[0].review.id);
+	assert_eq!(columns(&board), (vec!["kept".into()], vec!["suspended".into()], vec!["removed".into()], vec![]));
+	assert_eq!(counts(&alice.overview().await.unwrap()[0].locations[0]), (1, 1, 0));
+	let (kept, suspended) = (board.snapshotted[0].review.id, board.suspended[0].review.id);
 
 	assert_eq!(
 		alice.reinstate(g.id, kept).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"a listed review has nothing to appeal"
 	);
-	let asked = alice.reinstate(g.id, removed).await.unwrap();
-	assert_eq!(alice.reinstate(g.id, removed).await.unwrap(), asked, "asking twice is the one appeal");
-	assert_eq!(columns(&alice.board(g.id, t.id).await.unwrap()), (vec!["kept".into()], vec![], vec!["removed".into()]));
-	assert_eq!(alice.overview().await.unwrap()[0].locations[0].reinstating, 1);
+	let asked = alice.reinstate(g.id, suspended).await.unwrap();
+	assert_eq!(alice.reinstate(g.id, suspended).await.unwrap(), asked, "asking twice is the one appeal");
+	assert_eq!(
+		columns(&alice.board(g.id, t.id).await.unwrap()),
+		(vec!["kept".into()], vec![], vec!["removed".into()], vec!["suspended".into()])
+	);
+	assert_eq!(counts(&alice.overview().await.unwrap()[0].locations[0]), (0, 1, 1));
 
-	alice.withdraw_reinstatement(g.id, removed).await.unwrap();
-	assert_eq!(alice.withdraw_reinstatement(g.id, removed).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(columns(&alice.board(g.id, t.id).await.unwrap()), (vec!["kept".into()], vec!["removed".into()], vec![]));
-	alice.reinstate(g.id, removed).await.unwrap();
+	alice.withdraw_reinstatement(g.id, suspended).await.unwrap();
+	assert_eq!(alice.withdraw_reinstatement(g.id, suspended).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(
+		columns(&alice.board(g.id, t.id).await.unwrap()),
+		(vec!["kept".into()], vec!["suspended".into()], vec!["removed".into()], vec![])
+	);
+	alice.reinstate(g.id, suspended).await.unwrap();
 	assert_eq!(alice.delete_gmail(g.id).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST), "appeals are kept");
 
-	record(&e, t.id, vec![review("kept"), review("removed")]).await;
+	record(&e, t.id, vec![review("kept"), review("suspended"), low]).await;
 	let board = alice.board(g.id, t.id).await.unwrap();
 	assert_eq!(
 		columns(&board),
-		(vec!["removed".into(), "kept".into()], vec![], vec![]),
+		(vec!["removed".into(), "suspended".into(), "kept".into()], vec![], vec![], vec![]),
 		"newest first sighting first, then newest row"
 	);
-	let back = board.snapshotted.iter().find(|c| c.review.id == removed).unwrap();
+	let back = board.snapshotted.iter().find(|c| c.review.id == suspended).unwrap();
 	assert!(back.reinstatement.as_ref().unwrap().reinstated_at.is_some(), "the badge: reinstated after its appeal");
 	e.server.abort();
 }

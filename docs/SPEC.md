@@ -260,9 +260,10 @@ Several people track their places here, grouped the way they manage them: by
   the review again sets `reinstated_at` in its transaction, and it returns to the
   Snapshotted column with a "reinstated after N d" badge. A gmail with appeals on record
   cannot be removed.
-- A member's board of a tracked place has three columns, each by its own time:
-  Snapshotted (listed, by first sighting), Removed (gone, no open appeal, by `gone_at`),
-  Reinstating (gone, open appeal, by `requested_at`).
+- A member's board of a tracked place has four columns, each by its own time:
+  Snapshotted (listed, by first sighting), Suspended (gone with 5 stars, no open appeal, by
+  `gone_at`), Removed (any other gone, no open appeal, by `gone_at`), Reinstating (gone, open
+  appeal, by `requested_at`).
 
 ### Tokens
 
@@ -273,9 +274,9 @@ exposure for it. Tokens price that, and the members whose places are scanned pay
   (each retried click 2), each scroll of the feed 1 — the data requests each sends Google, a
   scroll's ~9 being the unit. "More" and screenshots send none. An unchanged place costs 8;
   a rescan 15 and 1 per screen of cards.
-- `token_ledger(id, person_id, at, delta, kind[accrual|grant|purchase|set|charge|kickback], run_id, by_email, note)`:
+- `token_ledger(id, person_id, at, delta, kind[accrual|add|set|charge|kickback], run_id, by_email, note)`:
   append-only; a balance is the sum of its rows. Reading a balance renews it first, a whole
-  day at a time: `tokens.daily` (15) per day while under `tokens.cap` (500); granted or bought
+  day at a time: `tokens.daily` (15) per day while under `tokens.cap` (500); added or claimed
   tokens above the cap stay. A member seen for the first time starts with `tokens.start_cap_multiple` (no default; 2.0) caps.
   `set` writes the difference to the balance asked for.
 - A scheduled scan of a target is paid by the members tracking it (a track on, under a gmail
@@ -288,18 +289,20 @@ exposure for it. Tokens price that, and the members whose places are scanned pay
   they hold less than a first screen; asked for while the same scan is already queued, it is
   that job's and its first requester pays. Places nobody tracks, the operator's jobs and
   ad-hoc captures are paid by no one and limited by the hour only.
-- A run that failed, or met a failure (`Warning::Failure`; a `Warning::Limit` is none), is
-  ours: its end transaction also writes `kickbacks(id, person_id, run_id, amount, at,
-  claimed_at)`, each payer owed what they paid. Pending ones are not balance;
+- Kick-backs are what we owe a member: `kickbacks(id, person_id, run_id, amount, at,
+  claimed_at, by_email, note)`, a run's or an admin's grant. A run that failed, or met a
+  failure (`Warning::Failure`; a `Warning::Limit` is none), is ours: its end transaction
+  writes one per payer, owed what they paid. A grant (our mistake, a reward) needs its note,
+  which the member sees before claiming. Pending ones are not balance;
   `POST /me/tokens/claim` turns them into `kickback` rows. The hour still counts the run.
-- `purchase` is recorded by an admin (a payment reference in `note`); nothing is sold here.
+- Nothing is sold here: a payment is an admin's `add`, its reference in `note`.
 - `GET /me` carries the signed-in person's `tokens {balance, daily, cap, kickbacks}`
   (pending, each with its run, place and the run's error); `GET /me/tokens` is
   the member's ledger, each charge with its run and place; `GET /me/usage` its charges summed
   per UTC day over the last 30 (`{day, walks, tokens}`, every day present) and the places it
   tracks now. `GET /members` lists every person
-  with their balance; `POST /members/{id}/tokens` `{set | grant | purchase: n, note?}` sets or
-  adds to one. Both need `sa:review_archive:tokens:grant`.
+  with their balance; `POST /members/{id}/tokens` `{set | add | grant: n, note?}` sets,
+  adds to, or grants one. Both need `sa:review_archive:tokens:grant`.
   A place held for tokens shows "out of tokens" on its card (`held`).
 
 ### Auth

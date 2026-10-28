@@ -15,6 +15,8 @@ enum Facet {
 	Favorite,
 	#[strum(to_string = "responded")]
 	Responded,
+	#[strum(to_string = "suspended")]
+	Suspended,
 	#[strum(to_string = "removed")]
 	Removed,
 	#[strum(to_string = "reinstating")]
@@ -38,6 +40,7 @@ impl Facet {
 		match self {
 			Self::Favorite => l.favorite,
 			Self::Responded => l.responded >= l.live,
+			Self::Suspended => l.suspended > 0,
 			Self::Removed => l.removed > 0,
 			Self::Reinstating => l.reinstating > 0,
 			Self::New7d => l.new_7d > 0,
