@@ -121,6 +121,7 @@ mod tests {
 							id: ReviewId(id),
 							content_hash: obs(sid, text).content_hash(),
 							capture_pending: false,
+							replied: true,
 							gone,
 							published_est: date.map(|(_, e)| e.parse().unwrap()),
 							published_raw: date.map(|(raw, _)| raw.to_owned()),

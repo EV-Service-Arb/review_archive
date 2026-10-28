@@ -12,6 +12,7 @@ use review_archive::{
 	core::{
 		Capture, Coverage, Known, Observed, ReviewId, Scan, Target, TargetId, TargetKind, Warning,
 		dto::{RunStatus, TargetPatch},
+		maps::{NewestFirst, WalkPolicy},
 		schedule::Schedule,
 		tokens::{Meter, Tokens},
 	},
@@ -439,6 +440,34 @@ async fn the_count_to_compare_is_the_last_scans() {
 
 	e.archive().run(&src, &e.target).await.unwrap();
 	assert_eq!(listed().await, Some(4));
+}
+
+/// A review the owner has not replied to is not finished: the same count as the last scan
+/// still reads the list, until the reply is archived (#50).
+#[tokio::test]
+async fn an_unreplied_review_is_read_again_at_an_unchanged_count() {
+	let e = env().await;
+	let listed = |reply: Option<&str>| {
+		Ok(Scan {
+			listed: Some(1),
+			..scan(
+				vec![Observed {
+					reply: reply.map(Into::into),
+					..review("a", 5, "x", Some("2026-08-25T00:00:00Z"), true)
+				}],
+				Coverage::Complete,
+			)
+			.unwrap()
+		})
+	};
+	let wants = || async { NewestFirst::new(&e.store.known(e.target.id).await.unwrap(), now()).wants_list(Some(1)) };
+	let src = Scripted(Mutex::new(listed(None)));
+	e.archive().run(&src, &e.target).await.unwrap();
+	assert!(wants().await, "awaiting the owner's reply");
+
+	src.set(listed(Some("thanks")));
+	e.archive().run(&src, &e.target).await.unwrap();
+	assert!(!wants().await);
 }
 
 /// Where a walk was cut short is kept until a scan gets past it; a capture may leave a

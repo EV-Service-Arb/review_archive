@@ -297,6 +297,8 @@ pub struct KnownReview {
 	pub content_hash: String,
 	/// No screenshot of it yet; the next scan that sees it takes one.
 	pub capture_pending: bool,
+	/// The owner's reply is archived.
+	pub replied: bool,
 	/// Not listed on the last scan that looked where it was.
 	pub gone: bool,
 	/// The estimate made when it was first seen.
@@ -313,6 +315,11 @@ pub struct KnownReview {
 }
 
 impl KnownReview {
+	/// Nothing left on it for a scan to read: screenshotted, and replied to.
+	pub fn completed(&self) -> bool {
+		!self.capture_pending && self.replied
+	}
+
 	/// The earliest it can have been published; `None` when that is unknowable.
 	pub fn earliest(&self) -> Option<Timestamp> {
 		relative_date::lower_bound(self.published_raw.as_deref()?, self.published_est?)

@@ -134,7 +134,8 @@ with its own platform implements `sources::ReviewSource` and records through
   operator's, and is never purged.
 - **A walk that stops short leaves no hole.** A scan stops at a screen of archived cards
   only once it is past the last card a previous walk was cut short at
-  (`targets.cut_after`), and past every review still waiting for its screenshot; a
+  (`targets.cut_after`), and past every review not completed (still waiting for its
+  screenshot, or for the owner's reply); a
   target's first scan reads the whole list. Ad-hoc captures may record a cut, never
   clear one.
 - **`gone` is only concluded where the scan looked.** `gbp` lists everything, so absent means
