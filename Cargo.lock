@@ -2160,12 +2160,12 @@ dependencies = [
 
 [[package]]
 name = "ev_lib"
-version = "0.28.2"
+version = "0.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60f4fab6e14bc007abca4f76be165dcec2384fc716a059e0e6f7e5e3b90be7cf"
+checksum = "e2f18a7290d12ed234cc17f7a542208aa3b7bb7f3a3cf2db23ab5fec46e7a3d4"
 dependencies = [
  "dioxus",
- "ev_lib_classes 0.16.1",
+ "ev_lib_classes 0.17.0",
  "inventory",
  "jiff",
  "js-sys",
@@ -2203,9 +2203,9 @@ dependencies = [
 
 [[package]]
 name = "ev_lib_classes"
-version = "0.16.1"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "761d0045bdd882bfced48a7854466681a1edd53342142d7393059dea44eb552d"
+checksum = "64b3af05b4aa18799bea5908073bb22aa680c049398eb36b400d9fa3b893a409"
 dependencies = [
  "strum",
  "tailwind_fuse",
@@ -5128,7 +5128,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "concierge_iam",
- "ev_lib 0.28.2",
+ "ev_lib 0.29.2",
  "eyre",
  "jiff",
  "miette",
@@ -5160,8 +5160,8 @@ name = "review_archive_web"
 version = "0.1.0"
 dependencies = [
  "dioxus",
- "ev_lib 0.28.2",
- "ev_lib_classes 0.16.1",
+ "ev_lib 0.29.2",
+ "ev_lib_classes 0.17.0",
  "getrandom 0.3.4",
  "jiff",
  "js-sys",

@@ -1,7 +1,9 @@
 //! The locations overview as the kit draws it: a card per place.
 
 use dioxus::{prelude::*, web::WebEventExt};
-use ev_lib::uikit::{Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuItemVariant, DropdownMenuTrigger, Size, Spinner, Switch, button_classes};
+use ev_lib::uikit_dioxus::{
+	Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuItemVariant, DropdownMenuTrigger, Size, Spinner, Switch, button_classes,
+};
 use review_archive_client::dto::{GmailDto, LocationSummary, RunStatus, ScanState, TrackPatch};
 use sa_ui::TokenCost;
 

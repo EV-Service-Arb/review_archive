@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use ev_lib::uikit::{Button, ButtonVariant, Input, Size, Toggle, ToggleVariant};
+use ev_lib::uikit_dioxus::{Button, ButtonVariant, Input, Size, Toggle, ToggleVariant};
 use regex_lite::{Regex, RegexBuilder};
 use review_archive_client::dto::{GmailDto, LocationSummary, RunStatus};
 use strum::IntoEnumIterator;

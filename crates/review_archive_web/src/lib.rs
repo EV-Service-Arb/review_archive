@@ -22,7 +22,7 @@ use dioxus::prelude::*;
 use ev_lib::{
 	i18n::{Locale, Messages, Translator},
 	t,
-	uikit::{
+	uikit_dioxus::{
 		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Select,
 		SelectContent, SelectItem, SelectTrigger, SelectValue, Size, Spinner, Switch, Tabs, TabsList, TabsTrigger,
 	},
@@ -468,7 +468,7 @@ fn Picker(on_pick: EventHandler<MemberDto>, on_close: EventHandler<()>) -> Eleme
 									move |_| on_pick.call(m.clone())
 								},
 								if !m.claimed {
-									uikit::Badge { variant: BadgeVariant::Outline, {t!(tr, "picker.unclaimed", "never signed in")} }
+									uikit_dioxus::Badge { variant: BadgeVariant::Outline, {t!(tr, "picker.unclaimed", "never signed in")} }
 								}
 								span { "{m.name}" }
 								span { class: "flex-1 truncate text-ink-soft", "{m.email}" }
@@ -534,15 +534,14 @@ fn Balance(member: i64, balance: i64) -> Element {
 			}
 			Button { variant: ButtonVariant::Outline, size: Size::Xs, r#type: "button", onclick: move |_| set(BalanceChange::Set), "set" }
 			Button { variant: ButtonVariant::Outline, size: Size::Xs, r#type: "button", onclick: move |_| add(BalanceChange::Add), "add" }
-			span { title: "owed as a kick-back, for them to claim; says what for in its note",
-				Button {
-					variant: ButtonVariant::Outline,
-					size: Size::Xs,
-					r#type: "button",
-					disabled: note().trim().is_empty(),
-					onclick: move |_| grant(BalanceChange::Grant),
-					"grant"
-				}
+			Button {
+				variant: ButtonVariant::Outline,
+				size: Size::Xs,
+				r#type: "button",
+				title: "owed as a kick-back, for them to claim; says what for in its note",
+				disabled: note().trim().is_empty(),
+				onclick: move |_| grant(BalanceChange::Grant),
+				"grant"
 			}
 			}
 		}
@@ -790,7 +789,7 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 							),
 							to: Route::at(tab, View::Gmail(g.gmail.id)),
 							span { class: "truncate flex-1", "{g.gmail.gmail}" }
-							uikit::Badge { variant: BadgeVariant::Secondary, "{g.locations.len()}" }
+							uikit_dioxus::Badge { variant: BadgeVariant::Secondary, "{g.locations.len()}" }
 						}
 						Switch {
 							checked: g.gmail.enabled,
@@ -916,7 +915,7 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 						SelectTrigger { class: "w-56", SelectValue { placeholder: "under gmail…" } }
 						SelectContent {
 							for g in under.iter() {
-								SelectItem { key: "{g.id}", value: "{g.gmail}", "{g.gmail}" }
+								SelectItem { key: "{g.id}", value: "{g.gmail}", text_value: "{g.gmail}", "{g.gmail}" }
 							}
 						}
 					}
@@ -1007,7 +1006,7 @@ fn Badge(tone: Tone, children: Element) -> Element {
 		Tone::Warn => (BadgeVariant::Outline, "border-transparent bg-accent-warn/15 text-accent-warn"),
 	};
 	rsx! {
-		uikit::Badge { variant, class, {children} }
+		uikit_dioxus::Badge { variant, class, {children} }
 	}
 }
 

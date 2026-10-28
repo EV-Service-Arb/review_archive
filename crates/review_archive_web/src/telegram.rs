@@ -1,7 +1,7 @@
 //! Where the member's events go on Telegram: a chat the archive's bot posts to.
 
 use dioxus::prelude::*;
-use ev_lib::uikit::{Button, ButtonVariant, Card, Input, Size};
+use ev_lib::uikit_dioxus::{Button, ButtonVariant, Card, Input, Size};
 use review_archive_client::dto::{Event, GmailDto, NewTgChannel, TgChannelDto};
 
 use crate::{Api, Refresh, act, shown};

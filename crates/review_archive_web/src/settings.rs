@@ -2,7 +2,7 @@
 //! defaults.
 
 use dioxus::prelude::*;
-use ev_lib::uikit::{Button, ButtonVariant, Card, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Size};
+use ev_lib::uikit_dioxus::{Button, ButtonVariant, Card, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Size};
 use review_archive_client::dto::{Setting, SettingsPatch};
 
 use crate::{Api, Refresh, act, shown};
@@ -69,7 +69,7 @@ fn Choice(label: &'static str, hint: &'static str, options: Vec<u64>, setting: S
 				SelectTrigger { size: Size::Sm, class: "w-24", SelectValue {} }
 				SelectContent {
 					for name in options.into_iter().map(written) {
-						SelectItem { key: "{name}", value: name.clone(), "{name}" }
+						SelectItem { key: "{name}", value: name.clone(), text_value: name.clone(), "{name}" }
 					}
 				}
 			}

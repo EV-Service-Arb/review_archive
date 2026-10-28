@@ -1,7 +1,7 @@
 //! What the member's balance holds, and every move of it.
 
 use dioxus::prelude::*;
-use ev_lib::uikit::Card;
+use ev_lib::uikit_dioxus::Card;
 use review_archive_client::dto::{GmailOverview, TokenKind, TokensDto};
 
 use crate::{Api, Refresh, Route, View, ago, shown};
