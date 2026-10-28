@@ -18,7 +18,7 @@ ROOT = """(
       "enabled": enabled, "snapshots_7d": snapshots_7d, "snapshots_30d": snapshots_30d,
       "live": live, "listed": listed, "new_7d": new_7d, "posts_7d": posts_7d,
       "post": latest_post.text, "post_at": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,
-      "responded": responded, "removed": removed, "reinstating": reinstating, "held": held,
+      "responded": responded, "suspended": suspended, "removed": removed, "reinstating": reinstating, "held": held,
       "last_run_at": last_run_at, "last_run_status": last_run_status, "last_run_error": last_run_error,
       "scan": scan.state, "scan_since": scan.since, "scan_ahead": scan.ahead, "scan_cost": scan_cost
     }
@@ -68,6 +68,7 @@ CARD_COLUMNS = [
 	("post", "post", "string"),
 	("post_at", "post_at", "string"),
 	("responded", "responded", "number"),
+	("suspended", "suspended", "number"),
 	("removed", "removed", "number"),
 	("reinstating", "reinstating", "number"),
 	("held", "held", "boolean"),
@@ -96,6 +97,7 @@ CONTENT = """<div class="ra-grid">
     <span class="ok" title="posted over the last 7 days, removed ones included">new 7d +{{new_7d}}</span>
     {{#if post}}<span class="ok" title="owner's latest post, {{ago post_at}}:&#10;{{post}}">posts 7d {{posts_7d}}</span>{{/if}}
     <span class="{{#if (lt responded live)}}warn{{else}}ok{{/if}}" title="replied to by the owner / live">responded {{responded}}/{{live}}</span>
+    {{#if suspended}}<span class="bad" title="5-star reviews gone from the listing">suspended {{suspended}}</span>{{/if}}
     {{#if removed}}<span class="bad">removed {{removed}}</span>{{/if}}
     {{#if reinstating}}<span class="warn">reinstating {{reinstating}}</span>{{/if}}
     {{#if held}}<span class="warn" title="not scanned: every member tracking it is out of tokens">out of tokens</span>{{/if}}
@@ -194,6 +196,7 @@ dashboard = {
 						("live", "live", "number"),
 						("new_7d", "new 7d", "number"),
 						("responded", "responded", "number"),
+						("suspended", "suspended", "number"),
 						("removed", "removed", "number"),
 						("reinstating", "reinstating", "number"),
 					]
@@ -210,12 +213,13 @@ dashboard = {
 						"replaceFields": False,
 					},
 				},
-				{"id": "organize", "options": {"excludeByName": {"responded": True}, "indexByName": {"live": 0, "new 7d": 1, "responded %": 2, "removed": 3, "reinstating": 4}}},
+				{"id": "organize", "options": {"excludeByName": {"responded": True}, "indexByName": {"live": 0, "new 7d": 1, "responded %": 2, "suspended": 3, "removed": 4, "reinstating": 5}}},
 			],
 			"fieldConfig": {
 				"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "text"}},
 				"overrides": [
 					{"matcher": {"id": "byName", "options": "responded %"}, "properties": [{"id": "unit", "value": "percentunit"}]},
+					{"matcher": {"id": "byName", "options": "suspended"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
 					{"matcher": {"id": "byName", "options": "removed"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
 					{"matcher": {"id": "byName", "options": "reinstating"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
 				],
@@ -266,6 +270,7 @@ dashboard = {
 						("new_7d", "new 7d", "number"),
 						("posts_7d", "posts 7d", "number"),
 						("responded", "responded", "number"),
+						("suspended", "suspended", "number"),
 						("removed", "removed", "number"),
 						("reinstating", "reinstating", "number"),
 						("last_run_at", "last run", "timestamp"),

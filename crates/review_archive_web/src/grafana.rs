@@ -1,18 +1,20 @@
 //! The locations overview drawn by Grafana (`grafana/dashboards/ra-overview.json`) in place of the
-//! cards, and a place's Stats tile (`ra-location`, its panels tiled like the board by the tilers
-//! plugin, `evmain-tilers-app`). One frame from `/grafana/` starts with the page
+//! cards, and a place's board (`ra-location`: its lanes and runs, tiled by the tilers plugin,
+//! `evmain-tilers-app`). One frame from `/grafana/` starts with the page
 //! and lives as long: its boot takes seconds, moving it to another dashboard or vars does not. A
 //! [`Slot`] says where it shows and what; the frame is laid over the slot on screen and steered
-//! there, never reloaded. The overview posts up what is clicked (`ra-open`, `ra-scan`, `ra-enable`).
+//! there, never reloaded. Both post up what is done in them: the overview's clicks (`ra-open`,
+//! `ra-scan`, `ra-enable`), the board's drops (`ra-reinstate`, `ra-withdraw`).
 
 use dioxus::{
 	core::{Runtime, current_scope_id},
 	prelude::*,
 	web::WebEventExt,
 };
+use review_archive_client::dto::NewLayout;
 use wasm_bindgen::{JsCast, prelude::*};
 
-use crate::{Refresh, Route, View, act};
+use crate::{Refresh, Route, View, act, may};
 
 const KIOSK: &str = "?kiosk&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks";
 
@@ -39,11 +41,13 @@ struct Placed {
 	on: Option<EventHandler<Up>>,
 }
 
-/// A click in the overview's cards.
+/// What is done in a dashboard: a click in the overview's cards, a drop on the board's lanes.
 enum Up {
 	Open { gmail: i64, target: i64 },
 	Scan { gmail: i64, target: i64 },
 	Enable { gmail: i64, target: i64, on: bool },
+	Reinstate { review: i64 },
+	Withdraw { review: i64 },
 }
 
 /// Holds the frame for everything under it, as `me` until a slot asks for another dashboard.
@@ -53,6 +57,8 @@ pub fn Host(me: i64, children: Element) -> Element {
 	let mut wrap = use_signal(|| None::<web_sys::Element>);
 	let mut frame = use_signal(|| None::<web_sys::HtmlIFrameElement>);
 	let mut shown = use_signal(|| None::<ScopeId>);
+	let mut failed = use_signal(|| None::<String>);
+	let publish = may(sa_auth::Archive::Operate);
 	use_future(move || async move {
 		let (mut steered, mut style) = (String::new(), String::new());
 		loop {
@@ -83,20 +89,12 @@ pub fn Host(me: i64, children: Element) -> Element {
 			if *shown.peek() != id {
 				shown.set(id);
 			}
+			let Some((_, path, _)) = on_screen else { continue };
 			let inner = f.content_window().expect("a mounted frame has a window");
 			// the frame's first document is about:blank, whose history takes no Grafana URL
 			if inner.location().pathname().expect("a same-origin location reads") == "blank" {
 				continue;
 			}
-			let doc = f.content_document().expect("a same-origin frame's document reads");
-			let Some(head) = doc.head() else { continue }; // Grafana's document, still parsing
-			if doc.get_element_by_id("ra-dock-theme").is_none() {
-				let style = doc.create_element("style").expect("creating an element");
-				style.set_id("ra-dock-theme");
-				style.set_text_content(Some(&dock_theme()));
-				head.append_child(&style).expect("appending to the head");
-			}
-			let Some((_, path, _)) = on_screen else { continue };
 			if path == steered {
 				continue;
 			}
@@ -123,6 +121,46 @@ pub fn Host(me: i64, children: Element) -> Element {
 					return;
 				}
 				let field = |k: &str| js_sys::Reflect::get(&data, &k.into()).expect("an object's field reads");
+				if let Some(tilers) = field("tilers").as_string() {
+					// the published layouts of a dashboard the plugin docks are under its uid
+					let path = e
+						.source()
+						.expect("checked to be the frame")
+						.unchecked_into::<web_sys::Window>()
+						.location()
+						.pathname()
+						.expect("a same-origin location reads");
+					let uid = path.rsplit_once("/d/").expect("the plugin docks dashboards at …/d/<uid>").1.trim_end_matches('/').to_owned();
+					let text = |k: &str| field(k).as_string().unwrap_or_else(|| panic!("tilers' {tilers} has no string {k}: {:?}", field(k)));
+					match tilers.as_str() {
+						"ready" => {
+							spawn(async move {
+								match crate::api().layouts(&uid).await {
+									Ok(layouts) => {
+										let published = js_sys::Object::new();
+										for l in layouts {
+											js_sys::Reflect::set(&published, &l.band.into(), &l.layout.into()).expect("setting a field");
+										}
+										tell(frame, "host", &[("published", published.into()), ("publish", publish.into())]);
+									}
+									Err(e) => failed.set(Some(crate::shown(e))),
+								}
+							});
+						}
+						"publish" => {
+							let (band, layout) = (text("band"), text("layout"));
+							spawn(async move {
+								let said = match crate::api().publish_layout(&uid, &band, &NewLayout { layout }).await {
+									Ok(()) => format!("Published as everyone's default ({band})"),
+									Err(e) => format!("Publishing failed: {}", crate::shown(e)),
+								};
+								tell(frame, "notify", &[("text", said.into())]);
+							});
+						}
+						_ => panic!("the tilers plugin posts its host only ready and publish, not {tilers}"),
+					}
+					return;
+				}
 				let kind = field("kind").as_string();
 				let id = |k| field(k).as_f64().unwrap_or_else(|| panic!("{kind:?}'s {k} is not an id: {:?}", field(k))) as i64;
 				let up = match kind.as_deref() {
@@ -139,12 +177,14 @@ pub fn Host(me: i64, children: Element) -> Element {
 						target: id("target"),
 						on: field("on").as_bool().unwrap_or_else(|| panic!("ra-enable's on is not a bool: {:?}", field("on"))),
 					},
+					Some("ra-reinstate") => Up::Reinstate { review: id("review") },
+					Some("ra-withdraw") => Up::Withdraw { review: id("review") },
 					_ => return,
 				};
 				// a click can only come from the slot the frame is over
 				let at = shown.peek().expect("a click in a shown frame");
 				let on = slots.peek().iter().find(|s| s.id == at).expect("the shown slot is placed").on;
-				on.expect("only the overview posts clicks").call(up);
+				on.expect("only a slot that takes what is done in it posts").call(up);
 			})
 		});
 		window()
@@ -163,6 +203,9 @@ pub fn Host(me: i64, children: Element) -> Element {
 		div {
 			class: "relative flex min-h-0 flex-1 flex-col",
 			onmounted: move |e| wrap.set(Some(e.as_web_event())),
+			if let Some(e) = failed() {
+				div { class: "border-b border-border px-6 py-2 text-accent-error", "{e}" }
+			}
 			{children}
 			iframe {
 				style: "position:absolute;border:0;inset:0;width:100%;height:100%;visibility:hidden;pointer-events:none",
@@ -173,23 +216,20 @@ pub fn Host(me: i64, children: Element) -> Element {
 	}
 }
 
-/// The board's [`DOCK_THEME`](crate::board::DOCK_THEME) on the plugin's tilers dock, the kit's tokens
-/// resolved here: the frame's document has none of them.
-fn dock_theme() -> String {
-	let kit = window()
-		.get_computed_style(&window().document().expect("a page has a document").document_element().expect("a document has a root"))
-		.expect("a root has a style")
-		.expect("a rendered root has a computed style");
-	let token = |name: &str| kit.get_property_value(name).expect("reading a custom property");
-	let tokens: String = crate::board::DOCK_THEME
-		.iter()
-		.filter_map(|(_, v)| v.strip_prefix("var(")?.strip_suffix(')'))
-		.collect::<std::collections::BTreeSet<_>>()
-		.into_iter()
-		.map(|t| format!("{t}: {};", token(t)))
-		.collect();
-	let dock: String = crate::board::DOCK_THEME.iter().map(|(k, v)| format!("--tl-{k}: {v};")).collect();
-	format!(".tl-packed {{ {tokens} {dock} }} body:has(.tl-packed) {{ background: {}; }}", token("--background"))
+/// Posts `{tilers: kind, ..fields}` to the tilers plugin in the frame: its host's side of the plugin's
+/// embedding contract (`?_tilers.host`).
+fn tell(frame: Signal<Option<web_sys::HtmlIFrameElement>>, kind: &str, fields: &[(&str, JsValue)]) {
+	let msg = js_sys::Object::new();
+	for (k, v) in [("tilers", JsValue::from(kind))].iter().chain(fields) {
+		js_sys::Reflect::set(&msg, &(*k).into(), v).expect("setting a field");
+	}
+	frame
+		.peek()
+		.as_ref()
+		.and_then(|f| f.content_window())
+		.expect("only a mounted frame's plugin asks")
+		.post_message(&msg, &grafana().origin().ascii_serialization())
+		.expect("posting to a same-origin frame");
 }
 
 /// Where the frame shows, and the dashboard (`path`, under `/grafana/`) it shows there.
@@ -224,16 +264,30 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 		}
 		Up::Scan { gmail, target } => act(move |c| async move { c.scan_tracked(gmail, target).await.map(drop) }),
 		Up::Enable { gmail, target, on } => act(move |c| async move { c.patch_track(gmail, target, &review_archive_client::dto::TrackPatch { enabled: Some(on), favorite: None }).await }),
+		Up::Reinstate { .. } | Up::Withdraw { .. } => unreachable!("the overview has no lanes"),
 	};
 	rsx! {
 		Slot { class: "min-h-0 w-full flex-1", path, on }
 	}
 }
 
-/// `ra-location` for the place.
+/// `ra-location` for the place: its lanes and runs. `api` is where its cards' captures are.
 #[component]
-pub fn Stats(target: i64) -> Element {
+pub fn Location(gmail: i64, target: i64, tab: Option<i64>) -> Element {
+	let Frame { me, .. } = use_context();
+	let Refresh(refresh) = use_context();
+	let member = tab.unwrap_or(me);
+	let api = js_sys::encode_uri_component(crate::base().as_str());
+	let path = format!(
+		"a/evmain-tilers-app/d/ra-location{KIOSK}&_tilers.host&var-member={member}&var-gmail={gmail}&var-target={target}&var-api={api}&var-rev={}",
+		refresh()
+	);
+	let on = move |up: Up| match up {
+		Up::Reinstate { review } => act(move |c| async move { c.reinstate(gmail, review).await.map(drop) }),
+		Up::Withdraw { review } => act(move |c| async move { c.withdraw_reinstatement(gmail, review).await }),
+		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } => unreachable!("a board has no location cards"),
+	};
 	rsx! {
-		Slot { class: "h-full w-full", path: format!("a/evmain-tilers-app/d/ra-location{KIOSK}&var-target={target}") }
+		Slot { class: "min-h-0 w-full flex-1", path, on }
 	}
 }
