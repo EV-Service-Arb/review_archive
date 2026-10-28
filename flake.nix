@@ -6,15 +6,13 @@
 
   inputs = {
     v_flakes.url = "github:valeratrades/v_flakes?ref=v1.6";
-    # the Chromium patchright-core 1.63 can drive: playwright 1.64's (Chrome 156) closes on a persistent launch
-    nixpkgs-chromium.url = "github:NixOS/nixpkgs/e73de5be04e0eff4190a1432b946d469c794e7b4";
     browser_manipulation = {
-      url = "github:valeratrades/browser_manipulation?ref=v0.4.4";
+      url = "github:valeratrades/browser_manipulation?ref=v0.4.6";
       inputs.v_flakes.follows = "v_flakes";
     };
   };
 
-  outputs = { self, v_flakes, nixpkgs-chromium, browser_manipulation }:
+  outputs = { self, v_flakes, browser_manipulation }:
     let
       inherit (v_flakes) flake-utils pre-commit-hooks;
       manifest = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package;
@@ -216,15 +214,8 @@
           fontDirectories = with pkgs; [ dejavu_fonts liberation_ttf noto-fonts-color-emoji ];
         };
 
-        # The image's Chromium: the shell has no browser UI layer to hold in memory (ARCHITECTURE.md § Memory).
-        # Its zip lays out differently per platform and per Playwright release, so the build finds the binary, and fails without exactly one that runs.
-        headlessShell = "${pkgs.runCommand "chrome-headless-shell" { } ''
-          shopt -s nullglob
-          found=(${nixpkgs-chromium.legacyPackages.${system}.playwright-driver.components.chromium-headless-shell}/*/{chrome-headless-shell,headless_shell})
-          [ ''${#found[@]} -eq 1 ] && [ -x "''${found[0]}" ] || { echo "expected one headless shell, found: ''${found[*]}" >&2; exit 1; }
-          "''${found[0]}" --version
-          ln -s "''${found[0]}" $out
-        ''}";
+        # The image's Chromium, the one the driver drives: the shell has no browser UI layer to hold in memory (ARCHITECTURE.md § Memory).
+        headlessShell = "${browser_manipulation.packages.${system}.headless-shell}/bin/chrome-headless-shell";
 
         # Secret-free prod config baked into the image; the container has no `nix`,
         # so it is evaluated to TOML here. Secrets arrive from the k8s Secret.
@@ -233,6 +224,25 @@
           chromium = headlessShell;
           mfe = "${mfe}";
         });
+
+        imageEnv = playwrightEnv // {
+          PLAYWRIGHT_NODE_EXE = "${leanNode}";
+          FONTCONFIG_FILE = "${fontsConf}";
+          # fixed, so freed image buffers return to the OS and the pod can shrink back to its base after a memory lease (examples/memory_footprint.rs)
+          MALLOC_MMAP_THRESHOLD_ = "131072";
+          # an error no code knows is reported with its trace, which errors only capture with this set
+          RUST_LIB_BACKTRACE = "1";
+        };
+
+        # The image's binary, once it started the image's Chromium with the image's driver and config on a host
+        # whose GPU fails to start, as the Pi's does: no Vulkan driver, no /dev/dri, no display.
+        launchChecked = pkgs.runCommand "${pname}-launch-checked" { } ''
+          export ${lib.concatStringsSep " " (lib.mapAttrsToList (k: v: "${k}=${lib.escapeShellArg v}") imageEnv)}
+          export HOME=$TMPDIR VK_DRIVER_FILES=/nonexistent
+          ${bin}/bin/${pname} --config ${prodConfig} check-browser
+          mkdir -p $out/bin
+          ln -s ${bin}/bin/${pname} $out/bin/${pname}
+        '';
 
         containerStd = v_flakes.container.implement {
           inherit pkgs pname;
@@ -245,21 +255,16 @@
             healthPath = "/health";
             # an archive that misses a scan catches up on the next one
             criticality = "normal";
-            entrypoint = [ "${bin}/bin/${pname}" "--config" "${prodConfig}" "serve" ];
+            entrypoint = [ "${launchChecked}/bin/${pname}" "--config" "${prodConfig}" "serve" ];
             workingDir = "/data";
             contents = [ pkgs.nodejs ];
-            imageEnv = lib.mapAttrsToList (k: v: "${k}=${v}") (playwrightEnv // { PLAYWRIGHT_NODE_EXE = leanNode; }) ++ [
-              "HOME=/data"
+            imageEnv = lib.mapAttrsToList (k: v: "${k}=${v}") (imageEnv // {
+              HOME = "/data";
               # the image has no /tmp, and Chromium's shared memory goes to TMPDIR
               # (--disable-dev-shm-usage); the binary creates it on start, as the
               # volume is empty on first boot
-              "TMPDIR=/data/tmp"
-              "FONTCONFIG_FILE=${fontsConf}"
-              # fixed, so freed image buffers return to the OS and the pod can shrink back to its base after a memory lease (examples/memory_footprint.rs)
-              "MALLOC_MMAP_THRESHOLD_=131072"
-              # an error no code knows is reported with its trace, which errors only capture with this set
-              "RUST_LIB_BACKTRACE=1"
-            ];
+              TMPDIR = "/data/tmp";
+            });
           };
         };
 
@@ -269,7 +274,7 @@
             cat <<'EOF'
             nix develop                       toolchain, sqlite, cargo-insta (and chromium on Linux)
             nix build                         the review_archive binary
-            nix build .#${pname}-container    OCI image with chromium-headless-shell (Linux only)
+            nix build .#${pname}-container    OCI image with chromium-headless-shell (Linux only), its binary checked to start it
             nix build .#mfe                   the dashboard bundle (served under /mfe/)
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
             nix run .#with-grafana [-- <held>]  dev-mfe, its locations overview drawn by Grafana

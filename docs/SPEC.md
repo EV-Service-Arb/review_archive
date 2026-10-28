@@ -158,6 +158,7 @@ CLI (`clap`):
 - `review_archive target list | disable <id> | enable <id>`
 - `review_archive scan <target-id|--all>` — one pass now, prints a summary.
 - `review_archive serve` — scheduler + HTTP.
+- `review_archive check-browser` — starts the configured Chromium as a walk does and shoots an element; the image's build runs it.
 - `review_archive export --target <id> [--since <date>] --out <dir|file.zip>` — captures (WebP) + `manifest.json`.
 
 HTTP (axum), behind the Service-Arb panel's assertion (see Auth), binds `127.0.0.1` unless

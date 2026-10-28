@@ -151,6 +151,27 @@ impl Browser {
 		Ok(!signed_out?)
 	}
 
+	/// Starts Chromium on the profile walks go to, as a walk does, and shoots an element as a walk
+	/// shoots a card: whether this host runs the configured browser.
+	pub async fn check(&self) -> eyre::Result<()> {
+		let mut state = self.inner.state.lock().await;
+		state.release().await;
+		let profile = state
+			.current(&self.inner.profiles)
+			.ok_or_else(|| eyre::eyre!("every account is signed out: no profile to start Chromium on"))?
+			.clone();
+		let _lock = ProfileLock::acquire(&profile)?;
+		let session = Session::launch(&self.inner.cfg, &profile).await?;
+		let shot = async {
+			let mut page = session.page().await?;
+			page.shoot_an_element().await?;
+			page.close().await
+		}
+		.await;
+		session.close().await;
+		Ok(shot?)
+	}
+
 	/// Opens the place's review list, sorted newest first, and walks it: `policy` says
 	/// which cards to screenshot and when to stop; `max` caps the cards read, `meter` what
 	/// it spends — failed or not, it holds what Google was sent. An account found signed out

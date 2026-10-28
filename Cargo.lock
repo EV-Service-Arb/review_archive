@@ -550,9 +550,9 @@ dependencies = [
 
 [[package]]
 name = "browser_manipulation"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f29faff92515ad7750fa14573dc78776703feb70bde1ed2a0c8e2a8369a2b391"
+checksum = "39f68298a50a221f0d3130ee23a3c5ca4b76cc0b3d92251f65fc56f3f2b337cb"
 dependencies = [
  "base64 0.23.1",
  "bon",

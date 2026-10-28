@@ -44,6 +44,7 @@ const ARGS: &[&str] = &[
 	"--enable-features=NetworkServiceInProcess2",
 	"--no-zygote", // the driver already passes `--no-sandbox`, which it needs
 	"--in-process-gpu",
+	"--use-gl=disabled", // in the browser process, a GPU that fails to start (the Pi's) takes the browser with it
 	"--disk-cache-size=33554432",
 	"--disable-notifications",
 	"--disable-speech-api",
@@ -215,6 +216,14 @@ async fn launch_failure(e: browser_manipulation::Error, took: Duration, leased: 
 impl Page<'_> {
 	pub(crate) async fn close(self) -> Result<(), SessionError> {
 		Ok(self.tab.close().await?)
+	}
+
+	/// A card-sized element on a page of its own, shot as a walk shoots a card.
+	pub(crate) async fn shoot_an_element(&mut self) -> Result<(), SessionError> {
+		self.tab.goto("data:text/html,<div id=card style='width:400px;height:300px'>review</div>").await?;
+		let shot = self.tab.element_shot("#card", CARD_SCALE).await?;
+		assert!(!shot.png.is_empty(), "a laid-out element is shot with pixels");
+		Ok(())
 	}
 
 	/// Opens Maps on no place, and says whether its account corner offers to sign in. A corner that

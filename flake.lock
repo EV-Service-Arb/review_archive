@@ -7,16 +7,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1792099203,
-        "narHash": "sha256-fdgWmnUnhrADhgUobGT861HpywbPekTEppqtw5tn1QA=",
+        "lastModified": 1793189186,
+        "narHash": "sha256-YQA1Fa/WtVhvILYfmWo/85FrbITSpDwXGWVHT+Q0jqk=",
         "owner": "valeratrades",
         "repo": "browser_manipulation",
-        "rev": "5cb1f7a4c65f0994d540d25072fe2a70a6d7e5b3",
+        "rev": "843d9880bb310174eb37025148634d0a0ae4eedb",
         "type": "github"
       },
       "original": {
         "owner": "valeratrades",
-        "ref": "v0.4.4",
+        "ref": "v0.4.6",
         "repo": "browser_manipulation",
         "type": "github"
       }
@@ -244,22 +244,6 @@
         "type": "github"
       }
     },
-    "nixpkgs-chromium": {
-      "locked": {
-        "lastModified": 1782467914,
-        "narHash": "sha256-pGvFkM8N0xEkIIXDe5YYfbEAvHrk4IxBrjB/x8OomhE=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "e73de5be04e0eff4190a1432b946d469c794e7b4",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "e73de5be04e0eff4190a1432b946d469c794e7b4",
-        "type": "github"
-      }
-    },
     "pre-commit-hooks": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -300,7 +284,6 @@
     "root": {
       "inputs": {
         "browser_manipulation": "browser_manipulation",
-        "nixpkgs-chromium": "nixpkgs-chromium",
         "v_flakes": "v_flakes"
       }
     },

@@ -242,7 +242,8 @@ cgroup (burst)
 ├─ browser process    one launch: the headed UA is cached in the profile, no probe Chromium; the network
 │                     service, audio and GPU run in it, no zygote; no extensions, component updates or
 │                     optimization-guide models
-│  └─ GPU             no map to draw: tiles, satellite, Street View, 3D blocked (`sel::BLOCKED`)
+│  └─ GPU             no GL (`--use-gl=disabled`), no map to draw: tiles, satellite, Street View, 3D
+│                     blocked (`sel::BLOCKED`)
 ├─ renderer           one (`--renderer-process-limit=1`, no site isolation); cards already read
 │                     are released (`js::RELEASE`: each becomes an empty spacer of its height)
 │  └─ frame buffers   1280×900 at 1x; a card alone is rasterized at 2x (`Shot::Element`)
@@ -250,9 +251,10 @@ cgroup (burst)
 └─ page cache         32 MiB disk cache
 ```
 
-A GPU crash now takes the browser down with it: the walk fails and the next one starts a new
-browser. Every walk logs the page's JS heap (`js_heap`, used of limit) beside the host's figures, to
-size `js_heap_mib` by.
+A GPU crash takes the browser down with it: the walk fails and the next one starts a new browser.
+One that fails to start (the Pi's GL) would take every launch down; the image is built only once its
+binary has started its Chromium on a host whose GPU fails (`launchChecked`). Every walk logs the
+page's JS heap (`js_heap`, used of limit) beside the host's figures, to size `js_heap_mib` by.
 
 Always on, as they cost the walk nothing it uses. What costs speed is `browser.lean`, which every
 config states (`[]` for none) and the Pi's sets in full. Switch the trades off one at a time when the

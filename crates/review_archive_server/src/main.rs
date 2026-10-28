@@ -15,6 +15,7 @@ use ev_lib::{alerts, error_monitoring};
 use eyre::WrapErr;
 use review_archive::{
 	Archive, SCANNER_VERSION,
+	browser::Browser,
 	store::{
 		export::Destination,
 		people::{Claim, Seen},
@@ -53,6 +54,9 @@ enum Cmd {
 	Scan(ScanArgs),
 	/// Scheduler + HTTP API.
 	Serve(ServeArgs),
+	/// Starts Chromium as a walk does, on a throwaway profile, and shoots an element as a walk
+	/// shoots a card: whether this host runs the configured browser.
+	CheckBrowser,
 	/// Members' managing gmails.
 	#[command(subcommand)]
 	Gmail(GmailCmd),
@@ -238,10 +242,14 @@ async fn run(cli: Cli, config: AppConfig, settings: Settings) -> eyre::Result<()
 	// shared memory there (`--disable-dev-shm-usage`) and dies if the directory is missing.
 	let tmp = std::env::temp_dir();
 	std::fs::create_dir_all(&tmp).wrap_err_with(|| format!("creating the temp dir {}", tmp.display()))?;
+	if let Cmd::CheckBrowser = cli.cmd {
+		let profile = tempfile::tempdir().wrap_err("creating a throwaway profile")?;
+		return Browser::new(config.browser.clone(), vec![profile.path().to_owned()]).check().await;
+	}
 	let archive = Archive::open(config.archive(settings.secrets())).await?;
 
 	match cli.cmd {
-		Cmd::Config { .. } => unreachable!("handled before the archive opens"),
+		Cmd::Config { .. } | Cmd::CheckBrowser => unreachable!("handled before the archive opens"),
 		Cmd::Target(cmd) => target_cmd(&archive, cmd).await,
 		Cmd::Scan(args) => scan(&archive, &config.schedule, args).await,
 		Cmd::Serve(args) => serve(archive, &config, &settings, args).await,
