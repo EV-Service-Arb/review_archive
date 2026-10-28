@@ -329,7 +329,8 @@ the service.
 - `serve --dev-member <alias | permissions | none>` (loopback, outside production): every
   request is one person holding that, without the panel, for a local dashboard
   (`nix run .#dev-mfe`): the member with gmails, so it shows what the worker scans; with
-  several, the one `--dev-as <person id>` names; before anyone has one, a made-up `dev`.
+  several, the one `--dev-as <person id>` names; before anyone has one, a made-up `dev`. Each
+  `serve` sets their balance to a new member's (`tokens.start_cap_multiple` caps).
   `--no-login-check` (outside production; `nix run .#with-grafana` passes it): no boot check of the
   Google accounts, and every one signed out fails walks without ending `serve`.
 

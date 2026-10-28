@@ -22,7 +22,7 @@ use review_archive::{
 };
 use review_archive_core::{
 	PersonId, TargetId,
-	dto::{ExportQuery, NewGmail, NewTarget, StatsQuery, TargetPatch},
+	dto::{BalanceChange, ExportQuery, NewGmail, NewTarget, StatsQuery, TargetPatch, TokensChange},
 	schedule::Schedule,
 };
 use review_archive_server::{auth::Auth, http, report, worker};
@@ -406,6 +406,13 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 	let (auth, sign_in) = match &args.dev_member {
 		Some(held) => {
 			let (person, email) = dev_person(&archive, args.dev_as).await?;
+			// every local serve starts the dev member on a new member's balance, so testing never runs them dry
+			let m = config.tokens.start_cap_multiple.expect("checked when the config loaded");
+			let start = TokensChange {
+				change: BalanceChange::Set((config.tokens.cap as f64 * m).round() as i64),
+				note: Some("a dev serve's start".into()),
+			};
+			archive.change_tokens(person, &start, &email).await?;
 			(
 				Auth::Dev {
 					person,

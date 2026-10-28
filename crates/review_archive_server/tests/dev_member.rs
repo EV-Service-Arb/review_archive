@@ -5,17 +5,25 @@ use std::time::Duration;
 use review_archive::{
 	Archive,
 	config::Config,
-	core::dto::{Me, NewGmail},
+	core::{
+		dto::{BalanceChange, Me, NewGmail, TokensChange},
+		tokens::Tokens,
+	},
 	store::people::{Claim, Seen},
 };
 
-/// The worker scans every member's places; the dashboard opens on the one who has them.
+/// The worker scans every member's places; the dashboard opens on the one who has them, on a
+/// new member's balance whatever they spent before.
 #[tokio::test]
 async fn the_dev_member_is_whoever_manages_the_archive() {
 	let dir = tempfile::tempdir().unwrap();
 	let data = dir.path().join("data");
 	let archive = Archive::open(Config {
 		data_dir: Some(data.clone()),
+		tokens: Tokens {
+			start_cap_multiple: Some(2.0),
+			..Tokens::default()
+		},
 		..Config::default()
 	})
 	.await
@@ -30,6 +38,11 @@ async fn the_dev_member_is_whoever_manages_the_archive() {
 		panic!("a fresh archive")
 	};
 	archive.add_gmail(owner, &NewGmail { gmail: "ops@gmail.com".into() }).await.unwrap();
+	let spent = TokensChange {
+		change: BalanceChange::Set(0),
+		note: None,
+	};
+	archive.change_tokens(owner, &spent, "admin@x.com").await.unwrap();
 	archive.close().await;
 
 	let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
@@ -56,5 +69,5 @@ async fn the_dev_member_is_whoever_manages_the_archive() {
 		status = serve.wait() => panic!("serve ended: {status:?}"),
 		() = tokio::time::sleep(Duration::from_secs(60)) => panic!("serve never answered"),
 	};
-	assert_eq!((me.id, me.email.as_str()), (owner.0, "owner@x.com"));
+	assert_eq!((me.id, me.email.as_str(), me.tokens.balance), (owner.0, "owner@x.com", 1000));
 }
