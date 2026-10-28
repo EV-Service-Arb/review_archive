@@ -276,8 +276,8 @@
       "type": "marcusolsson-dynamictext-panel",
       "title": "Snapshotted · ${n_snapshotted}",
       "dock": {
-        "minW": 220,
-        "minH": 120
+        "minWRem": 15.75,
+        "minHRem": 8.5
       },
       "gridPos": {
         "x": 0,
@@ -404,8 +404,8 @@
       "type": "marcusolsson-dynamictext-panel",
       "title": "Suspended · ${n_suspended}",
       "dock": {
-        "minW": 220,
-        "minH": 120
+        "minWRem": 15.75,
+        "minHRem": 8.5
       },
       "gridPos": {
         "x": 8,
@@ -532,8 +532,8 @@
       "type": "marcusolsson-dynamictext-panel",
       "title": "Removed · ${n_removed}",
       "dock": {
-        "minW": 220,
-        "minH": 120
+        "minWRem": 15.75,
+        "minHRem": 8.5
       },
       "gridPos": {
         "x": 8,
@@ -660,8 +660,8 @@
       "type": "marcusolsson-dynamictext-panel",
       "title": "Reinstating · ${n_reinstating}",
       "dock": {
-        "minW": 220,
-        "minH": 120
+        "minWRem": 15.75,
+        "minHRem": 8.5
       },
       "gridPos": {
         "x": 8,
@@ -788,7 +788,7 @@
       "type": "state-timeline",
       "title": "Runs",
       "dock": {
-        "minH": 48
+        "minHRem": 3.5
       },
       "gridPos": {
         "x": 16,
@@ -899,7 +899,7 @@
       "type": "timeseries",
       "title": "Reviews per run",
       "dock": {
-        "minH": 140
+        "minHRem": 10
       },
       "gridPos": {
         "x": 16,
@@ -1062,7 +1062,7 @@
       "type": "stat",
       "title": "Last run",
       "dock": {
-        "minH": 90
+        "minHRem": 6.5
       },
       "gridPos": {
         "x": 16,
