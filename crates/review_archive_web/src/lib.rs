@@ -534,14 +534,15 @@ fn Balance(member: i64, balance: i64) -> Element {
 			}
 			Button { variant: ButtonVariant::Outline, size: Size::Xs, r#type: "button", onclick: move |_| set(BalanceChange::Set), "set" }
 			Button { variant: ButtonVariant::Outline, size: Size::Xs, r#type: "button", onclick: move |_| add(BalanceChange::Add), "add" }
-			Button {
-				variant: ButtonVariant::Outline,
-				size: Size::Xs,
-				r#type: "button",
-				title: "owed as a kick-back, for them to claim; says what for in its note",
-				disabled: note().trim().is_empty(),
-				onclick: move |_| grant(BalanceChange::Grant),
-				"grant"
+			span { title: "owed as a kick-back, for them to claim; says what for in its note",
+				Button {
+					variant: ButtonVariant::Outline,
+					size: Size::Xs,
+					r#type: "button",
+					disabled: note().trim().is_empty(),
+					onclick: move |_| grant(BalanceChange::Grant),
+					"grant"
+				}
 			}
 			}
 		}
