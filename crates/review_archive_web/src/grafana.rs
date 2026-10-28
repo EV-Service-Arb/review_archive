@@ -11,7 +11,7 @@ use dioxus::{
 	prelude::*,
 	web::WebEventExt,
 };
-use review_archive_client::dto::NewLayout;
+use review_archive_client::dto::{NewLayout, TrackPatch};
 use strum::IntoEnumIterator;
 use wasm_bindgen::{JsCast, prelude::*};
 
@@ -51,6 +51,9 @@ enum Up {
 	Open { gmail: i64, target: i64 },
 	Scan { gmail: i64, target: i64 },
 	Enable { gmail: i64, target: i64, on: bool },
+	Favorite { gmail: i64, target: i64, on: bool },
+	Relink { gmail: i64, target: i64 },
+	Untrack { gmail: i64, target: i64 },
 	Reinstate { review: i64 },
 	Withdraw { review: i64 },
 }
@@ -182,6 +185,19 @@ pub fn Host(me: i64, children: Element) -> Element {
 						target: id("target"),
 						on: field("on").as_bool().unwrap_or_else(|| panic!("ra-enable's on is not a bool: {:?}", field("on"))),
 					},
+					Some("ra-favorite") => Up::Favorite {
+						gmail: id("gmail"),
+						target: id("target"),
+						on: field("on").as_bool().unwrap_or_else(|| panic!("ra-favorite's on is not a bool: {:?}", field("on"))),
+					},
+					Some("ra-relink") => Up::Relink {
+						gmail: id("gmail"),
+						target: id("target"),
+					},
+					Some("ra-untrack") => Up::Untrack {
+						gmail: id("gmail"),
+						target: id("target"),
+					},
 					Some("ra-reinstate") => Up::Reinstate { review: id("review") },
 					Some("ra-withdraw") => Up::Withdraw { review: id("review") },
 					_ => return,
@@ -270,7 +286,10 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 			navigator().push(Route::at(tab, View::Place { gmail, target }));
 		}
 		Up::Scan { gmail, target } => act(move |c| async move { c.scan_tracked(gmail, target).await.map(drop) }),
-		Up::Enable { gmail, target, on } => act(move |c| async move { c.patch_track(gmail, target, &review_archive_client::dto::TrackPatch { enabled: Some(on), favorite: None }).await }),
+		Up::Enable { gmail, target, on } => act(move |c| async move { c.patch_track(gmail, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
+		Up::Favorite { gmail, target, on } => act(move |c| async move { c.patch_track(gmail, target, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
+		Up::Relink { gmail, target } => act(move |c| async move { c.relink(gmail, target).await.map(drop) }),
+		Up::Untrack { gmail, target } => act(move |c| async move { c.untrack(gmail, target).await }),
 		Up::Reinstate { .. } | Up::Withdraw { .. } => unreachable!("the overview has no lanes"),
 	};
 	rsx! {
@@ -297,7 +316,7 @@ pub fn Location(gmail: i64, target: i64, tab: Option<i64>) -> Element {
 	let on = move |up: Up| match up {
 		Up::Reinstate { review } => act(move |c| async move { c.reinstate(gmail, review).await.map(drop) }),
 		Up::Withdraw { review } => act(move |c| async move { c.withdraw_reinstatement(gmail, review).await }),
-		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } => unreachable!("a board has no location cards"),
+		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } | Up::Favorite { .. } | Up::Relink { .. } | Up::Untrack { .. } => unreachable!("a board has no location cards"),
 	};
 	rsx! {
 		Slot { class: "min-h-0 w-full flex-1", path, on }

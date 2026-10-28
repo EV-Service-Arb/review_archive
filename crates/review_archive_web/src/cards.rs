@@ -71,11 +71,15 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 						div { class: "truncate text-[11px] text-ink-soft", "{gmail.gmail}" }
 					}
 				}
-				div { class: "flex items-baseline gap-3",
-					span { class: "text-[28px] font-semibold leading-none", "{loc.snapshots_7d}" }
-					span { class: "text-ink-soft", "snapshots 7d" }
-					span { class: "text-[15px] text-ink-soft", "{loc.snapshots_30d}" }
-					span { class: "text-ink-soft", "30d" }
+				div { class: "flex items-end gap-6",
+					div { class: "flex flex-col gap-1",
+						span { class: "text-[28px] font-semibold leading-none", "{loc.snapshots_7d}" }
+						span { class: "text-[11px] text-ink-soft", "snapshots 7d" }
+					}
+					div { class: "flex flex-col gap-1 text-ink-soft",
+						span { class: "text-[18px] font-semibold leading-none", "{loc.snapshots_30d}" }
+						span { class: "text-[11px]", "snapshots 30d" }
+					}
 				}
 				div { class: "flex flex-wrap gap-1.5",
 					Badge { tone: Tone::Ok,

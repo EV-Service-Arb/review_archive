@@ -15,10 +15,10 @@ ROOT = """(
       "key": $string($g.id) & ":" & $string(target.id),
       "gmail": $g.id, "gmail_name": $g.gmail, "gmail_on": $g.enabled,
       "target": target.id, "label": target.label, "address": target.address, "place_id": target.place_id,
-      "enabled": enabled, "snapshots_7d": snapshots_7d, "snapshots_30d": snapshots_30d,
+      "enabled": enabled, "favorite": favorite, "snapshots_7d": snapshots_7d, "snapshots_30d": snapshots_30d,
       "live": live, "listed": listed, "new_7d": new_7d, "posts_7d": posts_7d,
       "post": latest_post.text, "post_at": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,
-      "responded": responded, "non_five_star": non_five_star, "suspended": suspended, "removed": removed, "reinstating": reinstating, "held": held,
+      "responded": responded, "corrupted": corrupted, "captured": captured, "non_five_star": non_five_star, "suspended": suspended, "removed": removed, "reinstating": reinstating, "held": held,
       "last_run_at": last_run_at, "last_run_status": last_run_status, "last_run_error": last_run_error,
       "scan": scan.state, "scan_since": scan.since, "scan_ahead": scan.ahead, "scan_cost": scan_cost
     }
@@ -59,6 +59,7 @@ CARD_COLUMNS = [
 	("address", "address", "string"),
 	("place_id", "place_id", "string"),
 	("enabled", "enabled", "boolean"),
+	("favorite", "favorite", "boolean"),
 	("snapshots_7d", "snapshots_7d", "number"),
 	("snapshots_30d", "snapshots_30d", "number"),
 	("live", "live", "number"),
@@ -68,6 +69,8 @@ CARD_COLUMNS = [
 	("post", "post", "string"),
 	("post_at", "post_at", "string"),
 	("responded", "responded", "number"),
+	("corrupted", "corrupted", "number"),
+	("captured", "captured", "number"),
 	("non_five_star", "non_five_star", "number"),
 	("suspended", "suspended", "number"),
 	("removed", "removed", "number"),
@@ -84,29 +87,41 @@ CARD_COLUMNS = [
 
 CONTENT = """<div class="ra-grid">
 {{#each data}}
-<div class="ra-card{{#unless (on this)}} ra-off{{/unless}}" data-i="{{@index}}">
+<div class="ra-card{{#unless (on this)}} ra-off{{/unless}}{{#if favorite}} ra-fav{{/if}}" data-i="{{@index}}">
   <div class="ra-head">
-    <div class="ra-label">{{label}}</div>
+    <div class="ra-name"><div class="ra-label">{{label}}</div></div>
     {{#if address}}<div class="ra-soft ra-cut" title="{{address}}">{{address}}</div>{{/if}}
     <div class="ra-pid">{{place_id}}</div>
     {{#if (allGmails)}}<div class="ra-soft ra-cut ra-small">{{gmail_name}}</div>{{/if}}
   </div>
-  <button class="ra-switch{{#if enabled}} on{{/if}}" data-act="enable" title="scanned on the schedule" {{#unless gmail_on}}disabled{{/unless}}></button>
-  <div class="ra-big"><b>{{snapshots_7d}}</b> snapshots 7d <span>{{snapshots_30d}}</span> 30d</div>
+  <div class="ra-stats">
+    <div><b>{{snapshots_7d}}</b><small>snapshots 7d</small></div>
+    <div class="ra-soft"><b class="ra-sub">{{snapshots_30d}}</b><small>snapshots 30d</small></div>
+  </div>
   <div class="ra-badges">
     <span class="ok" title="archived and still listed / listed on Google">live {{live}}{{#if listed}}/{{listed}}{{/if}}</span>
     <span class="ok" title="posted over the last 7 days, removed ones included">new 7d +{{new_7d}}</span>
     {{#if post}}<span class="ok" title="owner's latest post, {{ago post_at}}:&#10;{{post}}">posts 7d {{posts_7d}}</span>{{/if}}
     <span class="{{#if (lt responded live)}}warn{{else}}ok{{/if}}" title="replied to by the owner / live">responded {{responded}}/{{live}}</span>
     <span class="soft" title="listed reviews under 5 stars, or unrated">non-5-star {{non_five_star}}</span>
+    {{#if corrupted}}<span class="warn" title="reviews whose every screenshot is cut off / reviews with one; the next scan retakes them">corrupted {{corrupted}}/{{captured}}</span>{{/if}}
     {{#if suspended}}<span class="bad" title="5-star reviews gone from the listing">suspended {{suspended}}</span>{{/if}}
     {{#if removed}}<span class="bad">removed {{removed}}</span>{{/if}}
     {{#if reinstating}}<span class="warn">reinstating {{reinstating}}</span>{{/if}}
     {{#if held}}<span class="warn" title="not scanned: every member tracking it is out of tokens">out of tokens</span>{{/if}}
   </div>
   <div class="ra-run">
-    <i class="ra-dot ra-dot-{{dot this}}"></i>{{scanline this}}{{lastline this}}<span title="{{last_run_error}}">{{#if last_run_status}}{{last_run_status}}{{else}}never scanned{{/if}}</span>
-    {{#if scan}}<span class="ra-spin"></span>{{else}}<button class="ra-scan" data-act="scan" title="scan now, on top of the schedule: {{scan_cost}} tokens">↻ {{scan_cost}}</button>{{/if}}
+    <span class="ra-line" title="{{last_run_error}}"><i class="ra-dot ra-dot-{{dot this}}"></i>{{scanline this}}{{lastline this}}{{#if last_run_status}}{{last_run_status}}{{else}}never scanned{{/if}}</span>
+    {{#if scan}}<span class="ra-btn"><i class="ra-spin"></i></span>{{else}}<button class="ra-btn" data-act="scan" title="scan now, on top of the schedule: ≈ {{scan_cost}} tokens">↻</button>{{/if}}
+    <button class="ra-btn" data-act="enable" title="scanned on the schedule" {{#unless gmail_on}}disabled{{/unless}}><i class="ra-switch{{#if enabled}} on{{/if}}"></i></button>
+    <details class="ra-menu">
+      <summary class="ra-btn" title="more">⋮</summary>
+      <div>
+        <button data-act="favorite">{{#if favorite}}<i class="ra-gold">★</i> unfavorite{{else}}☆ favorite{{/if}}</button>
+        <button data-act="relink" title="ask Google for the place's id, name and address again">⟳ re-link</button>
+        <button data-act="delete" class="ra-del" title="stop tracking under this gmail; the archive stays">🗑 delete</button>
+      </div>
+    </details>
   </div>
 </div>
 {{/each}}
@@ -139,45 +154,70 @@ AFTER_RENDER = """const up = (m) => window.parent.postMessage(m, window.location
 context.element.querySelectorAll('.ra-card').forEach((card) => {
   const row = context.data[Number(card.dataset.i)];
   const ids = { gmail: row.gmail, target: row.target };
+  const acts = {
+    scan: { kind: 'ra-scan', ...ids },
+    enable: { kind: 'ra-enable', ...ids, on: !row.enabled },
+    favorite: { kind: 'ra-favorite', ...ids, on: !row.favorite },
+    relink: { kind: 'ra-relink', ...ids },
+    delete: { kind: 'ra-untrack', ...ids },
+  };
   card.addEventListener('click', () => up({ kind: 'ra-open', ...ids }));
+  card.querySelector('.ra-menu').addEventListener('click', (e) => e.stopPropagation());
   card.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
-    up(b.dataset.act === 'scan' ? { kind: 'ra-scan', ...ids } : { kind: 'ra-enable', ...ids, on: !row.enabled });
+    up(acts[b.dataset.act]);
   }));
+  const name = card.querySelector('.ra-label');
+  if (name.scrollHeight > name.clientHeight) name.title = name.textContent;
 });"""
 
 STYLES = """.ra-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-.ra-card { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; cursor: pointer; }
+.ra-card { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 8px 16px 16px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; cursor: pointer; }
 .ra-card:hover { border-color: rgba(128,128,128,.7); }
+.ra-fav, .ra-fav:hover { border-color: #ff9830; }
 .ra-off { opacity: .5; }
-.ra-head { padding-right: 48px; min-width: 0; }
-.ra-label { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ra-head { min-width: 0; }
+.ra-name { min-height: 28px; display: flex; flex-direction: column; justify-content: flex-end; }
+.ra-label { font-weight: 600; font-size: 14px; line-height: 20px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ra-soft { opacity: .65; }
 .ra-cut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ra-small { font-size: 11px; }
 .ra-pid { font-family: monospace; font-size: 11px; opacity: .65; overflow: hidden; text-overflow: ellipsis; }
-.ra-big b { font-size: 28px; line-height: 1; }
-.ra-big span { font-size: 15px; opacity: .65; margin-left: 12px; }
+.ra-stats { display: flex; align-items: flex-end; gap: 24px; }
+.ra-stats div { display: flex; flex-direction: column; gap: 4px; }
+.ra-stats b { font-size: 28px; font-weight: 600; line-height: 1; }
+.ra-stats b.ra-sub { font-size: 18px; }
+.ra-stats small { font-size: 11px; opacity: .65; }
+.ra-stats .ra-soft small { opacity: 1; }
 .ra-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .ra-badges span { font-size: 11px; padding: 1px 8px; border-radius: 999px; }
 .ok { background: rgba(115,191,105,.15); color: #73bf69; }
 .warn { background: rgba(255,152,48,.15); color: #ff9830; }
 .bad { background: rgba(242,73,92,.15); color: #f2495c; }
 .soft { background: rgba(107,127,160,.15); color: #6b7fa0; }
-.ra-run { margin-top: auto; display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,.3); font-size: 11px; opacity: .8; }
-.ra-dot { width: 6px; height: 6px; border-radius: 999px; background: #8e8e8e; flex-shrink: 0; }
+.ra-run { margin-top: auto; display: flex; align-items: center; gap: 4px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,.3); font-size: 11px; }
+.ra-line { flex: 1; min-width: 0; opacity: .8; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ra-dot { display: inline-block; width: 6px; height: 6px; margin-right: 8px; vertical-align: middle; border-radius: 999px; background: #8e8e8e; }
 .ra-dot-ok { background: #73bf69; } .ra-dot-partial, .ra-dot-warn { background: #ff9830; } .ra-dot-failed { background: #f2495c; }
 .ra-dot-run { background: #73bf69; animation: ra-pulse 1.5s ease-in-out infinite; }
 @keyframes ra-pulse { 50% { opacity: .3; } }
-.ra-scan { margin-left: auto; padding: 2px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
-.ra-scan:hover { background: rgba(128,128,128,.2); }
-.ra-spin { margin-left: auto; width: 12px; height: 12px; border: 2px solid rgba(128,128,128,.4); border-top-color: currentColor; border-radius: 999px; animation: ra-turn 1s linear infinite; }
+.ra-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; height: 32px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; font-size: 16px; cursor: pointer; list-style: none; }
+.ra-btn::-webkit-details-marker { display: none; }
+.ra-btn:hover:not(:disabled) { background: rgba(128,128,128,.2); }
+.ra-btn:disabled { cursor: not-allowed; }
+.ra-spin { width: 12px; height: 12px; border: 2px solid rgba(128,128,128,.4); border-top-color: currentColor; border-radius: 999px; animation: ra-turn 1s linear infinite; }
 @keyframes ra-turn { to { transform: rotate(360deg); } }
-.ra-switch { position: absolute; top: 16px; right: 16px; width: 32px; height: 18px; border: 0; border-radius: 999px; background: rgba(128,128,128,.4); cursor: pointer; }
+.ra-switch { position: relative; display: block; width: 32px; height: 18px; border-radius: 999px; background: rgba(128,128,128,.4); }
 .ra-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 999px; background: #fff; transition: left .15s; }
 .ra-switch.on { background: #73bf69; }
 .ra-switch.on::after { left: 16px; }
-.ra-switch:disabled { cursor: not-allowed; opacity: .5; }"""
+.ra-btn:disabled .ra-switch { opacity: .5; }
+.ra-menu { position: relative; }
+.ra-menu > div { position: absolute; right: 0; bottom: 100%; z-index: 10; display: flex; flex-direction: column; min-width: 140px; padding: 4px; border: 1px solid rgba(128,128,128,.3); border-radius: 6px; background: #181b1f; }
+.ra-menu > div button { display: flex; gap: 8px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.ra-menu > div button:hover { background: rgba(128,128,128,.2); }
+.ra-gold { color: #ff9830; font-style: normal; }
+.ra-menu > div .ra-del { color: #f2495c; }"""
 
 dashboard = {
 	"uid": "ra-overview",
