@@ -7,10 +7,8 @@
 #![allow(clippy::useless_format)] // rsx! lowers every "{x}" to a format!
 
 mod board;
-#[cfg(not(feature = "grafana"))]
 mod cards;
 mod filter;
-#[cfg(feature = "grafana")]
 mod grafana;
 mod settings;
 mod telegram;
@@ -55,8 +53,24 @@ struct Host {
 
 /// The entry module's URL: every file of the bundle sits next to it.
 static BUNDLE: OnceLock<String> = OnceLock::new();
-/// The host page's language, and its attributes or the names of those it left out.
-static MOUNT: OnceLock<(Locale, Result<Host, Vec<&'static str>>)> = OnceLock::new();
+static MOUNT: OnceLock<Mount> = OnceLock::new();
+
+/// What the page gives the element when it mounts.
+struct Mount {
+	locale: Locale,
+	ui: Ui,
+	/// The element's attributes, or the names of those it left out.
+	host: Result<Host, Vec<&'static str>>,
+}
+
+/// Which dashboard the page shows, for its whole life: the two mount different hooks and subtrees.
+#[derive(Clone, Copy, PartialEq, strum::Display, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
+enum Ui {
+	Legacy,
+	/// Grafana draws the overview and a place's board: [`grafana`].
+	Grafana,
+}
 
 /// Called by the entry module with its own URL; registers the element.
 #[wasm_bindgen]
@@ -73,16 +87,41 @@ fn mount(el: web_sys::Element) {
 		(Some(api), Some(sign_in), Some(csrf_cookie), Some(base)) => Ok(Host { api, sign_in, csrf_cookie, base }),
 		_ => Err(["api", "sign-in", "csrf-cookie", "base"].into_iter().filter(|a| !el.has_attribute(a)).collect()),
 	};
+	let page = web_sys::window().expect("a browser").location().href().expect("a page has a URL");
+	let asked: Vec<String> = reqwest::Url::parse(&page)
+		.expect("a page's URL is a URL")
+		.query_pairs()
+		.filter(|(k, _)| k == "grafana")
+		.map(|(_, v)| v.into_owned())
+		.collect();
+	// the router drops the query, so a tab keeps what its link asked for across navigation and reloads
+	let ui = match asked.as_slice() {
+		[] => match session().get_item(UI).expect("sessionStorage is readable") {
+			Some(ui) => ui.parse().expect("written below"),
+			None => Ui::Legacy,
+		},
+		[v] => {
+			let ui = match v.as_str() {
+				"true" => Ui::Grafana,
+				"false" => Ui::Legacy,
+				v => panic!("?grafana={v}: a link asks for `true` or `false`"),
+			};
+			session().set_item(UI, &ui.to_string()).expect("sessionStorage is writable");
+			ui
+		}
+		many => panic!("?grafana given {} times: {many:?}", many.len()),
+	};
 	let mut cfg = dioxus::web::Config::new().rootelement(el.clone());
 	if let Ok(host) = &host {
 		cfg = cfg.history(std::rc::Rc::new(dioxus::web::WebHistory::new(Some(host.base.clone()), true)));
 	}
-	assert!(MOUNT.set((ev_lib::mfe::host_locale(&el), host)).is_ok(), "one dashboard per page");
+	let locale = ev_lib::mfe::host_locale(&el);
+	assert!(MOUNT.set(Mount { locale, ui, host }).is_ok(), "one dashboard per page");
 	dioxus::LaunchBuilder::new().with_cfg(cfg).launch(root);
 }
 
 fn root() -> Element {
-	let (locale, host) = MOUNT.get().expect("set before launch");
+	let Mount { locale, host, .. } = MOUNT.get().expect("set before launch");
 	let tr = use_context_provider(|| Translator::new(catalogue(*locale), *locale));
 	let bundle = BUNDLE.get().expect("defined before any mount");
 	let stylesheet = reqwest::Url::parse(bundle).and_then(|b| b.join("mfe.css")).expect("the entry module's URL is a URL");
@@ -102,8 +141,12 @@ fn root() -> Element {
 fn host() -> &'static Host {
 	MOUNT
 		.get()
-		.and_then(|(_, h)| h.as_ref().ok())
+		.and_then(|m| m.host.as_ref().ok())
 		.expect("only the router asks, and it renders once the attributes are read")
+}
+
+fn ui() -> Ui {
+	MOUNT.get().expect("set before launch").ui
 }
 
 /// The API as this tab's member: the caller, or the member their tab acts as.
@@ -236,6 +279,7 @@ fn PickView() -> Element {
 }
 
 const TABS: &str = "review_archive.tabs";
+const UI: &str = "review_archive.ui";
 
 fn session() -> web_sys::Storage {
 	web_sys::window()
@@ -330,9 +374,10 @@ fn Signed(me: Me, view: Route) -> Element {
 		true => rsx! { Admin { me: me.id } },
 		false => rsx! { Workspace { view } },
 	};
-	#[cfg(feature = "grafana")]
-	let body = rsx! { grafana::Host { me: me.id, {body} } };
-	body
+	match ui() {
+		Ui::Grafana => rsx! { grafana::Host { me: me.id, {body} } },
+		Ui::Legacy => body,
+	}
 }
 
 /// "You", then a tab per member opened, kept for this browser tab across the full loads the
@@ -846,36 +891,36 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
 	let kept: Vec<LocationSummary> = shown.iter().map(|(_, l)| l.clone()).collect();
-	#[cfg(feature = "grafana")]
-	let overview = rsx! {
-		grafana::Overview {
-			gmail: gmail.as_ref().map(|g| g.id),
-			keys: shown.iter().map(|(g, l)| format!("{}:{}", g.id, l.target.id)).collect::<Vec<_>>().join(","),
-			tab,
-		}
-	};
-	#[cfg(not(feature = "grafana"))]
-	let overview = rsx! {
-		main { class: "min-h-0 flex-1 overflow-y-auto p-6",
-			if total == 0 {
-				div { class: "text-ink-soft",
-					if gmail.is_some() { "No places tracked under this gmail yet." } else { "No places tracked yet." }
-				}
-			} else if shown.is_empty() {
-				div { class: "text-ink-soft", "No place matches the filters." }
+	let overview = match ui() {
+		Ui::Grafana => rsx! {
+			grafana::Overview {
+				gmail: gmail.as_ref().map(|g| g.id),
+				keys: shown.iter().map(|(g, l)| format!("{}:{}", g.id, l.target.id)).collect::<Vec<_>>().join(","),
+				tab,
 			}
-			div { class: "grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4",
-				for (g, loc) in shown {
-					cards::LocationCard {
-						key: "{g.id}-{loc.target.id}",
-						to: Route::at(tab, View::Place { gmail: g.id, target: loc.target.id }),
-						gmail: g,
-						all: gmail.is_none(),
-						loc,
+		},
+		Ui::Legacy => rsx! {
+			main { class: "min-h-0 flex-1 overflow-y-auto p-6",
+				if total == 0 {
+					div { class: "text-ink-soft",
+						if gmail.is_some() { "No places tracked under this gmail yet." } else { "No places tracked yet." }
+					}
+				} else if shown.is_empty() {
+					div { class: "text-ink-soft", "No place matches the filters." }
+				}
+				div { class: "grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4",
+					for (g, loc) in shown {
+						cards::LocationCard {
+							key: "{g.id}-{loc.target.id}",
+							to: Route::at(tab, View::Place { gmail: g.id, target: loc.target.id }),
+							gmail: g,
+							all: gmail.is_none(),
+							loc,
+						}
 					}
 				}
 			}
-		}
+		},
 	};
 	rsx! {
 		header { class: "flex h-14 shrink-0 items-center gap-3 border-b border-border px-6",
@@ -990,7 +1035,6 @@ fn tracked(held: &[(i64, i64)], gmail: i64, address: &str, t: &TargetDto) -> Str
 	}
 }
 
-#[cfg(not(feature = "grafana"))]
 #[derive(Clone, Copy, PartialEq)]
 enum Tone {
 	Ok,
@@ -999,7 +1043,6 @@ enum Tone {
 	Neutral,
 }
 
-#[cfg(not(feature = "grafana"))]
 #[component]
 fn Badge(tone: Tone, children: Element) -> Element {
 	let (variant, class) = match tone {

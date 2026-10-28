@@ -68,20 +68,14 @@ impl Filter {
 	}
 }
 
-// Grafana's dark canvas and panel, so the block reads as the frame's first panel
-#[cfg(feature = "grafana")]
-const AROUND: &str = "bg-[#111217] px-4 pt-4";
-#[cfg(feature = "grafana")]
-const PANEL: &str = "border-[#ccccdc1f] bg-[#181b1f]";
-#[cfg(not(feature = "grafana"))]
-const AROUND: &str = "px-6 pt-6";
-#[cfg(not(feature = "grafana"))]
-const PANEL: &str = "border-border bg-card";
-
 /// The filter over what it keeps (`kept`, of `total`) and their totals.
 #[component]
 pub(crate) fn Bar(kept: Vec<LocationSummary>, total: usize) -> Element {
 	let mut filter: Signal<Filter> = use_context();
+	let (around, panel) = match crate::ui() {
+		crate::Ui::Grafana => ("bg-[#111217] px-4 pt-4", "border-[#ccccdc1f] bg-[#181b1f]"), // Grafana's dark canvas and panel, so the block reads as the frame's first panel
+		crate::Ui::Legacy => ("px-6 pt-6", "border-border bg-card"),
+	};
 	let invalid = filter.read().regex().err().map(|e| e.to_string());
 	let sum = |f: fn(&LocationSummary) -> i64| kept.iter().map(f).sum::<i64>();
 	let live = sum(|l| l.live);
@@ -98,8 +92,8 @@ pub(crate) fn Bar(kept: Vec<LocationSummary>, total: usize) -> Element {
 		("reinstating", sum(|l| l.reinstating).to_string(), "text-accent-warn"),
 	];
 	rsx! {
-		div { class: "shrink-0 {AROUND}",
-			div { class: "flex flex-col gap-3 rounded-md border px-4 py-3 {PANEL}",
+		div { class: "shrink-0 {around}",
+			div { class: "flex flex-col gap-3 rounded-md border px-4 py-3 {panel}",
 				div { class: "flex flex-wrap items-baseline gap-x-8 gap-y-1",
 					span { class: "font-medium", "Across locations" }
 					for (label, value, tone) in totals {

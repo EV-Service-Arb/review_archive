@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use ev_lib::uikit_dioxus::{Button, ButtonVariant, Size};
-#[cfg(not(feature = "grafana"))]
 use review_archive_client::dto::BoardCard;
 use strum::IntoEnumIterator;
 
@@ -18,7 +17,6 @@ pub(crate) enum Review {
 	New7d,
 }
 
-#[cfg(not(feature = "grafana"))] // Grafana narrows the board's queries by them: `examples/grafana_location.py`
 impl Review {
 	fn holds(self, c: &BoardCard) -> bool {
 		match self {
@@ -37,7 +35,6 @@ impl Review {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Reviews(pub(crate) HashMap<Review, bool>);
 
-#[cfg(not(feature = "grafana"))]
 impl Reviews {
 	pub(crate) fn not(r: Review) -> Self {
 		Self(HashMap::from([(r, false)]))

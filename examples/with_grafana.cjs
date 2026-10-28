@@ -41,7 +41,8 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	let documents = 0;
 	page.on('request', (r) => r.resourceType() === 'document' && r.frame() === page.mainFrame() && documents++);
 
-	await page.goto(`${BASE}/members/${member}/gmails/${gmail}`);
+	const OVERVIEW = `${BASE}/members/${member}/gmails/${gmail}?grafana=true`;
+	await page.goto(OVERVIEW);
 	const frame = await (await page.waitForSelector('iframe[src*="/grafana/"]')).contentFrame();
 	await frame.waitForSelector('.ra-card', { timeout: 60000 });
 	const kept = async () => assert.strictEqual(await frame.evaluate(() => window.marker), 'kept', 'the frame did not reload');
@@ -66,7 +67,7 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 			await frame.waitForFunction((on) => document.querySelector('.ra-card .ra-switch').classList.contains('on') === on, want, { timeout: 30000 });
 			assert.strictEqual((await overview()).locations[0].enabled, want);
 		}
-		assert.ok(page.url().endsWith(`/gmails/${gmail}`), 'the switch is not the card: no board opened');
+		assert.strictEqual(page.url(), OVERVIEW, 'the switch is not the card: no board opened');
 		console.log('switch: written and redrawn, both ways');
 	} else {
 		console.log('switch: not tried, the gmail is off');
@@ -129,7 +130,7 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 		console.log('drag: not tried, nothing is gone');
 	}
 	await page.goBack();
-	await page.waitForURL(`**/members/${member}/gmails/${gmail}`);
+	await page.waitForURL((u) => u.href === OVERVIEW); // the page's first entry, its query kept
 	t = Date.now();
 	await count(frame, g.locations.length);
 	await kept();
