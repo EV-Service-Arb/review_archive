@@ -1,5 +1,5 @@
 //! What narrows the locations grid and a place's board: a regex over a place's text, and facets
-//! each required or ruled out. One per tab, kept across its views.
+//! each required or ruled out. One per tab, kept across its views. The grid's sits over the totals of what it keeps.
 
 pub(crate) mod reviews;
 
@@ -68,44 +68,83 @@ impl Filter {
 	}
 }
 
+// Grafana's dark canvas and panel, so the block reads as the frame's first panel
+#[cfg(feature = "grafana")]
+const AROUND: &str = "bg-[#111217] px-4 pt-4";
+#[cfg(feature = "grafana")]
+const PANEL: &str = "border-[#ccccdc1f] bg-[#181b1f]";
+#[cfg(not(feature = "grafana"))]
+const AROUND: &str = "px-6 pt-6";
+#[cfg(not(feature = "grafana"))]
+const PANEL: &str = "border-border bg-card";
+
+/// The filter over what it keeps (`kept`, of `total`) and their totals.
 #[component]
-pub(crate) fn Bar(shown: usize, total: usize) -> Element {
+pub(crate) fn Bar(kept: Vec<LocationSummary>, total: usize) -> Element {
 	let mut filter: Signal<Filter> = use_context();
 	let invalid = filter.read().regex().err().map(|e| e.to_string());
+	let sum = |f: fn(&LocationSummary) -> i64| kept.iter().map(f).sum::<i64>();
+	let live = sum(|l| l.live);
+	let responded = match live {
+		0 => "–".to_owned(),
+		live => format!("{:.0}%", 100. * sum(|l| l.responded) as f64 / live as f64),
+	};
+	let totals = [
+		("live", live.to_string(), ""),
+		("new 7d", sum(|l| l.new_7d).to_string(), ""),
+		("responded", responded, ""),
+		("suspended", sum(|l| l.suspended).to_string(), "text-accent-error"),
+		("removed", sum(|l| l.removed).to_string(), "text-accent-error"),
+		("reinstating", sum(|l| l.reinstating).to_string(), "text-accent-warn"),
+	];
 	rsx! {
-		div { class: "flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-6 py-2",
-			span { title: invalid.clone().unwrap_or_default(),
-				Input {
-					class: if invalid.is_some() { "w-64 border-accent-error text-accent-error" } else { "w-64" },
-					size: Size::Sm,
-					placeholder: "regex: address, name, place id, gmail",
-					value: filter.read().pattern.clone(),
-					oninput: move |e: FormEvent| filter.write().pattern = e.value(),
+		div { class: "shrink-0 {AROUND}",
+			div { class: "flex flex-col gap-3 rounded-md border px-4 py-3 {PANEL}",
+				div { class: "flex flex-wrap items-baseline gap-x-8 gap-y-1",
+					span { class: "font-medium", "Across locations" }
+					for (label, value, tone) in totals {
+						span { key: "{label}", class: "flex items-baseline gap-1.5",
+							span { class: "text-ink-soft", "{label}" }
+							span { class: "text-[20px] leading-none font-semibold {tone}", "{value}" }
+						}
+					}
+					div { class: "flex-1" }
+					span { class: "text-ink-soft", "{kept.len()} of {total}" }
 				}
-			}
-			for f in Facet::iter() {
-				Tri {
-					key: "{f:?}",
-					label: f.to_string(),
-					state: filter.read().facets.get(&f).copied(),
-					on_change: move |s| {
-						let mut w = filter.write();
-						match s {
-							Some(want) => w.facets.insert(f, want),
-							None => w.facets.remove(&f),
-						};
-					},
+				div { class: "flex flex-wrap items-center gap-1.5",
+					span { title: invalid.clone().unwrap_or_default(),
+						Input {
+							class: if invalid.is_some() { "w-64 border-accent-error text-accent-error" } else { "w-64" },
+							size: Size::Sm,
+							placeholder: "regex: address, name, place id, gmail",
+							value: filter.read().pattern.clone(),
+							oninput: move |e: FormEvent| filter.write().pattern = e.value(),
+						}
+					}
+					for f in Facet::iter() {
+						Tri {
+							key: "{f:?}",
+							label: f.to_string(),
+							state: filter.read().facets.get(&f).copied(),
+							on_change: move |s| {
+								let mut w = filter.write();
+								match s {
+									Some(want) => w.facets.insert(f, want),
+									None => w.facets.remove(&f),
+								};
+							},
+						}
+					}
+					div { class: "flex-1" }
+					Button {
+						variant: ButtonVariant::Ghost,
+						size: Size::Sm,
+						r#type: "button",
+						disabled: *filter.read() == Filter::default(),
+						onclick: move |_| filter.set(Filter::default()),
+						"Clear"
+					}
 				}
-			}
-			div { class: "flex-1" }
-			span { class: "text-ink-soft", "{shown} of {total}" }
-			Button {
-				variant: ButtonVariant::Ghost,
-				size: Size::Sm,
-				r#type: "button",
-				disabled: *filter.read() == Filter::default(),
-				onclick: move |_| filter.set(Filter::default()),
-				"Clear"
 			}
 		}
 	}

@@ -189,60 +189,10 @@ dashboard = {
 	"templating": {"list": [hidden("member"), hidden("gmail"), hidden("keys"), hidden("rev")]},
 	"panels": [
 		{
-			"id": 1,
-			"type": "stat",
-			"title": "Across locations",
-			"gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
-			"datasource": DS,
-			"targets": [
-				query(
-					[
-						("live", "live", "number"),
-						("new_7d", "new 7d", "number"),
-						("responded", "responded", "number"),
-						("suspended", "suspended", "number"),
-						("removed", "removed", "number"),
-						("reinstating", "reinstating", "number"),
-					]
-				)
-			],
-			"transformations": [
-				{"id": "reduce", "options": {"mode": "reduceFields", "reducers": ["sum"], "includeTimeField": False}},
-				{
-					"id": "calculateField",
-					"options": {
-						"mode": "binary",
-						"alias": "responded %",
-						"binary": {"left": {"matcher": {"id": "byName", "options": "responded"}}, "operator": "/", "right": {"matcher": {"id": "byName", "options": "live"}}},
-						"replaceFields": False,
-					},
-				},
-				{"id": "organize", "options": {"excludeByName": {"responded": True}, "indexByName": {"live": 0, "new 7d": 1, "responded %": 2, "suspended": 3, "removed": 4, "reinstating": 5}}},
-			],
-			"fieldConfig": {
-				"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "text"}},
-				"overrides": [
-					{"matcher": {"id": "byName", "options": "responded %"}, "properties": [{"id": "unit", "value": "percentunit"}]},
-					{"matcher": {"id": "byName", "options": "suspended"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
-					{"matcher": {"id": "byName", "options": "removed"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
-					{"matcher": {"id": "byName", "options": "reinstating"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
-				],
-			},
-			"options": {
-				"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
-				"colorMode": "value",
-				"graphMode": "none",
-				"textMode": "value_and_name",
-				"orientation": "vertical",
-				"justifyMode": "center",
-				"text": {"titleSize": 13, "valueSize": 20},
-			},
-		},
-		{
 			"id": 2,
 			"type": "marcusolsson-dynamictext-panel",
 			"title": "Locations",
-			"gridPos": {"x": 0, "y": 3, "w": 24, "h": 19},
+			"gridPos": {"x": 0, "y": 0, "w": 24, "h": 22},
 			"datasource": DS,
 			"targets": [query(CARD_COLUMNS)],
 			"options": {

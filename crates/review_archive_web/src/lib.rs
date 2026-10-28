@@ -845,7 +845,7 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 	let filter: Signal<filter::Filter> = use_context();
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
-	let count = shown.len();
+	let kept: Vec<LocationSummary> = shown.iter().map(|(_, l)| l.clone()).collect();
 	#[cfg(feature = "grafana")]
 	let overview = rsx! {
 		grafana::Overview {
@@ -977,7 +977,7 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 				}
 			}
 		}
-		filter::Bar { shown: count, total }
+		filter::Bar { kept, total }
 		{overview}
 	}
 }
