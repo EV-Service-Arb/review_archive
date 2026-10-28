@@ -153,28 +153,54 @@
           hash = "sha256-NDxPRBj29ZmAb5ROp9SxPCSvrG0C+CVDWYPljcBeW4k=";
         };
 
-        # `serve`'s `grafana`: `serve` gives it its socket, data dir and `RA_API`; the rest is fixed here.
-        grafanaServer = pkgs.writeShellScript "grafana-server" ''
-          log="''${XDG_STATE_HOME:-$HOME/.local/state}/review_archive/grafana.log"
-          mkdir -p "$(dirname "$log")"
+        # Infinity's package for this platform alone: the catalog's default zip carries every platform's backend
+        infinityPlugin = pkgs.grafanaPlugins.grafanaPlugin {
+          pname = "yesoreyeram-infinity-datasource";
+          version = "4.1.0";
+          zipHash = {
+            x86_64-linux = "sha256-pzgHZ2abzFzyKvBIQOTzlirus+AUTE0/VfP2zYnL06I=";
+            aarch64-linux = "sha256-1fZ7v7mkleROOessTSbLB6wQH2HLMbhJdVGiqaaC/pg=";
+          };
+        };
+
+        # `serve`'s `grafana.server`: `serve` gives it its socket, data dir, root URL, `RA_API` and its
+        # sign-in settings; the rest is fixed here, cut to what the dashboards use (ARCHITECTURE.md § Memory).
+        # `logFile`: dev's, appended to; otherwise warnings and up on serve's stderr.
+        grafanaServer = { logFile }: pkgs.writeShellScript "grafana-server" ''
           export RA_GRAFANA=${./grafana}
           export GF_PATHS_LOGS="$GF_PATHS_DATA/log"
-          export GF_PATHS_PLUGINS="${pkgs.linkFarm "grafana-plugins" (map (p: { name = p.pname; path = p; }) (with pkgs.grafanaPlugins; [ yesoreyeram-infinity-datasource marcusolsson-dynamictext-panel ]) ++ [ { name = "evmain-tilers-app"; path = tilersPlugin; } ])}"
+          export GF_PATHS_PLUGINS="${pkgs.linkFarm "grafana-plugins" [
+            { name = "yesoreyeram-infinity-datasource"; path = infinityPlugin; }
+            { name = "marcusolsson-dynamictext-panel"; path = pkgs.grafanaPlugins.marcusolsson-dynamictext-panel; }
+            { name = "evmain-tilers-app"; path = tilersPlugin; }
+          ]}"
           export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=evmain-tilers-app
-          export GF_PATHS_PROVISIONING="$RA_GRAFANA/provisioning"
-          export GF_AUTH_ANONYMOUS_ENABLED=true GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+          # with the sections it reads and nothing is provisioned in: missing, each is logged as an error
+          export GF_PATHS_PROVISIONING="${pkgs.runCommand "grafana-provisioning" { } "cp -r ${./grafana/provisioning} $out; chmod u+w $out; mkdir $out/alerting $out/plugins"}"
           export GF_SECURITY_ALLOW_EMBEDDING=true
           export GF_PLUGINS_PREINSTALL_DISABLED=true # its plugin dir is the store's
           export GF_LIVE_MAX_CONNECTIONS=0
           export GF_ANALYTICS_REPORTING_ENABLED=false GF_ANALYTICS_CHECK_FOR_UPDATES=false GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
-          exec ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana >>"$log" 2>&1
+          export GF_UNIFIED_ALERTING_ENABLED=false GF_NEWS_NEWS_FEED_ENABLED=false GF_PUBLIC_DASHBOARDS_ENABLED=false GF_SNAPSHOTS_ENABLED=false
+          export GF_QUERY_HISTORY_ENABLED=false GF_EXPLORE_ENABLED=false GF_CLOUD_MIGRATION_ENABLED=false GF_RECORDED_QUERIES_ENABLED=false
+          export GF_PROFILE_ENABLED=false GF_HELP_ENABLED=false
+          # its own, not the pod's, which is serve's (ARCHITECTURE.md § Memory); Infinity inherits it
+          export GOMEMLIMIT=100MiB
+          ${if logFile then ''
+            log="''${XDG_STATE_HOME:-$HOME/.local/state}/review_archive/grafana.log"
+            mkdir -p "$(dirname "$log")"
+            exec ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana >>"$log" 2>&1
+          '' else ''
+            export GF_LOG_MODE=console GF_LOG_LEVEL=warn
+            exec ${pkgs.grafana}/bin/grafana server --homepath ${pkgs.grafana}/share/grafana
+          ''}
         '';
 
         # `nix run .#<name> [-- <held>]`: the dashboard built (debug) into tmp/<name> and served by a
         # local `serve` at `/`, on the repo's `data/`, signed in holding `<held>` (`--dev-member`: an
         # alias, permissions comma-separated, or `none`; no panel needed). Scans run in a Chromium
-        # window: a headless one gets Maps' limited view (#9). `grafana`: Grafana draws the locations overview.
-        devMfe = { name, grafana }: pkgs.writeShellApplication {
+        # window: a headless one gets Maps' limited view (#9). With `?grafana=true`, Grafana draws the overview and boards.
+        devMfe = { name }: pkgs.writeShellApplication {
           inherit name;
           runtimeInputs = [ pkgs.git ];
           text = ''
@@ -183,13 +209,15 @@
             cd "$repo"
             out="$repo/tmp/${name}"
             RUSTFLAGS='${wasmFlags}' nix develop "$repo" --command bash -euc "
-              cargo build -p review_archive_web --target wasm32-unknown-unknown ${lib.optionalString grafana "--features grafana"}
+              cargo build -p review_archive_web --target wasm32-unknown-unknown
               bash crates/review_archive_web/package.sh target/wasm32-unknown-unknown/debug/review_archive_web.wasm '$out'
             "
             cat >"$out/config.toml" <<EOF
             data_dir = "$repo/data"
             mfe_dir = "$out"
-            ${lib.optionalString grafana ''grafana = "${grafanaServer}"''}
+            [grafana]
+            server = "${grafanaServer { logFile = true; }}"
+            root_url = "http://127.0.0.1:59110/grafana/"
             [browser]
             executable = "${pkgs.chromium}/bin/chromium"
             headful = true
@@ -223,6 +251,7 @@
           inherit port;
           chromium = headlessShell;
           mfe = "${mfe}";
+          grafana = "${grafanaServer { logFile = false; }}";
         });
 
         imageEnv = playwrightEnv // {
@@ -250,8 +279,8 @@
             inherit port;
             mounts = [ "/data" ];
             sqlite = [ "/data/review_archive.db" ];
-            # Chromium's own; a lost sign-in is the `signed_out` halt
-            unreplicated = [ "/data/chromium-profile" "/data/chromium-profile-2" "/data/.local/share/pki" ];
+            # Chromium's own, a lost sign-in being the `signed_out` halt; Grafana's, provisioned on every start
+            unreplicated = [ "/data/chromium-profile" "/data/chromium-profile-2" "/data/.local/share/pki" "/data/grafana" ];
             healthPath = "/health";
             # an archive that misses a scan catches up on the next one
             criticality = "normal";
@@ -277,7 +306,6 @@
             nix build .#${pname}-container    OCI image with chromium-headless-shell (Linux only), its binary checked to start it
             nix build .#mfe                   the dashboard bundle (served under /mfe/)
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
-            nix run .#with-grafana [-- <held>]  dev-mfe, its locations overview drawn by Grafana
             nix run .#publish -- major|minor|patch [note]
                                               live tests, then tag the next vX.Y.Z and push it: CI ships the image
             nix run .#help                    this
@@ -327,8 +355,7 @@
       {
         apps = {
           help = { type = "app"; program = lib.getExe help; };
-          dev-mfe = { type = "app"; program = lib.getExe (devMfe { name = "dev-mfe"; grafana = false; }); };
-          with-grafana = { type = "app"; program = lib.getExe (devMfe { name = "with-grafana"; grafana = true; }); };
+          dev-mfe = { type = "app"; program = lib.getExe (devMfe { name = "dev-mfe"; }); };
           publish = { type = "app"; program = lib.getExe publish; };
         };
 

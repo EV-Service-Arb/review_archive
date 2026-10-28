@@ -7,7 +7,7 @@ use review_archive::config::{BrowserConfig, Defaults, WebhookConfig};
 use review_archive_core::{maps::cost, schedule::Schedule, tokens::Tokens};
 use review_archive_server::{http::HttpConfig, worker::WorkerConfig};
 use smart_default::SmartDefault;
-use v_utils::macros::{ConfigJsonSchema, MyConfigPrimitives, Settings};
+use v_utils::macros::{ConfigJsonSchema, MyConfigPrimitives, Settings, SettingsNested};
 
 #[derive(Clone, ConfigJsonSchema, Debug, MyConfigPrimitives, Settings, SmartDefault)]
 #[settings(config_name = "review_archive")]
@@ -18,9 +18,9 @@ pub struct AppConfig {
 	pub bind: SocketAddr,
 	/// The dashboard's built bundle, served under `/mfe/`; not served when unset.
 	pub mfe_dir: Option<PathBuf>,
-	/// The Grafana server `serve --dev-member` runs and serves under `/grafana/`; the dashboard's
-	/// `grafana` build frames it.
-	pub grafana: Option<PathBuf>,
+	/// The Grafana `serve` runs and serves under `/grafana/`, which the dashboard frames under `?grafana=true`.
+	#[settings(flatten)]
+	pub grafana: Option<GrafanaConfig>,
 	#[serde(default)]
 	#[settings(flatten)]
 	pub browser: BrowserConfig,
@@ -44,6 +44,15 @@ pub struct AppConfig {
 	pub http: HttpConfig,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, SettingsNested, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GrafanaConfig {
+	/// Starts Grafana's server, given its socket, data dir and the API's address in the environment.
+	pub server: PathBuf,
+	/// Where browsers reach `/grafana/`: behind the panel, its `/api/review_archive/grafana/`.
+	pub root_url: String,
+}
+
 impl AppConfig {
 	pub fn load(flags: SettingsFlags) -> eyre::Result<Self> {
 		let cfg = Self::try_build(flags)?;
@@ -64,6 +73,13 @@ impl AppConfig {
 			"tokens.start_cap_multiple ({:?}) must be set, a finite multiple of the cap, 0 or more",
 			cfg.tokens.start_cap_multiple
 		);
+		if let Some(g) = &cfg.grafana {
+			eyre::ensure!(
+				g.root_url.starts_with("http") && g.root_url.ends_with('/'),
+				"grafana.root_url ({}) is an http(s) URL ending in /",
+				g.root_url
+			);
+		}
 		Ok(cfg)
 	}
 
@@ -102,6 +118,9 @@ mod tests {
 			interval = "12h"
 			[webhooks]
 			allowed_hosts = ["concierge"]
+			[grafana]
+			server = "/bin/grafana-server"
+			root_url = "https://sa.evinvest.ltd/api/review_archive/grafana/"
 			"#,
 		)
 		.unwrap();
@@ -109,10 +128,16 @@ mod tests {
 		assert_eq!(cfg.defaults.interval, TF_12H);
 		assert_eq!(cfg.defaults.max_reviews_per_scan, 200);
 		assert_eq!(cfg.webhooks.allowed_hosts, ["concierge"]);
+		assert_eq!(cfg.grafana.unwrap().root_url, "https://sa.evinvest.ltd/api/review_archive/grafana/");
+		assert!(
+			toml::from_str::<AppConfig>("[grafana]\nserver = \"/bin/g\"").is_err(),
+			"a Grafana is reached at its root_url, which nothing derives"
+		);
 		assert!(toml::from_str::<AppConfig>("[defaults]\nlang = \"fr&q=x\"").is_err(), "a lang goes into a URL");
 
 		let empty: AppConfig = toml::from_str("").unwrap();
 		assert_eq!(empty.bind.to_string(), "127.0.0.1:59110");
+		assert!(empty.grafana.is_none());
 		assert!(toml::from_str::<AppConfig>("[schedule]\ntypo = 1").is_err());
 	}
 }

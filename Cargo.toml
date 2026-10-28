@@ -41,6 +41,7 @@ miette = "7"
 playwright-rs = "=0.19.0" # the version browser_manipulation pins: its launch errors are this crate's `Error`
 rand = "0.10"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }
+rustix = { version = "1", features = ["process"] }
 sa_auth = { git = "https://github.com/EV-Service-Arb/panel", rev = "003926e852549637be3d2f34a0322f1d72494dc9" }
 sa_ui = { git = "https://github.com/EV-Service-Arb/panel", rev = "003926e852549637be3d2f34a0322f1d72494dc9" }
 schemars = "1"

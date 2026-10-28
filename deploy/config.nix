@@ -7,12 +7,15 @@
 # Passed as `--config` explicitly: without it the binary boots on dev defaults,
 # a 127.0.0.1 bind that fails the readiness probe and a data dir that is not the
 # mounted volume.
-{ port, chromium, mfe }:
+{ port, chromium, mfe, grafana }:
 {
   data_dir = "/data";
   # the dashboard bundle, served under /mfe/, its page at /
   mfe_dir = mfe;
   bind = "0.0.0.0:${toString port}";
+  # framed by the dashboard under `?grafana=true`, reached through the panel
+  grafana.server = grafana;
+  grafana.root_url = "https://sa.evinvest.ltd/api/review_archive/grafana/";
   browser.executable = chromium;
   # primary first; the second takes walks only while the first is signed out of Google
   browser.profile_dirs = [ "/data/chromium-profile" "/data/chromium-profile-2" ];

@@ -111,6 +111,11 @@ struct Env {
 }
 
 async fn env() -> Env {
+	env_on(None).await
+}
+
+/// [`env`], its `/grafana/` the Grafana on `grafana`'s socket.
+async fn env_on(grafana: Option<&std::path::Path>) -> Env {
 	let dir = tempfile::tempdir().unwrap();
 	let mut config = Config {
 		data_dir: Some(dir.path().to_owned()),
@@ -137,7 +142,7 @@ async fn env() -> Env {
 		})
 	};
 	let auth = Auth::Panel(signer.public().parse().unwrap());
-	let app = router(AppState::new(archive.clone(), auth, signals.clone(), HttpConfig::default()), None, None, None).layer(panel);
+	let app = router(AppState::new(archive.clone(), auth, signals.clone(), HttpConfig::default()), None, None, grafana).layer(panel);
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let base = format!("http://{}", listener.local_addr().unwrap());
 	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1085,8 +1090,8 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	server.abort();
 }
 
-/// `/grafana/` is the Grafana on a unix socket, on the page's own origin: requests and answers
-/// pass as they are, redirects included.
+/// `/grafana/` is the Grafana on a unix socket, on the page's own origin, `/grafana` stripped:
+/// requests and answers pass as they are, redirects and compression included.
 #[tokio::test]
 async fn grafana_answers_under_the_archives_own_origin() {
 	use axum::response::IntoResponse;
@@ -1094,13 +1099,13 @@ async fn grafana_answers_under_the_archives_own_origin() {
 	let socket = dir.path().join("grafana.sock");
 	let grafana = axum::Router::new().fallback(|req: axum::extract::Request| async move {
 		let (parts, body) = req.into_parts();
-		if parts.uri.path() == "/grafana/login" {
-			return axum::response::Redirect::to("/grafana/").into_response();
+		if parts.uri.path() == "/login" {
+			return axum::response::Redirect::to("/api/review_archive/grafana/").into_response();
 		}
 		let body = axum::body::to_bytes(body, usize::MAX).await.unwrap();
 		let probe = parts.headers.get("x-probe").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
 		let echo = format!("{} {} {probe} {}", parts.method, parts.uri, String::from_utf8_lossy(&body));
-		(StatusCode::CREATED, [("x-from", "grafana")], echo).into_response()
+		(StatusCode::CREATED, [("x-from", "grafana"), ("content-encoding", "gzip")], echo).into_response()
 	});
 	let listener = tokio::net::UnixListener::bind(&socket).unwrap();
 	let grafana = tokio::spawn(async move { axum::serve(listener, grafana).await.unwrap() });
@@ -1122,7 +1127,7 @@ async fn grafana_answers_under_the_archives_own_origin() {
 
 	let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
 	let r = http
-		.post(format!("{base}/grafana/api/ds/query?ds_type=infinity"))
+		.post(format!("{base}/grafana/api/frontend-metrics?x=1"))
 		.header("x-probe", "p")
 		.body("{\"q\":1}")
 		.send()
@@ -1130,14 +1135,209 @@ async fn grafana_answers_under_the_archives_own_origin() {
 		.unwrap();
 	assert_eq!(r.status(), StatusCode::CREATED);
 	assert_eq!(r.headers()["x-from"], "grafana");
-	assert_eq!(r.text().await.unwrap(), "POST /grafana/api/ds/query?ds_type=infinity p {\"q\":1}");
+	assert_eq!(r.headers()["content-encoding"], "gzip", "Grafana's compression reaches the browser");
+	assert_eq!(r.text().await.unwrap(), "POST /api/frontend-metrics?x=1 p {\"q\":1}");
 	let r = http.get(format!("{base}/grafana/login")).send().await.unwrap();
 	assert_eq!(
 		(r.status(), &r.headers()["location"]),
-		(StatusCode::SEE_OTHER, &"/grafana/".parse::<reqwest::header::HeaderValue>().unwrap())
+		(StatusCode::SEE_OTHER, &"/api/review_archive/grafana/".parse::<reqwest::header::HeaderValue>().unwrap())
 	);
-	assert_eq!(http.get(format!("{base}/grafana/")).send().await.unwrap().text().await.unwrap(), "GET /grafana/  ");
+	assert_eq!(http.get(format!("{base}/grafana/")).send().await.unwrap().text().await.unwrap(), "GET /  ");
 	server.abort();
+	grafana.abort();
+}
+
+/// A request as it reached the fake Grafana, held there until the test answers it.
+struct AtGrafana {
+	method: axum::http::Method,
+	uri: String,
+	headers: axum::http::HeaderMap,
+	body: serde_json::Value,
+	answer: tokio::sync::oneshot::Sender<()>,
+}
+
+/// A fake Grafana on `socket`: every request it gets is sent on, and answered `answered` once the
+/// test lets it.
+fn fake_grafana(socket: &std::path::Path) -> (tokio::sync::mpsc::UnboundedReceiver<AtGrafana>, tokio::task::JoinHandle<()>) {
+	let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+	let grafana = axum::Router::new().fallback(move |req: axum::extract::Request| {
+		let tx = tx.clone();
+		async move {
+			let (parts, body) = req.into_parts();
+			let body = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+			let (answer, answered) = tokio::sync::oneshot::channel();
+			tx.send(AtGrafana {
+				method: parts.method,
+				uri: parts.uri.to_string(),
+				headers: parts.headers,
+				body: match body.is_empty() {
+					true => serde_json::Value::Null,
+					false => serde_json::from_slice(&body).unwrap(),
+				},
+				answer,
+			})
+			.unwrap();
+			answered.await.unwrap();
+			"answered"
+		}
+	});
+	let listener = tokio::net::UnixListener::bind(socket).unwrap();
+	(rx, tokio::spawn(async move { axum::serve(listener, grafana).await.unwrap() }))
+}
+
+/// Each value `header` has in a query's Infinity headers.
+fn query_headers(query: &serde_json::Value, header: &str) -> Vec<String> {
+	query["url_options"]["headers"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.filter(|h| h["key"].as_str().unwrap().eq_ignore_ascii_case(header))
+		.map(|h| h["value"].as_str().unwrap().to_owned())
+		.collect()
+}
+
+/// Grafana holds no identity: a query reaches the API as the viewer whose browser asked, through
+/// a token the archive wrote into each of its `ra-api` queries, good for GETs while that query
+/// is open. Nothing else Grafana is sent carries anyone.
+#[tokio::test]
+async fn grafanas_queries_reach_the_api_as_the_viewer_who_asked() {
+	use review_archive_server::auth::VIEWER_HEADER;
+	let sockets = tempfile::tempdir().unwrap();
+	let socket = sockets.path().join("grafana.sock");
+	let (mut at_grafana, grafana) = fake_grafana(&socket);
+	let e = env_on(Some(&socket)).await;
+	let alice = e.member(ALICE).me().await.unwrap();
+	e.member(ALICE).add_gmail("alice@gmail.com").await.unwrap();
+	let bob = e.member(BOB).me().await.unwrap();
+	e.member(BOB).add_gmail("bob@gmail.com").await.unwrap();
+	let infinity = |member: i64| {
+		serde_json::json!({
+			"datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "ra-api"},
+			"url": "/me",
+			"url_options": {"method": "GET", "headers": [{"key": "x-member", "value": member.to_string()}]},
+		})
+	};
+	let query = |who: Who, queries: serde_json::Value| {
+		let base = e.base.clone();
+		tokio::spawn(async move {
+			http_as(&who)
+				.post(format!("{base}/grafana/api/ds/query?ds_type=yesoreyeram-infinity-datasource"))
+				.json(&serde_json::json!({"queries": queries, "from": "now-6h", "to": "now"}))
+				.send()
+				.await
+				.unwrap()
+		})
+	};
+	let api = reqwest::Client::new();
+	let get = |path: &str, token: &str, member: Option<i64>| {
+		let r = api.get(format!("{}{path}", e.base)).header(VIEWER_HEADER, token);
+		match member {
+			Some(m) => r.header("x-member", m.to_string()),
+			None => r,
+		}
+		.send()
+	};
+
+	let mut forged = infinity(bob.id);
+	forged["url_options"]["headers"]
+		.as_array_mut()
+		.unwrap()
+		.push(serde_json::json!({"key": VIEWER_HEADER.to_uppercase(), "value": "forged"}));
+	let mut bare = infinity(bob.id);
+	bare.as_object_mut().unwrap().remove("url_options");
+	let elsewhere = serde_json::json!({"datasource": {"uid": "-- Dashboard --"}, "panelId": 1});
+	let asked = query(Who::member(ALICE), serde_json::json!([forged, bare, elsewhere]));
+	let held = at_grafana.recv().await.unwrap();
+	assert_eq!((held.method.as_str(), held.uri.as_str()), ("POST", "/api/ds/query?ds_type=yesoreyeram-infinity-datasource"));
+	for h in ["authorization", sa_auth::HEADER] {
+		assert!(!held.headers.contains_key(h), "{h} never reaches Grafana");
+	}
+	let queries = held.body["queries"].as_array().unwrap();
+	let token = query_headers(&queries[0], VIEWER_HEADER).remove(0);
+	assert_ne!(token, "forged");
+	for q in &queries[..2] {
+		assert_eq!(
+			query_headers(q, VIEWER_HEADER),
+			std::slice::from_ref(&token),
+			"one token in every ra-api query, the browser's overwritten"
+		);
+	}
+	assert_eq!(query_headers(&queries[0], "x-member"), [bob.id.to_string()], "the dashboard's own headers stay");
+	assert_eq!(queries[2], elsewhere, "what does not query the API is not touched");
+
+	let gmails = |r: reqwest::Response| async move {
+		assert_eq!(r.status(), StatusCode::OK);
+		r.json::<Vec<review_archive::core::dto::GmailOverview>>()
+			.await
+			.unwrap()
+			.into_iter()
+			.map(|g| g.gmail.gmail)
+			.collect::<Vec<_>>()
+	};
+	let r = get("/me", &token, None).await.unwrap();
+	assert_eq!(r.status(), StatusCode::OK);
+	assert_eq!(r.json::<Me>().await.unwrap().email, alice.email);
+	assert_eq!(gmails(get("/me/overview", &token, None).await.unwrap()).await, ["alice@gmail.com"]);
+	assert_eq!(
+		get("/me/overview", &token, Some(bob.id)).await.unwrap().status(),
+		StatusCode::FORBIDDEN,
+		"alice may not act as bob"
+	);
+	assert_eq!(
+		api.post(format!("{}/me/tokens/claim", e.base)).header(VIEWER_HEADER, &token).send().await.unwrap().status(),
+		StatusCode::UNAUTHORIZED,
+		"a viewer's token reads only"
+	);
+
+	let acting = query(admin(), serde_json::json!([infinity(bob.id)]));
+	let admins = at_grafana.recv().await.unwrap();
+	let admins_token = query_headers(&admins.body["queries"][0], VIEWER_HEADER).remove(0);
+	assert_eq!(
+		gmails(get("/me/overview", &admins_token, Some(bob.id)).await.unwrap()).await,
+		["bob@gmail.com"],
+		"one who may act as bob reads as bob"
+	);
+	admins.answer.send(()).unwrap();
+	assert_eq!(acting.await.unwrap().status(), StatusCode::OK);
+
+	held.answer.send(()).unwrap();
+	let answered = asked.await.unwrap();
+	assert_eq!(answered.status(), StatusCode::OK);
+	assert_eq!(answered.text().await.unwrap(), "answered");
+	for (t, why) in [
+		(&token, "a query's token ends with its answer"),
+		(&admins_token, "a query's token ends with its answer"),
+		(&"made-up".to_owned(), "an unknown token"),
+	] {
+		assert_eq!(get("/me", t, None).await.unwrap().status(), StatusCode::UNAUTHORIZED, "{why}");
+	}
+
+	let r = api
+		.post(format!("{}/grafana/api/ds/query", e.base))
+		.json(&serde_json::json!({"queries": []}))
+		.send()
+		.await
+		.unwrap();
+	assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "a query nobody vouches for is not sent on");
+	let asset = {
+		let base = e.base.clone();
+		tokio::spawn(async move {
+			reqwest::Client::new()
+				.get(format!("{base}/grafana/public/build/app.js"))
+				.header("authorization", "Basic YWRtaW46YWRtaW4=")
+				.header(sa_auth::HEADER, "junk")
+				.send()
+				.await
+				.unwrap()
+		})
+	};
+	let held = at_grafana.recv().await.unwrap();
+	assert_eq!(held.uri, "/public/build/app.js", "the next request Grafana gets: the unvouched query never reached it");
+	for h in ["authorization", sa_auth::HEADER] {
+		assert!(!held.headers.contains_key(h), "{h} never reaches Grafana");
+	}
+	held.answer.send(()).unwrap();
+	assert_eq!(asset.await.unwrap().status(), StatusCode::OK, "Grafana's files need nobody");
 	grafana.abort();
 }
 

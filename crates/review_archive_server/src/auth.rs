@@ -66,6 +66,43 @@ impl TestPosts {
 	}
 }
 
+/// Carries a [`Viewers`] token on Grafana's fetches to the API.
+pub const VIEWER_HEADER: &str = "x-ra-viewer";
+
+/// Grafana holds no identity: each query a viewer's browser sends it has a token written into
+/// it, standing for that viewer on GETs, until Grafana answers the query.
+pub(crate) struct Viewers(Mutex<HashMap<String, Caller>>);
+
+/// A [`Viewers`] token, forgotten when dropped.
+pub(crate) struct Viewer<'a> {
+	viewers: &'a Viewers,
+	pub(crate) token: String,
+}
+
+impl Viewers {
+	pub(crate) fn new() -> Self {
+		Self(Mutex::new(HashMap::new()))
+	}
+
+	pub(crate) fn mint(&self, caller: Caller) -> Viewer<'_> {
+		let token: String = rand::random::<[u8; 32]>().iter().map(|b| format!("{b:02x}")).collect();
+		let fresh = self.0.lock().expect("held for a lookup only, never across a panic").insert(token.clone(), caller).is_none();
+		assert!(fresh, "256 random bits do not repeat");
+		Viewer { viewers: self, token }
+	}
+
+	fn get(&self, token: &str) -> Option<Caller> {
+		self.0.lock().expect("held for a lookup only, never across a panic").get(token).cloned()
+	}
+}
+
+impl Drop for Viewer<'_> {
+	fn drop(&mut self) {
+		let minted = self.viewers.0.lock().expect("held for a lookup only, never across a panic").remove(&self.token);
+		assert!(minted.is_some(), "only its Viewer removes a token");
+	}
+}
+
 fn refuse(status: StatusCode, why: &str) -> Response {
 	(status, Json(ErrorBody { error: why.into() })).into_response()
 }
@@ -76,6 +113,16 @@ fn unauthorized() -> Response {
 
 /// Every authenticated route: puts the [`Caller`] in the request.
 pub async fn authenticate(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
+	if let Some(token) = req.headers().get(VIEWER_HEADER) {
+		let caller = token.to_str().ok().and_then(|t| state.viewers.get(t));
+		return match (req.method() == axum::http::Method::GET, caller) {
+			(true, Some(caller)) => {
+				req.extensions_mut().insert(caller);
+				next.run(req).await
+			}
+			_ => unauthorized(),
+		};
+	}
 	let seen = match &*state.auth {
 		Auth::Dev { person, email, permissions } => {
 			req.extensions_mut().insert(Caller {

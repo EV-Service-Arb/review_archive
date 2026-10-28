@@ -380,32 +380,11 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		!(args.no_login_check && settings.app_env == "production"),
 		"--no-login-check is for development, and APP_ENV is production"
 	);
-	// Grafana carries no member identity: every request it makes is the dev member's
-	eyre::ensure!(config.grafana.is_none() || args.dev_member.is_some(), "grafana is served with --dev-member only");
-	let grafana = match &config.grafana {
-		Some(bin) => {
-			let dir = std::path::absolute(config.data_dir.join("grafana")).wrap_err("resolving the data dir")?;
-			std::fs::create_dir_all(&dir).wrap_err_with(|| format!("creating {}", dir.display()))?;
-			let socket = dir.join("grafana.sock");
+	let grafana_socket = match &config.grafana {
+		Some(_) => {
+			let socket = std::path::absolute(config.data_dir.join("grafana/grafana.sock")).wrap_err("resolving the data dir")?;
 			eyre::ensure!(socket.as_os_str().len() < 108, "{} is past a unix socket path's 107 bytes: move the data dir", socket.display());
-			// a Grafana killed with its `serve` leaves its socket behind, and the next one cannot bind it
-			match std::os::unix::net::UnixStream::connect(&socket) {
-				Ok(_) => eyre::bail!("a Grafana already answers on {}: another serve runs on this data dir", socket.display()),
-				Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => std::fs::remove_file(&socket).wrap_err_with(|| format!("removing the stale {}", socket.display()))?,
-				Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-				Err(e) => return Err(eyre::Report::new(e).wrap_err(format!("probing {}", socket.display()))),
-			}
-			let child = tokio::process::Command::new(bin)
-				.env("GF_SERVER_PROTOCOL", "socket")
-				.env("GF_SERVER_SOCKET", &socket)
-				.env("GF_PATHS_DATA", &dir)
-				.env("GF_SERVER_ROOT_URL", format!("http://{bind}/grafana/"))
-				.env("GF_SERVER_SERVE_FROM_SUB_PATH", "true")
-				.env("RA_API", format!("http://{bind}"))
-				.kill_on_drop(true)
-				.spawn()
-				.wrap_err_with(|| format!("starting {}", bin.display()))?;
-			Some((child, socket))
+			Some(socket)
 		}
 		None => None,
 	};
@@ -436,18 +415,26 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		http::AppState::new(archive.clone(), auth, signals.clone(), config.http.clone()),
 		config.mfe_dir.as_deref(),
 		sign_in.as_deref(),
-		grafana.as_ref().map(|(_, socket)| socket.as_path()),
+		grafana_socket.as_deref(),
 	);
 	let listener = tokio::net::TcpListener::bind(bind).await.wrap_err_with(|| format!("binding {bind}"))?;
 	tracing::info!(%bind, "serving");
 	match (&config.mfe_dir, &sign_in) {
-		(Some(_), Some(_)) => println!("▶ dashboard: http://{bind}/{}", args.dev_member.map(|m| format!("  (signed in holding {m})")).unwrap_or_default()),
+		(Some(_), Some(_)) => {
+			println!(
+				"▶ dashboard: http://{bind}/{}",
+				args.dev_member.as_ref().map(|m| format!("  (signed in holding {m})")).unwrap_or_default()
+			);
+			if config.grafana.is_some() {
+				println!("▶ drawn by Grafana: http://{bind}/?grafana=true");
+			}
+		}
 		_ => println!("▶ API: http://{bind}/"),
 	}
 
 	let (tx, rx) = watch::channel(false);
 	let mut http_rx = rx.clone();
-	let mut grafana_stop = rx.clone();
+	let grafana_stop = rx.clone();
 	let http = async move {
 		axum::serve(listener, app)
 			.with_graceful_shutdown(async move {
@@ -508,25 +495,104 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		if logged {
 			tracing::info!("took over the data dir");
 		}
-		if !args.no_login_check {
-			match archive.check_signed_in(jiff::Timestamp::now()).await {
-				Err(e) if review_archive::remedy(&e) != review_archive::Remedy::Fatal => report(&e, "the boot check of the Google accounts failed"), // the walks find out again; a restart would only open Maps again
-				r => r?,
+		let archive_work = async {
+			if !args.no_login_check {
+				match archive.check_signed_in(jiff::Timestamp::now()).await {
+					Err(e) if review_archive::remedy(&e) != review_archive::Remedy::Fatal => report(&e, "the boot check of the Google accounts failed"), // the walks find out again; a restart would only open Maps again
+					r => r?,
+				}
 			}
-		}
-		tokio::try_join!(work, deliver, backfill)?;
+			tokio::try_join!(work, deliver, backfill).map(drop)
+		};
+		let grafana = async {
+			if let (Some(g), Some(socket)) = (&config.grafana, &grafana_socket) {
+				run_grafana(g, socket, bind, grafana_stop).await;
+			}
+			Ok(())
+		};
+		tokio::try_join!(archive_work, grafana)?;
 		drop(lock);
 		Ok(())
 	};
-	let grafana = async move {
-		let Some((mut child, _)) = grafana else { return Ok(()) };
-		tokio::select! {
-			status = child.wait() => Err(eyre::eyre!("grafana exited ({})", status.wrap_err("waiting on grafana")?)),
-			_ = grafana_stop.wait_for(|stopped| *stopped) => Ok(()), // dropping `child` kills it
-		}
-	};
-	tokio::try_join!(http, background, signal, grafana)?;
+	tokio::try_join!(http, background, signal)?;
 	Ok(())
+}
+
+/// Runs Grafana until `stop`, on the data dir `serve` holds. One that does not start or exits is
+/// reported, and `/grafana/` answers 502: the archive goes on without it.
+async fn run_grafana(g: &config::GrafanaConfig, socket: &std::path::Path, bind: std::net::SocketAddr, mut stop: watch::Receiver<bool>) {
+	let start = || -> eyre::Result<tokio::process::Child> {
+		let dir = socket.parent().expect("a file in the data dir");
+		std::fs::create_dir_all(dir).wrap_err_with(|| format!("creating {}", dir.display()))?;
+		// a Grafana killed with its `serve` leaves its socket behind, and the next one cannot bind it
+		match std::os::unix::net::UnixStream::connect(socket) {
+			Ok(_) => eyre::bail!("a Grafana another serve left running answers on {}", socket.display()),
+			Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => std::fs::remove_file(socket).wrap_err_with(|| format!("removing the stale {}", socket.display()))?,
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+			Err(e) => return Err(eyre::Report::new(e).wrap_err(format!("probing {}", socket.display()))),
+		}
+		let api = match bind.ip() {
+			ip if ip.is_unspecified() && ip.is_ipv4() => std::net::SocketAddr::from(([127, 0, 0, 1], bind.port())),
+			ip if ip.is_unspecified() => std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, bind.port())),
+			_ => bind,
+		};
+		tokio::process::Command::new(&g.server)
+			.env("GF_SERVER_PROTOCOL", "socket")
+			.env("GF_SERVER_SOCKET", socket)
+			.env("GF_PATHS_DATA", dir)
+			.env("GF_SERVER_ROOT_URL", &g.root_url)
+			.env("GF_SERVER_SERVE_FROM_SUB_PATH", "false") // `/grafana` is stripped on the way in
+			.env("RA_API", format!("http://{api}"))
+			// no one signs in to it: a viewer is who `/grafana/api/ds/query` vouched for (`http::router`)
+			.env("GF_AUTH_ANONYMOUS_ENABLED", "true")
+			.env("GF_AUTH_ANONYMOUS_ORG_ROLE", "Viewer")
+			.env("GF_AUTH_BASIC_ENABLED", "false")
+			.env("GF_AUTH_DISABLE_LOGIN_FORM", "true")
+			.env("GF_AUTH_DISABLE_LOGIN", "true")
+			.env("GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION", "true")
+			.process_group(0)
+			.spawn()
+			.wrap_err_with(|| format!("starting {}", g.server.display()))
+	};
+	let mut child = match start() {
+		Ok(c) => c,
+		Err(e) => return report(&e.wrap_err("grafana did not start: /grafana/ answers 502"), "grafana"),
+	};
+	let group = Group(rustix::process::Pid::from_raw(child.id().expect("not waited on yet").try_into().expect("a pid fits an i32")).expect("a child's pid is positive"));
+	tokio::select! {
+		status = child.wait() => {
+			let e = match status {
+				Ok(s) => eyre::eyre!("grafana exited ({s}): /grafana/ answers 502"),
+				Err(e) => eyre::Report::new(e).wrap_err("waiting on grafana"),
+			};
+			report(&e, "grafana");
+		}
+		_ = stop.wait_for(|stopped| *stopped) => {
+			group.signal(rustix::process::Signal::TERM); // Grafana stops its plugin servers on it
+			if tokio::time::timeout(Duration::from_secs(10), child.wait()).await.is_err() {
+				tracing::warn!("grafana took over 10 s to stop: killed");
+			}
+		}
+	}
+}
+
+/// Grafana's process group: it and the plugin servers it starts, which outlive a Grafana killed
+/// alone. Killed when dropped, however `run_grafana` ends.
+struct Group(rustix::process::Pid);
+
+impl Group {
+	fn signal(&self, signal: rustix::process::Signal) {
+		match rustix::process::kill_process_group(self.0, signal) {
+			Ok(()) | Err(rustix::io::Errno::SRCH) => {} // SRCH: every one of them has exited
+			Err(e) => panic!("signalling our own child's group {:?}: {e}", self.0),
+		}
+	}
+}
+
+impl Drop for Group {
+	fn drop(&mut self) {
+		self.signal(rustix::process::Signal::KILL);
+	}
 }
 
 async fn shutdown_signal() {

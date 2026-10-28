@@ -5136,6 +5136,7 @@ dependencies = [
  "reqwest 0.13.5",
  "review_archive",
  "review_archive_core",
+ "rustix",
  "sa_auth",
  "schemars",
  "serde",

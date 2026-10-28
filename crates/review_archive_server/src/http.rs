@@ -1,5 +1,5 @@
 //! The HTTP API: everything the CLI does, for other services, and `/me` for members; at `/`,
-//! the dashboard's page. Everything but `/`, `/health`, `/openapi.json`, `/grafana/` and the MFE's files
+//! the dashboard's page. Everything but `/`, `/health`, `/openapi.json`, `/grafana/` (but its queries) and the MFE's files
 //! wants a caller (see [`crate::auth`]): the operator's routes refuse members, `/me` refuses
 //! the operator's token unless it names a member.
 //! JSON in and out — errors included, the ones axum's extractors raise too — with the
@@ -39,7 +39,7 @@ use utoipa::{
 use v_utils::{Timeframe, macros::SettingsNested};
 
 use crate::{
-	auth::{Auth, Caller, Member, TestPosts, acts_as, authenticate, grants_tokens, operates_archive},
+	auth::{Auth, Caller, Member, TestPosts, VIEWER_HEADER, Viewers, acts_as, authenticate, grants_tokens, operates_archive},
 	worker::Signals,
 };
 
@@ -64,6 +64,7 @@ pub struct AppState {
 	pub archive: Archive,
 	pub auth: Arc<Auth>,
 	pub test_posts: Arc<TestPosts>,
+	pub(crate) viewers: Arc<Viewers>,
 	pub signals: Arc<Signals>,
 	pub cfg: Arc<HttpConfig>,
 }
@@ -74,6 +75,7 @@ impl AppState {
 			archive,
 			auth: Arc::new(auth),
 			test_posts: Arc::new(TestPosts::new()),
+			viewers: Arc::new(Viewers::new()),
 			signals,
 			cfg: Arc::new(cfg),
 		}
@@ -82,7 +84,7 @@ impl AppState {
 
 /// `mfe`: the built dashboard bundle, served under `/mfe/`. `sign_in`: where the page sends a
 /// browser on a 401; with both, `/` is the dashboard's page. `grafana`: the socket of the Grafana
-/// `/grafana/` passes through to, unauthenticated.
+/// `/grafana/` passes through to; only its queries want a caller.
 pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&str>, grafana: Option<&std::path::Path>) -> Router {
 	let admin = Router::new()
 		.route("/targets", get(targets).post(add_target))
@@ -169,24 +171,73 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		let client = reqwest::Client::builder()
 			.unix_socket(socket)
 			.redirect(reqwest::redirect::Policy::none())
+			// Grafana's gzip goes to the browser as it is
+			.no_gzip()
+			.no_brotli()
+			.no_deflate()
+			.no_zstd()
 			.build()
 			.expect("a unix-socket client takes no setup that can fail");
-		let pass = axum::routing::any(move |req| to_grafana(client.clone(), req));
-		app = app.route("/grafana/", pass.clone()).route("/grafana/{*rest}", pass);
+		let queries = {
+			let client = client.clone();
+			post(move |State(state): State<AppState>, caller: Caller, req| query_grafana(state, caller, client.clone(), req))
+				.route_layer(middleware::from_fn_with_state(state.clone(), authenticate))
+		};
+		let pass = axum::routing::any(move |req: axum::extract::Request| {
+			let (parts, body) = req.into_parts();
+			to_grafana(client.clone(), parts, reqwest::Body::wrap_stream(body.into_data_stream()))
+		});
+		app = app.route("/grafana/api/ds/query", queries).route("/grafana/", pass.clone()).route("/grafana/{*rest}", pass);
 	}
 	app.with_state(state)
 }
 
-/// A request to Grafana as it came, and its answer as it comes.
-async fn to_grafana(client: reqwest::Client, req: axum::extract::Request) -> Response {
+/// The Infinity datasource over the API (`grafana/provisioning/datasources`).
+const API_DATASOURCE: &str = "ra-api";
+
+/// A viewer's query: every target on [`API_DATASOURCE`] carries a token that stands for `caller`
+/// on the API until Grafana answers.
+async fn query_grafana(state: AppState, caller: Caller, client: reqwest::Client, req: axum::extract::Request) -> Response {
 	let (parts, body) = req.into_parts();
+	let mut query: serde_json::Value = match axum::body::to_bytes(body, 1 << 20)
+		.await
+		.map_err(|e| e.to_string())
+		.and_then(|b| serde_json::from_slice(&b).map_err(|e| e.to_string()))
+	{
+		Ok(q) => q,
+		Err(e) => return ApiError(StatusCode::BAD_REQUEST, format!("a Grafana query: {e}")).into_response(),
+	};
+	let Some(targets) = query.get_mut("queries").and_then(serde_json::Value::as_array_mut) else {
+		return ApiError(StatusCode::BAD_REQUEST, "a Grafana query without `queries`".into()).into_response();
+	};
+	let viewer = state.viewers.mint(caller);
+	for t in targets.iter_mut().filter(|t| t["datasource"]["uid"] == API_DATASOURCE) {
+		let headers = t
+			.as_object_mut()
+			.expect("has a datasource")
+			.entry("url_options")
+			.or_insert_with(|| serde_json::json!({}))
+			.as_object_mut()
+			.and_then(|o| o.entry("headers").or_insert_with(|| serde_json::json!([])).as_array_mut());
+		let Some(headers) = headers else {
+			return ApiError(StatusCode::BAD_REQUEST, "a Grafana query's `url_options.headers` is not a list".into()).into_response();
+		};
+		headers.retain(|h| !h["key"].as_str().is_some_and(|k| k.eq_ignore_ascii_case(VIEWER_HEADER)));
+		headers.push(serde_json::json!({"key": VIEWER_HEADER, "value": viewer.token}));
+	}
+	let answer = to_grafana(client, parts, serde_json::to_vec(&query).expect("a Value serializes").into()).await;
+	drop(viewer); // Grafana answers a query only once its fetches are done
+	answer
+}
+
+/// A request to Grafana, `/grafana` stripped and no one's credentials on it, and its answer as it comes.
+async fn to_grafana(client: reqwest::Client, mut parts: axum::http::request::Parts, body: reqwest::Body) -> Response {
 	let path = parts.uri.path_and_query().expect("routed by its path").as_str();
-	let sent = client
-		.request(parts.method, format!("http://grafana{path}"))
-		.headers(parts.headers)
-		.body(reqwest::Body::wrap_stream(body.into_data_stream()))
-		.send()
-		.await;
+	let path = path.strip_prefix("/grafana").expect("routed under /grafana/");
+	for h in [header::AUTHORIZATION, header::HeaderName::from_static(sa_auth::HEADER), header::CONTENT_LENGTH] {
+		parts.headers.remove(h);
+	}
+	let sent = client.request(parts.method, format!("http://grafana{path}")).headers(parts.headers).body(body).send().await;
 	match sent {
 		Ok(r) => axum::http::Response::from(r).map(axum::body::Body::new),
 		Err(e) => (StatusCode::BAD_GATEWAY, Json(ErrorBody { error: format!("grafana: {e}") })).into_response(),
