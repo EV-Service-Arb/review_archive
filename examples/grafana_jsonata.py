@@ -1,4 +1,4 @@
-"""Evaluates a JSONata root over /me/overview with Infinity's own engine, under `nix run .#with-grafana`:
+"""Evaluates a JSONata root over /me/overview with Infinity's own engine, under `nix run .#dev-mfe`:
 `python3 examples/grafana_jsonata.py <member> '<root>'`. The root yields rows with a string `o`
 (`$[0].locations.{"o": $string(...)}`); one that never reads its input comes back null.
 """

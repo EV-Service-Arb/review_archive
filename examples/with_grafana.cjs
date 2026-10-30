@@ -1,9 +1,9 @@
-// `nix run .#with-grafana` driven in a headless Chromium, as the member's tab: the overview's cards are
+// `nix run .#dev-mfe` with `?grafana=true` driven in a headless Chromium, as the member's tab: the overview's cards are
 // /me/overview's, a facet narrows them, a card opens its board, whose lanes are the board's and whose
 // gone cards appeal and withdraw by drag, back returns, and (the gmail on) a card's switch writes and
 // redraws — all in one page load and one Grafana frame.
 // `node examples/with_grafana.cjs <member> <gmail> <facet> [<base>]` inside `nix develop`, `<base>` the
-// serve's (`http://127.0.0.1:59110`, with-grafana's). The switch and the drags write: run it on a copy
+// serve's (`http://127.0.0.1:59110`, dev-mfe's). The switch and the drags write: run it on a copy
 // of the data dir, `serve.lock` held so nothing walks.
 const path = require('path');
 const { chromium } = require(path.dirname(process.env.PLAYWRIGHT_CLI_JS));
@@ -41,8 +41,8 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	let documents = 0;
 	page.on('request', (r) => r.resourceType() === 'document' && r.frame() === page.mainFrame() && documents++);
 
-	const OVERVIEW = `${BASE}/members/${member}/gmails/${gmail}?grafana=true`;
-	await page.goto(OVERVIEW);
+	const OVERVIEW = `${BASE}/members/${member}/gmails/${gmail}`;
+	await page.goto(`${OVERVIEW}?grafana=true`); // the tab keeps it, the router drops it from the address
 	const frame = await (await page.waitForSelector('iframe[src*="/grafana/"]')).contentFrame();
 	await frame.waitForSelector('.ra-card', { timeout: 60000 });
 	const kept = async () => assert.strictEqual(await frame.evaluate(() => window.marker), 'kept', 'the frame did not reload');
@@ -67,7 +67,7 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 			await frame.waitForFunction((on) => document.querySelector('.ra-card .ra-switch').classList.contains('on') === on, want, { timeout: 30000 });
 			assert.strictEqual((await overview()).locations[0].enabled, want);
 		}
-		assert.strictEqual(page.url(), OVERVIEW, 'the switch is not the card: no board opened');
+		assert.strictEqual(page.url().split('?')[0], OVERVIEW, 'the switch is not the card: no board opened');
 		console.log('switch: written and redrawn, both ways');
 	} else {
 		console.log('switch: not tried, the gmail is off');
@@ -130,7 +130,7 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 		console.log('drag: not tried, nothing is gone');
 	}
 	await page.goBack();
-	await page.waitForURL((u) => u.href === OVERVIEW); // the page's first entry, its query kept
+	await page.waitForURL((u) => `${u.origin}${u.pathname}` === OVERVIEW);
 	t = Date.now();
 	await count(frame, g.locations.length);
 	await kept();
