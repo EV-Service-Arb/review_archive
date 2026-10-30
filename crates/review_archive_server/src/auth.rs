@@ -66,7 +66,7 @@ impl TestPosts {
 	}
 }
 
-/// Carries a [`Viewers`] token on Grafana's fetches to the API.
+/// Carries a viewer's token on Grafana's fetches to the API.
 pub const VIEWER_HEADER: &str = "x-ra-viewer";
 
 /// Grafana holds no identity: each query a viewer's browser sends it has a token written into
