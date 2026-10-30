@@ -69,6 +69,7 @@ fn config(dir: &std::path::Path) -> Config {
 	config.defaults.max_reviews_initial = 12;
 	config.defaults.max_reviews_per_scan = 12;
 	config.defaults.lang = "fr".into();
+	config.tokens.start_cap_multiple = Some(2.0);
 	config
 }
 

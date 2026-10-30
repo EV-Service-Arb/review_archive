@@ -37,7 +37,7 @@
 
         # nixpkgs builds Chromium for Linux only. On a mac the scanner is pointed
         # at a local Chrome through `browser.executable` in the config instead.
-        chromium = lib.optional pkgs.stdenv.isLinux pkgs.chromium;
+        chromium = lib.optional pkgs.stdenv.hostPlatform.isLinux pkgs.chromium;
 
         # the Playwright driver browser_manipulation speaks to
         playwrightEnv = {
@@ -98,7 +98,7 @@
           nativeBuildInputs = with pkgs; [ pkg-config ];
           # ev_lib's `sentry` turns on reqwest's native-tls, which is OpenSSL on Linux
           # (Security.framework on Darwin, which needs nothing here).
-          buildInputs = lib.optionals pkgs.stdenv.isLinux [ pkgs.openssl ];
+          buildInputs = lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.openssl ];
           # the parser tests are `cargo test`'s job in the devShell and CI; the
           # live one needs a browser and the network, which the sandbox has neither of
           doCheck = false;
@@ -372,10 +372,10 @@
         packages = {
           default = bin;
           inherit bin mfe;
-        } // lib.optionalAttrs pkgs.stdenv.isLinux containerStd.packages;
+        } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux containerStd.packages;
 
         # Linux-only: the image carries Chromium, which nixpkgs does not build for Darwin.
-        containers = lib.optionalAttrs pkgs.stdenv.isLinux containerStd.containers;
+        containers = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux containerStd.containers;
 
         devShells.default =
           with pkgs;
@@ -403,7 +403,7 @@
             env = {
               RUST_BACKTRACE = 1;
               RUST_LIB_BACKTRACE = 0;
-            } // playwrightEnv // lib.optionalAttrs pkgs.stdenv.isLinux {
+            } // playwrightEnv // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
               REVIEW_ARCHIVE_CHROME = "${pkgs.chromium}/bin/chromium";
             };
           };
