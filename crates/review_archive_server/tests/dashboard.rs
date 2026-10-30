@@ -69,7 +69,11 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 
 	let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
 	let config = dir.path().join("config.toml");
-	std::fs::write(&config, format!("data_dir = {data:?}\nmfe_dir = {mfe:?}\nbind = \"127.0.0.1:{port}\"\n")).unwrap();
+	std::fs::write(
+		&config,
+		format!("data_dir = {data:?}\nmfe_dir = {mfe:?}\nbind = \"127.0.0.1:{port}\"\n[tokens]\nstart_cap_multiple = 2.0\n"),
+	)
+	.unwrap();
 	let mut serve = tokio::process::Command::new(env!("CARGO_BIN_EXE_review_archive"))
 		.arg("--config")
 		.arg(&config)
