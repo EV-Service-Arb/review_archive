@@ -192,8 +192,9 @@
           export GF_UNIFIED_ALERTING_ENABLED=false GF_NEWS_NEWS_FEED_ENABLED=false GF_PUBLIC_DASHBOARDS_ENABLED=false GF_SNAPSHOTS_ENABLED=false
           export GF_QUERY_HISTORY_ENABLED=false GF_EXPLORE_ENABLED=false GF_CLOUD_MIGRATION_ENABLED=false GF_RECORDED_QUERIES_ENABLED=false
           export GF_PROFILE_ENABLED=false GF_HELP_ENABLED=false
-          # its own, not the pod's, sized to the whole container (ARCHITECTURE.md § Memory); Infinity inherits it
-          export GOMEMLIMIT=100MiB
+          # its own, not the pod's, sized to the whole container (ARCHITECTURE.md § Memory); Infinity inherits both.
+          # The heap is kept by GOGC: a limit near the live heap (~70 MiB idle, ~105 after a while of loads) spins the GC
+          export GOGC=50 GOMEMLIMIT=200MiB
           ${if logFile then ''
             log="''${XDG_STATE_HOME:-$HOME/.local/state}/review_archive/grafana.log"
             mkdir -p "$(dirname "$log")"

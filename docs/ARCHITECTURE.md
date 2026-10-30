@@ -243,9 +243,9 @@ by card, so each layer is cut to that (`browser/session.rs`, `selectors.rs`):
 ```text
 cgroup (burst)
 ├─ server + encodes
-├─ Grafana            not leased: always on top of the base. ~300 MB (~185 of it its binary's pages), its own
-│                     `GOMEMLIMIT`, alerting, news, explore and the like off (`grafanaServer`); and its Infinity
-│                     plugin server, ~80 MB at a board's load
+├─ Grafana            not leased: always on top of the base. ~340 MB at its peak, ~185 of it its binary's pages;
+│                     its own `GOGC`, alerting, news, explore and the like off (`grafanaServer`); and its Infinity
+│                     plugin server, ~80 MB at a board's load, ~110 under a sustained one
 ├─ node driver        a capped heap, no optimizing JIT (`leanNode`, the image's `PLAYWRIGHT_NODE_EXE`): it
 │                     carries every screenshot as base64
 ├─ browser process    one launch: the headed UA is cached in the profile, no probe Chromium; the network

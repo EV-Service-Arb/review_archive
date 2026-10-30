@@ -44,7 +44,7 @@ pub struct AppConfig {
 	pub http: HttpConfig,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, SettingsNested, schemars::JsonSchema)]
+#[derive(Clone, Debug, SettingsNested, serde::Deserialize, schemars::JsonSchema, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GrafanaConfig {
 	/// Starts Grafana's server, given its socket, data dir and the API's address in the environment.
