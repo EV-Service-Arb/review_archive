@@ -28,6 +28,7 @@ and says so. See [docs/SPEC.md](docs/SPEC.md) for what it does and [docs/ARCHITE
 cargo install --path .
 ```
 
+
 </details>
 <!-- markdownlint-restore -->
 
