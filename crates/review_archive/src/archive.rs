@@ -452,7 +452,7 @@ impl Archive {
 
 	#[cfg(feature = "maps")]
 	async fn scan_recorded(&self, target: &Target, job: Option<i64>) -> eyre::Result<Recorded> {
-		if let Some(why) = self.closed(target.kind, Timestamp::now()).await? {
+		if let Some(why) = self.closed(target.kind, job.is_some(), Timestamp::now()).await? {
 			return Err(Rejected::Busy(why).into());
 		}
 		if target.kind == TargetKind::Maps {
@@ -477,7 +477,8 @@ impl Archive {
 				Some(client) => {
 					let source = crate::sources::gbp::GbpSource {
 						client,
-						browser: match self.closed(TargetKind::Maps, Timestamp::now()).await? {
+						// a gbp run's Maps walk cannot reset the breaker, so it is no probe
+						browser: match self.closed(TargetKind::Maps, false, Timestamp::now()).await? {
 							Some(why) => Err(why),
 							None => Ok(&self.inner.browser),
 						},
@@ -567,7 +568,7 @@ impl Archive {
 		if !self.targets().await?.iter().any(|t| t.enabled) {
 			return Ok(());
 		}
-		if let Some(why) = self.closed(TargetKind::Maps, now).await? {
+		if let Some(why) = self.closed(TargetKind::Maps, false, now).await? {
 			tracing::warn!(why, "the Google accounts are not checked at boot");
 			return Ok(());
 		}
@@ -611,7 +612,7 @@ impl Archive {
 	/// before a walk needs it. Whether one was opened.
 	#[cfg(feature = "maps")]
 	pub async fn touch_standby(&self, now: Timestamp) -> eyre::Result<bool> {
-		if self.closed(TargetKind::Maps, now).await?.is_some() {
+		if self.closed(TargetKind::Maps, false, now).await?.is_some() {
 			return Ok(false);
 		}
 		let browser = &self.inner.browser;
@@ -661,15 +662,16 @@ impl Archive {
 	}
 
 	/// Why scans of this kind cannot run at `now`: Maps paused while it cannot work, or a source
-	/// halted until a restart. A pause ends at its probe time.
+	/// halted until a restart. A pause ends at its probe time; for a `job`, shortly after its last trip.
 	#[cfg(feature = "maps")]
-	async fn closed(&self, kind: TargetKind, now: Timestamp) -> eyre::Result<Option<String>> {
+	async fn closed(&self, kind: TargetKind, job: bool, now: Timestamp) -> eyre::Result<Option<String>> {
 		let halted = self.inner.halted.lock().expect("nothing under this lock panics").clone();
 		Ok(match kind {
 			TargetKind::Gbp => halted.gbp.map(|why| format!("gbp is halted until a restart: {why}")),
 			TargetKind::Maps => match (halted.maps, self.store()?.breaker().await?, self.store()?.rail(now, &self.inner.tokens).await?.reopens_at) {
 				(Some(why), ..) => Some(format!("Maps is halted until a restart: {why}")),
-				(None, Some(b), _) if now < b.probe_after => Some(format!("Maps is paused after {} until {}, when one walk probes", b.reason, b.probe_after)),
+				(None, Some(b), _) if job && now < b.job_probe_after => Some(format!("Maps is paused after {}: a scan asked for may probe it from {}", b.reason, b.job_probe_after)),
+				(None, Some(b), _) if !job && now < b.probe_after => Some(format!("Maps is paused after {} until {}, when one walk probes", b.reason, b.probe_after)),
 				(None, _, Some(at)) => Some(format!("Maps has spent its hour's tokens; it reopens at {at}")),
 				(None, ..) => None,
 			},
@@ -731,7 +733,7 @@ impl Archive {
 		let store = self.store()?;
 		let target = store.target(id).await?;
 		#[cfg(feature = "maps")]
-		if let Some(why) = self.closed(target.kind, Timestamp::now()).await? {
+		if let Some(why) = self.closed(target.kind, true, Timestamp::now()).await? {
 			return Err(Rejected::Busy(why).into());
 		}
 		store.enqueue_job(JobKind::Scan, id, None, None, self.inner.defaults.max_queued_jobs, Timestamp::now()).await
@@ -748,7 +750,7 @@ impl Archive {
 			.or(req.maps_url.as_deref())
 			.ok_or_else(|| Rejected::invalid("name the place: `place` or `maps_url`"))?;
 		#[cfg(feature = "maps")]
-		if let Some(why) = self.closed(TargetKind::Maps, Timestamp::now()).await? {
+		if let Some(why) = self.closed(TargetKind::Maps, true, Timestamp::now()).await? {
 			return Err(Rejected::Busy(why).into());
 		}
 		let most = self.inner.defaults.max_reviews_initial;
@@ -792,7 +794,7 @@ impl Archive {
 			match job.kind {
 				JobKind::Scan => self.scan_recorded(&target, Some(job.id)).await,
 				JobKind::Capture => {
-					if let Some(why) = self.closed(TargetKind::Maps, Timestamp::now()).await? {
+					if let Some(why) = self.closed(TargetKind::Maps, true, Timestamp::now()).await? {
 						return Err(Rejected::Busy(why).into());
 					}
 					self.inner.browser.sync(signed_out_rows(store).await?).await;

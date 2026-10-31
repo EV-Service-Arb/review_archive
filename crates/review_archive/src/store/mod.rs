@@ -682,16 +682,17 @@ impl Store {
 
 	/// The pause on Maps, if one is in force.
 	pub async fn breaker(&self) -> eyre::Result<Option<Breaker>> {
-		let row: Option<(String, String, i64, String)> = sqlx::query_as("SELECT tripped_at, reason_code, trips, probe_after FROM maps_breaker")
+		let row: Option<(String, String, i64, String, String)> = sqlx::query_as("SELECT tripped_at, reason_code, trips, probe_after, job_probe_after FROM maps_breaker")
 			.fetch_optional(&self.pool)
 			.await
 			.wrap_err("loading the maps breaker")?;
-		row.map(|(tripped_at, reason, trips, probe_after)| {
+		row.map(|(tripped_at, reason, trips, probe_after, job_probe_after)| {
 			Ok(Breaker {
 				tripped_at: parse_ts(&tripped_at)?,
 				reason,
 				trips: u32::try_from(trips).wrap_err("the breaker's trips")?,
 				probe_after: parse_ts(&probe_after)?,
+				job_probe_after: parse_ts(&job_probe_after)?,
 			})
 		})
 		.transpose()
@@ -711,15 +712,17 @@ impl Store {
 					reason: String::new(),
 					trips: u32::try_from(trips).wrap_err("the breaker's trips")?,
 					probe_after: now,
+					job_probe_after: now,
 				})
 			})
 			.transpose()?;
 		let b = Breaker::trip(prev, reason, now, schedule);
-		sqlx::query("INSERT OR REPLACE INTO maps_breaker (id, tripped_at, reason_code, trips, probe_after) VALUES (1, ?, ?, ?, ?)")
+		sqlx::query("INSERT OR REPLACE INTO maps_breaker (id, tripped_at, reason_code, trips, probe_after, job_probe_after) VALUES (1, ?, ?, ?, ?, ?)")
 			.bind(fmt_ts(b.tripped_at))
 			.bind(&b.reason)
 			.bind(i64::from(b.trips))
 			.bind(fmt_ts(b.probe_after))
+			.bind(fmt_ts(b.job_probe_after))
 			.execute(&mut *tx)
 			.await
 			.wrap_err("tripping the maps breaker")?;

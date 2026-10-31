@@ -118,7 +118,8 @@ with its own platform implements `sources::ReviewSource` and records through
   stopped answering, `unresponsive`) cannot run for any target, so each trips `maps_breaker` (SQLite, so a restart keeps it), logged at error
   level with the error's `[<path>]`s: no Maps walk
   for any target until its probe time (`schedule.backoff_base`, doubling to `schedule.backoff_cap`), then one probes; a walk that
-  gets through clears it. `gbp` lists go on, their screenshots wait. What retrying cannot
+  gets through clears it. A job (a scan or capture someone asked for) does not wait for the probe time: it probes
+  `schedule.job_probe_gap` after the last trip, and the worker runs jobs one at a time. `gbp` lists go on, their screenshots wait. What retrying cannot
   fix — changed markup or consent page, a refused GBP grant — halts that source until a
   restart; a Chromium setup that is broken, or every account signed out, ends `serve` with exit 78
   (`EX_CONFIG`), which devops holds rather than restarts.

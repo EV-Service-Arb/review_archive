@@ -137,7 +137,9 @@ deleted.
 - Failure → `runs.status=failed` with the error, exponential backoff for that
   target (`schedule.backoff_base` doubling to `schedule.backoff_cap`: 1 h → 24 h), other targets continue —
   unless Maps cannot work (Google's block or limited view, a Chromium that cannot start or has
-  no memory lease): then every Maps walk waits, and one probes on the same backoff.
+  no memory lease): then every Maps walk waits, and one probes on the same backoff. A scan asked
+  for (a job) waits only `schedule.job_probe_gap` (30 s) after the last trip, and probes then: it
+  clears the pause, or trips it again.
 - A failure the code knows is a warning; one it does not is a bug, reported with its trace to
   Sentry and Discord. A place's card on the dashboard shows why its last run failed (or what
   it warned of) on hover.

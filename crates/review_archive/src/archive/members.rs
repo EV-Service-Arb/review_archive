@@ -145,7 +145,7 @@ impl Archive {
 		store.check_track(member, gmail, target).await?;
 		let now = Timestamp::now();
 		#[cfg(feature = "maps")]
-		if let Some(why) = self.closed(store.target(target).await?.kind, now).await? {
+		if let Some(why) = self.closed(store.target(target).await?.kind, true, now).await? {
 			return Err(Rejected::Busy(why).into());
 		}
 		if store.held_together(&[member], now, &self.inner.tokens).await? < cost::FIRST_SCREEN {

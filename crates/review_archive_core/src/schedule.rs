@@ -24,6 +24,9 @@ pub struct Schedule {
 	/// The longest a failing target, or a tripped breaker, waits.
 	#[default(Timeframe::from("1d"))]
 	pub backoff_cap: Timeframe,
+	/// After the breaker trips, how long until a job may probe Maps: a person asking does not wait for the backoff.
+	#[default(Timeframe::from("30s"))]
+	pub job_probe_gap: Timeframe,
 	/// Shortest pause between two scans.
 	#[default(Timeframe::from("5s"))]
 	pub pause_min: Timeframe,
@@ -99,6 +102,8 @@ pub struct Breaker {
 	pub trips: u32,
 	/// When one scan may try again.
 	pub probe_after: Timestamp,
+	/// When a job may try again: `schedule.job_probe_gap` after the last trip.
+	pub job_probe_after: Timestamp,
 }
 
 impl Breaker {
@@ -110,6 +115,7 @@ impl Breaker {
 			reason: reason.to_owned(),
 			trips,
 			probe_after: now + backoff(schedule.backoff_base, schedule.backoff_cap, trips),
+			job_probe_after: now + span(schedule.job_probe_gap),
 		}
 	}
 }

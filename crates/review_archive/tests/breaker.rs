@@ -92,3 +92,46 @@ async fn a_block_pauses_every_maps_target_until_one_probe() {
 	open_again.push(gbp.id);
 	assert_eq!(due(&archive, now).await, open_again);
 }
+
+#[tokio::test]
+async fn a_scan_asked_for_probes_a_paused_maps() {
+	let dir = tempfile::tempdir().unwrap();
+	let mut config = Config {
+		data_dir: Some(dir.path().to_owned()),
+		..Config::default()
+	};
+	config.schedule.job_probe_gap = "1s".into();
+	let archive = Archive::open(config).await.unwrap();
+	let mut targets = Vec::new();
+	for i in 0..4 {
+		let t = NewTarget {
+			place: Some(format!("ChIJbreakerasked{i:0>12}")),
+			..Default::default()
+		};
+		targets.push(archive.add_target(&t).await.unwrap().target);
+	}
+	let gap = std::time::Duration::from_millis(1100);
+
+	archive.record(&Blocked, &targets[0]).await.unwrap();
+	let refused = archive.enqueue_scan(targets[1].id).await.unwrap_err();
+	let Some(Rejected::Busy(why)) = refused.downcast_ref::<Rejected>() else {
+		panic!("{refused:#}")
+	};
+	assert!(why.contains("blocked"), "the refusal names the reason: {why}");
+
+	tokio::time::sleep(gap).await;
+	archive.enqueue_scan(targets[1].id).await.unwrap();
+	assert_eq!(due(&archive, Timestamp::now()).await, [], "the schedule still waits for its probe");
+
+	archive.record(&Blocked, &targets[1]).await.unwrap();
+	let refused = archive.enqueue_scan(targets[2].id).await.unwrap_err();
+	assert!(
+		matches!(refused.downcast_ref::<Rejected>(), Some(Rejected::Busy(_))),
+		"a failed probe trips it again: {refused:#}"
+	);
+
+	tokio::time::sleep(gap).await;
+	archive.enqueue_scan(targets[2].id).await.unwrap();
+	archive.record(&Served, &targets[2]).await.unwrap();
+	assert_eq!(due(&archive, Timestamp::now()).await, [targets[3].id], "a probe asked for that gets through opens Maps");
+}
