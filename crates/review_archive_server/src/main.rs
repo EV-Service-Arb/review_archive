@@ -23,7 +23,7 @@ use review_archive::{
 };
 use review_archive_core::{
 	PersonId, TargetId,
-	dto::{BalanceChange, ExportQuery, NewGmail, NewTarget, StatsQuery, TargetPatch, TokensChange},
+	dto::{ExportQuery, NewTarget, StatsQuery, TargetPatch},
 	schedule::Schedule,
 };
 use review_archive_server::{auth::Auth, http, report, worker};
@@ -57,11 +57,8 @@ enum Cmd {
 	/// Starts Chromium as a walk does, on a throwaway profile, and shoots an element as a walk
 	/// shoots a card: whether this host runs the configured browser.
 	CheckBrowser,
-	/// Members' managing gmails.
-	#[command(subcommand)]
-	Gmail(GmailCmd),
-	/// Put a target under a managing gmail, for the member who owns it.
-	Track { gmail: i64, target: i64 },
+	/// Put a target under a GMB (the conductor's id), for the member who owns it.
+	Track { gmb: i64, target: i64 },
 	/// Captures + manifest.json of one target, to a directory or a .zip.
 	Export {
 		#[arg(long)]
@@ -120,19 +117,13 @@ struct ServeArgs {
 	/// local dashboard; loopback binds outside production only.
 	#[arg(long)]
 	dev_member: Option<String>,
-	/// Who `--dev-member` is (their person id, `GET /members`); needed only when several members have gmails.
+	/// Who `--dev-member` is (their person id, `GET /members`); needed only when several members have GMBs.
 	#[arg(long, requires = "dev_member")]
 	dev_as: Option<i64>,
 	/// Development only, never in production: no check at boot that a Google account is signed
 	/// in, and every account found signed out fails walks instead of ending `serve` with exit 78.
 	#[arg(long)]
 	no_login_check: bool,
-}
-
-#[derive(Subcommand)]
-enum GmailCmd {
-	/// Add a managing gmail to a member (their person id, `GET /members`).
-	Add { member: i64, gmail: String },
 }
 
 #[derive(Args)]
@@ -253,12 +244,7 @@ async fn run(cli: Cli, config: AppConfig, settings: Settings) -> eyre::Result<()
 		Cmd::Target(cmd) => target_cmd(&archive, cmd).await,
 		Cmd::Scan(args) => scan(&archive, &config.schedule, args).await,
 		Cmd::Serve(args) => serve(archive, &config, &settings, args).await,
-		Cmd::Gmail(GmailCmd::Add { member, gmail }) => {
-			let added = archive.add_gmail(PersonId(member), &NewGmail { gmail }).await?;
-			println!("added gmail {} ({})", added.id, added.gmail);
-			Ok(())
-		}
-		Cmd::Track { gmail, target } => archive.assign(gmail, TargetId(target)).await,
+		Cmd::Track { gmb, target } => archive.assign(gmb, TargetId(target)).await,
 		Cmd::Export { target, since, out } => {
 			let done = archive.export(TargetId(target), &ExportQuery { since }, Destination::Path(out.clone())).await?;
 			println!("{} reviews, {} captures → {}", done.reviews, done.captures, out.display());
@@ -393,13 +379,6 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 	let (auth, sign_in) = match &args.dev_member {
 		Some(held) => {
 			let (person, email) = dev_person(&archive, args.dev_as).await?;
-			// every local serve starts the dev member on a new member's balance, so testing never runs them dry
-			let m = config.tokens.start_cap_multiple.expect("checked when the config loaded");
-			let start = TokensChange {
-				change: BalanceChange::Set((config.tokens.cap as f64 * m).round() as i64),
-				note: Some("a dev serve's start".into()),
-			};
-			archive.change_tokens(person, &start, &email).await?;
 			(
 				Auth::Dev {
 					person,
@@ -622,7 +601,7 @@ async fn shutdown_signal() {
 	}
 }
 
-/// `--dev-member`'s person: the one member with gmails, so the dashboard shows what the worker
+/// `--dev-member`'s person: the one member with GMBs, so the dashboard shows what the worker
 /// scans; before anyone has one, a made-up `dev`.
 async fn dev_person(archive: &Archive, named: Option<i64>) -> eyre::Result<(PersonId, String)> {
 	let all = archive.members().await?;
@@ -651,7 +630,7 @@ async fn dev_person(archive: &Archive, named: Option<i64>) -> eyre::Result<(Pers
 		}
 		[m] => Ok((PersonId(m.id), m.email.clone())),
 		many => eyre::bail!(
-			"--dev-member: {} have gmails; name one with --dev-as <person id>",
+			"--dev-member: {} have GMBs; name one with --dev-as <person id>",
 			many.iter().map(|m| format!("{} (#{})", m.email, m.id)).collect::<Vec<_>>().join(", ")
 		),
 	}

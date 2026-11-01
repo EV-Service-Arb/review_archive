@@ -599,29 +599,18 @@ pub fn stats_csv(rows: &[DayStats]) -> eyre::Result<String> {
 	Ok(String::from_utf8(w.into_inner()?)?)
 }
 
-/// A managing gmail: the Google manager account a member's places are attached to.
+/// A managing gmail: the Google manager account a member's GMBs are attached to, as the
+/// conductor last told of it.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GmailDto {
-	/// Its id.
+	/// The conductor's id.
 	pub id: i64,
 	/// The address.
 	pub gmail: String,
-	/// Off: its places are not scanned on its account.
-	pub enabled: bool,
-	/// When the member added it.
-	pub created_at: String,
 }
 
-/// `PATCH /me/gmails/{gmail}`.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct Switch {
-	/// On or off.
-	pub enabled: bool,
-}
-
-/// `PATCH /me/gmails/{gmail}/tracks/{target}`: what to change; absent fields stay.
+/// `PATCH /me/gmbs/{gmb}/tracks/{target}`: what to change; absent fields stay.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -629,16 +618,8 @@ pub struct Switch {
 pub struct TrackPatch {
 	/// Switch the track on or off.
 	pub enabled: Option<bool>,
-	/// Mark the place a favorite of this gmail, or unmark it.
+	/// Mark the place a favorite of this GMB's, or unmark it.
 	pub favorite: Option<bool>,
-}
-
-/// `POST /me/gmails`.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct NewGmail {
-	/// The manager account's address, or an alias for it.
-	pub gmail: String,
 }
 
 /// A tracked place, as the member's overview shows it.
@@ -647,9 +628,9 @@ pub struct NewGmail {
 pub struct LocationSummary {
 	/// The place.
 	pub target: TargetDto,
-	/// This gmail's track of it is on; it is scanned while any member's is, under a gmail that is on.
+	/// This GMB's track of it is on; it is scanned while any track of it is.
 	pub enabled: bool,
-	/// This gmail marked it a favorite.
+	/// Marked a favorite on this GMB.
 	pub favorite: bool,
 	/// Reviews posted over the last 7 days, as their dates are estimated; gone ones too.
 	pub new_7d: i64,
@@ -675,11 +656,11 @@ pub struct LocationSummary {
 	pub listed: Option<i64>,
 	/// Its star average, as Google gave it on the last scan that read it.
 	pub rating: Option<f64>,
-	/// Gone with 5 stars, with no open appeal from this gmail.
+	/// Gone with 5 stars, with no open appeal under this GMB.
 	pub suspended: i64,
-	/// Gone with fewer stars, or none, with no open appeal from this gmail.
+	/// Gone with fewer stars, or none, with no open appeal under this GMB.
 	pub removed: i64,
-	/// Gone, with an open appeal from this gmail.
+	/// Gone, with an open appeal under this GMB.
 	pub reinstating: i64,
 	/// When its latest finished run ended.
 	pub last_run_at: Option<String>,
@@ -726,15 +707,28 @@ pub struct PostDto {
 	pub first_seen: String,
 }
 
-/// A gmail and its places, by snapshots over 7 days, most first.
+/// A GMB: one place a gmail manages, and the archive's tracks of it.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GmbSummary {
+	/// The conductor's id.
+	pub id: i64,
+	/// The Google place id.
+	pub place_id: String,
+	/// Its places as tracked here, a target per language and source, by snapshots over 7 days,
+	/// most first; empty: not tracked.
+	pub tracks: Vec<LocationSummary>,
+}
+
+/// A gmail and its GMBs.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GmailOverview {
 	/// The gmail.
 	#[serde(flatten)]
 	pub gmail: GmailDto,
-	/// What it tracks.
-	pub locations: Vec<LocationSummary>,
+	/// Its GMBs, by id.
+	pub gmbs: Vec<GmbSummary>,
 }
 
 /// An appeal of a removed review.
@@ -747,7 +741,7 @@ pub struct ReinstatementDto {
 	pub reinstated_at: Option<String>,
 }
 
-/// A review on a board, with this gmail's latest appeal of it that was not withdrawn.
+/// A review on a board, with this GMB's latest appeal of it that was not withdrawn.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct BoardCard {
@@ -769,27 +763,6 @@ pub struct Board {
 	pub removed: Vec<BoardCard>,
 	/// Gone with an open appeal, most recently requested first.
 	pub reinstating: Vec<BoardCard>,
-}
-
-/// A place a pasted id or Maps URL may mean (`GET /me/places`).
-#[skip_serializing_none]
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct PlaceDto {
-	/// The Google place id.
-	pub place_id: String,
-	/// Its display name.
-	pub name: Option<String>,
-	/// Its address.
-	pub address: Option<String>,
-}
-
-/// `GET /me/places`.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
-pub struct PlaceQuery {
-	/// A place id or a Google Maps URL.
-	pub place: String,
 }
 
 /// `GET /me/settings`: what the member chose, each beside what they get without choosing.
@@ -828,15 +801,13 @@ pub struct SettingsPatch {
 	pub interval: Option<String>,
 }
 
-/// `POST /me/gmails/{id}/tracks`: watch a place under this gmail. The place is watched once
-/// however many members track it; one already watched with this language is reused.
+/// `POST /me/gmbs/{gmb}/tracks`: watch the GMB's place. The place is watched once however
+/// many members track it; one already watched with this language and source is reused.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(default)]
 pub struct NewTrack {
-	/// A place id or a Google Maps URL.
-	pub place: String,
 	/// The place's name when unset.
 	pub label: Option<String>,
 	/// UI language of the Maps page, e.g. `fr`.
@@ -886,147 +857,6 @@ pub struct Me {
 	pub name: String,
 	/// What they may do here: `sa:review_archive:*` permissions.
 	pub permissions: Vec<String>,
-	/// Their tokens.
-	pub tokens: TokensDto,
-}
-
-/// A member's tokens: what their places' scans are paid with.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct TokensDto {
-	/// What they hold now.
-	pub balance: i64,
-	/// Added per day while under `cap`.
-	pub daily: i64,
-	/// Where daily renewal stops.
-	pub cap: i64,
-	/// Owed to them, newest first; claiming adds them to `balance`.
-	pub kickbacks: Vec<KickbackDto>,
-}
-
-/// Tokens owed to a member: a failed run's charge, or an admin's grant.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct KickbackDto {
-	/// When the run ended, or the grant was made.
-	pub at: String,
-	/// Tokens owed.
-	pub amount: i64,
-	/// What it is for.
-	pub why: KickbackWhy,
-}
-
-/// See [`KickbackDto`].
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum KickbackWhy {
-	/// What they paid for a run that failed.
-	Failed {
-		/// The run.
-		run_id: i64,
-		/// Its place.
-		target_label: String,
-		/// What failed.
-		error: String,
-	},
-	/// Given by an admin.
-	Granted {
-		/// The admin.
-		by: String,
-		/// What for.
-		note: String,
-	},
-}
-
-/// Why a member's balance moved. Stored as its lowercase name.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, strum::AsRefStr, strum::Display, strum::EnumString)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-#[strum(serialize_all = "lowercase")]
-pub enum TokenKind {
-	/// Daily renewal.
-	Accrual,
-	/// Added by an admin.
-	Add,
-	/// An admin set the balance; the row is the difference.
-	Set,
-	/// A scan of their place.
-	Charge,
-	/// A kick-back claimed: a failed run's charge, or an admin's grant.
-	Kickback,
-}
-
-/// `GET /me/tokens`: a row of the member's ledger.
-#[skip_serializing_none]
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct LedgerEntry {
-	/// When.
-	pub at: String,
-	/// How much the balance moved.
-	pub delta: i64,
-	/// Why.
-	pub kind: TokenKind,
-	/// The admin who recorded it.
-	pub by: Option<String>,
-	/// What they wrote with it.
-	pub note: Option<String>,
-	/// A charge's run.
-	pub run_id: Option<i64>,
-	/// A charge's place.
-	pub target_id: Option<i64>,
-	/// See `target_id`.
-	pub target_label: Option<String>,
-}
-
-/// `GET /me/usage`: what the member's tokens bought lately.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct Usage {
-	/// The last [`USAGE_DAYS`] UTC days, oldest first, today last; every day present.
-	pub days: Vec<UsageDay>,
-	/// Places with a track on under a gmail that is on, now.
-	pub places_tracked: i64,
-}
-
-/// How many days [`Usage`] covers.
-pub const USAGE_DAYS: i64 = 30;
-
-/// One UTC day of [`Usage`].
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct UsageDay {
-	/// `YYYY-MM-DD`.
-	pub day: String,
-	/// Walks the member paid a share of.
-	pub walks: i64,
-	/// Tokens charged to them.
-	pub tokens: i64,
-}
-
-/// `POST /members/{email}/tokens`: one change of a member's balance.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct TokensChange {
-	/// What changes.
-	#[serde(flatten)]
-	pub change: BalanceChange,
-	/// A payment reference, a reason; a grant's is required.
-	pub note: Option<String>,
-}
-
-/// See [`TokensChange`]: `{"set": n}`, `{"add": n}` or `{"grant": n}`.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum BalanceChange {
-	/// The balance becomes this.
-	Set(i64),
-	/// Adds this.
-	Add(i64),
-	/// Owes this back as a kick-back, for the member to claim: for our mistakes, as a reward.
-	Grant(i64),
 }
 
 /// `GET /members`: someone who signed in here, or an address from before people had ids.
@@ -1041,9 +871,107 @@ pub struct MemberDto {
 	pub name: String,
 	/// `false`: nobody signed in with this address since people got ids.
 	pub claimed: bool,
-	/// Their token balance.
+	/// The tokens they hold, as the archive reckons them: the conductor's last word on their
+	/// balance less the walks charged since.
 	pub balance: i64,
 }
+
+/// `GET /me/gmbs`: the archive's tag on each of the member's GMBs, for the conductor's page.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct MyGmbs {
+	/// By GMB id; removed GMBs are left out.
+	pub gmbs: std::collections::BTreeMap<i64, GmbReviews>,
+	/// Places with a track on, now.
+	pub places_tracked: i64,
+}
+
+/// A GMB's reviews, as [`MyGmbs`] tells them.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GmbReviews {
+	/// A track of it is on.
+	pub tracked: bool,
+	/// The place's star average, from its most recently walked tracked target; `null` when never walked.
+	pub rating: Option<f64>,
+	/// How many reviews Google lists for it, likewise.
+	pub reviews: Option<i64>,
+}
+
+/// A GMB as the conductor holds it (`PUT /api/conductor/gmbs`).
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(deny_unknown_fields)]
+pub struct MirroredGmb {
+	/// The conductor's id.
+	pub id: i64,
+	/// Its gmail's id.
+	pub gmail_id: i64,
+	/// Its gmail's address.
+	pub gmail: String,
+	/// The gmail's owner, a concierge `sub`.
+	pub owner: String,
+	/// The GMB, or its gmail, is removed.
+	pub removed: bool,
+	/// The Google place id.
+	pub place_id: String,
+}
+
+/// `PUT /api/conductor/gmbs`: everything the conductor knows of GMBs and balances, at once.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(deny_unknown_fields)]
+pub struct GmbSnapshot {
+	/// Every GMB it ever had, removed ones included.
+	pub gmbs: Vec<MirroredGmb>,
+	/// Every person's balance by `sub`, renewed up to now.
+	pub balances: std::collections::BTreeMap<String, i64>,
+	/// The last [`ChargeDto::id`] those balances include.
+	pub charges_through: i64,
+}
+
+/// What a walk cost, for the conductor to charge (`GET /api/conductor/charges`).
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ChargeDto {
+	/// Ascending, never reused.
+	pub id: i64,
+	/// `run:<run id>`.
+	pub key: String,
+	/// Who pays, by `sub`; never empty.
+	pub payers: Vec<String>,
+	/// Tokens; more than 0.
+	pub spent: i64,
+	/// The run failed or met a failure: what each paid is owed back.
+	pub kick_back: bool,
+	/// The place, as the ledger names it.
+	pub label: String,
+	/// When the run ended.
+	pub at: String,
+}
+
+/// A page of the charge feed.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct Charges {
+	/// Ascending by id.
+	pub charges: Vec<ChargeDto>,
+	/// The last id of the page; `after` for an empty one.
+	pub next: i64,
+}
+
+/// `GET /api/conductor/charges`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
+pub struct ChargesQuery {
+	/// Charges past this id.
+	pub after: i64,
+	/// At most this many, 1 to [`MAX_CHARGES`].
+	pub limit: u32,
+}
+
+/// The largest page of the charge feed.
+pub const MAX_CHARGES: u32 = 500;
 
 /// On `/me` routes: the person id of the member an admin acts as.
 pub const MEMBER_HEADER: &str = "x-member";

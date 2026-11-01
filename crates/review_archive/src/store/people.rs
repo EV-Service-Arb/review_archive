@@ -54,8 +54,8 @@ pub struct Person {
 	pub email: String,
 	/// Empty until they sign in.
 	pub name: String,
-	/// `false`: an address from before people had ids, nobody signed in as it yet.
-	pub claimed: bool,
+	/// `None`: an address from before people had ids, nobody signed in as it yet.
+	pub sub: Option<String>,
 }
 
 impl Store {
@@ -125,7 +125,7 @@ impl Store {
 
 	/// Everyone, by address.
 	pub async fn people(&self) -> eyre::Result<Vec<Person>> {
-		sqlx::query_as("SELECT id, email, name, sub IS NOT NULL AS claimed FROM people ORDER BY email, id")
+		sqlx::query_as("SELECT id, email, name, sub FROM people ORDER BY email, id")
 			.fetch_all(&self.pool)
 			.await
 			.wrap_err("listing people")
@@ -133,7 +133,7 @@ impl Store {
 
 	/// `None`: nobody has this id.
 	pub async fn person_by_id(&self, id: PersonId) -> eyre::Result<Option<Person>> {
-		sqlx::query_as("SELECT id, email, name, sub IS NOT NULL AS claimed FROM people WHERE id = ?")
+		sqlx::query_as("SELECT id, email, name, sub FROM people WHERE id = ?")
 			.bind(id.0)
 			.fetch_optional(&self.pool)
 			.await

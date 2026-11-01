@@ -12,8 +12,8 @@ use review_archive::{
 	core::{
 		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
 		dto::{
-			BalanceChange, CaptureRequest, Event, JobStatus, KickbackWhy, Me, MemberDto, NewTarget, NewTgChannel, NewTrack, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch,
-			TokenKind, TokensChange, TokensDto, TrackPatch,
+			CaptureRequest, Event, GmbSnapshot, JobStatus, LocationSummary, Me, MemberDto, MirroredGmb, NewTarget, NewTgChannel, NewTrack, NewWebhook, Setting, Settings, SettingsPatch,
+			TargetPatch, TrackPatch,
 		},
 		tokens::Meter,
 	},
@@ -72,7 +72,7 @@ fn operator() -> Who {
 }
 
 fn admin() -> Who {
-	Who::member("root").may(&[sa_auth::Archive::Operate.as_str(), sa_auth::Tokens::Grant.as_str(), sa_auth::Members::ActAs.as_str()])
+	Who::member("root").may(&[sa_auth::Archive::Operate.as_str(), sa_auth::Members::ActAs.as_str()])
 }
 
 fn sign(signer: &Signer, who: &Who, method: &str, path: &str, exp: i64) -> String {
@@ -110,6 +110,8 @@ struct Env {
 	/// The operator: may operate the archive, and nothing else.
 	client: Client,
 	server: tokio::task::JoinHandle<()>,
+	/// What the conductor pushed last.
+	mirror: std::sync::Mutex<GmbSnapshot>,
 }
 
 async fn env() -> Env {
@@ -123,7 +125,6 @@ async fn env_on(grafana: Option<&std::path::Path>) -> Env {
 		data_dir: Some(dir.path().to_owned()),
 		..Config::default()
 	};
-	config.tokens.start_cap_multiple = Some(2.0);
 	// the webhooks here point at loopback, which only a listed host may
 	config.webhooks.allowed_hosts = vec!["127.0.0.1".into()];
 	let archive = Archive::open(config).await.unwrap();
@@ -157,6 +158,11 @@ async fn env_on(grafana: Option<&std::path::Path>) -> Env {
 		base,
 		client,
 		server,
+		mirror: std::sync::Mutex::new(GmbSnapshot {
+			gmbs: vec![],
+			balances: Default::default(),
+			charges_through: 0,
+		}),
 	}
 }
 
@@ -174,8 +180,8 @@ impl Env {
 		self.caller(&admin())
 	}
 
-	/// Pre-existing rows under `email`: a person nobody signed in as yet, and a gmail of theirs.
-	async fn unclaimed(&self, email: &str, gmail: &str) {
+	/// Pre-existing rows under `email`: a person nobody signed in as yet, and a Telegram channel of theirs.
+	async fn unclaimed(&self, email: &str, destination: &str) {
 		let db = sqlx::SqlitePool::connect(&format!("sqlite://{}", self.dir.path().join("review_archive.db").display()))
 			.await
 			.unwrap();
@@ -184,13 +190,43 @@ impl Env {
 			.fetch_one(&db)
 			.await
 			.unwrap();
-		sqlx::query("INSERT INTO managing_gmails (person_id, gmail, created_at) VALUES (?, ?, '2026-01-01T00:00:00Z')")
+		sqlx::query("INSERT INTO tg_channels (person_id, destination, events, created_at) VALUES (?, ?, '[]', '2026-01-01T00:00:00Z')")
 			.bind(id)
-			.bind(gmail)
+			.bind(destination)
 			.execute(&db)
 			.await
 			.unwrap();
 	}
+
+	/// The conductor says `owner` manages `place` under `gmail`, and holds tokens for its walks: the GMB's id.
+	async fn gmb(&self, owner: &str, gmail: &str, place: &str) -> i64 {
+		let snap = {
+			let mut m = self.mirror.lock().unwrap();
+			let gmail_id = m
+				.gmbs
+				.iter()
+				.find(|g| g.gmail == gmail)
+				.map_or_else(|| m.gmbs.iter().map(|g| g.gmail_id).max().unwrap_or(0) + 1, |g| g.gmail_id);
+			let id = m.gmbs.len() as i64 + 1;
+			m.gmbs.push(MirroredGmb {
+				id,
+				gmail_id,
+				gmail: gmail.into(),
+				owner: owner.into(),
+				removed: false,
+				place_id: place.into(),
+			});
+			m.balances.entry(owner.into()).or_insert(1000);
+			m.clone()
+		};
+		self.archive.apply_snapshot(&snap).await.unwrap();
+		snap.gmbs.last().unwrap().id
+	}
+}
+
+/// The first place a member tracks, as their overview shows it.
+fn first(overview: &[review_archive::core::dto::GmailOverview]) -> &LocationSummary {
+	&overview[0].gmbs[0].tracks[0]
 }
 
 async fn id(c: &Client) -> i64 {
@@ -533,19 +569,17 @@ async fn every_route_but_health_and_openapi_wants_an_assertion() {
 		("POST", "/webhooks"),
 		("DELETE", "/webhooks/1"),
 		("GET", "/members"),
-		("POST", "/members/1/tokens"),
 		("GET", "/me"),
-		("GET", "/me/tokens"),
 		("GET", "/me/overview"),
-		("POST", "/me/gmails"),
-		("DELETE", "/me/gmails/1"),
-		("PATCH", "/me/gmails/1"),
-		("POST", "/me/gmails/1/tracks"),
-		("DELETE", "/me/gmails/1/tracks/1"),
-		("PATCH", "/me/gmails/1/tracks/1"),
-		("GET", "/me/gmails/1/locations/1/board"),
-		("PUT", "/me/gmails/1/reinstatements/1"),
-		("DELETE", "/me/gmails/1/reinstatements/1"),
+		("GET", "/me/gmbs"),
+		("POST", "/me/gmbs/1/tracks"),
+		("DELETE", "/me/gmbs/1/tracks/1"),
+		("PATCH", "/me/gmbs/1/tracks/1"),
+		("GET", "/me/gmbs/1/tracks/1/board"),
+		("PUT", "/me/gmbs/1/reinstatements/1"),
+		("DELETE", "/me/gmbs/1/reinstatements/1"),
+		("PUT", "/api/conductor/gmbs"),
+		("GET", "/api/conductor/charges"),
 		("GET", "/me/tg-channels"),
 		("POST", "/me/tg-channels"),
 		("DELETE", "/me/tg-channels/1"),
@@ -854,7 +888,7 @@ async fn a_wait_beyond_the_cap_still_answers_when_the_job_ends() {
 #[tokio::test]
 async fn archive_routes_need_archive_operate() {
 	let e = env().await;
-	let all_but = e.caller(&Who::member("root").may(&[sa_auth::Tokens::Grant.as_str(), sa_auth::Members::ActAs.as_str()]));
+	let all_but = e.caller(&Who::member("root").may(&[sa_auth::Members::ActAs.as_str()]));
 	for c in [all_but, e.member(ALICE)] {
 		assert_eq!(c.targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 		assert_eq!(c.webhooks().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
@@ -877,39 +911,23 @@ async fn me_is_open_to_anyone_signed_in() {
 			email: "alice@x.com".into(),
 			name: ALICE.into(),
 			permissions: vec![],
-			tokens: TokensDto {
-				balance: 1000,
-				daily: 15,
-				cap: 500,
-				kickbacks: vec![]
-			},
 		}
 	);
 	assert_eq!(alice.overview().await.unwrap(), vec![]);
 	e.server.abort();
 }
 
-/// Who may act as others lists them, with their balances; who may grant tokens changes those.
+/// Who may act as others lists them, with what they hold.
 #[tokio::test]
-async fn members_need_act_as_and_their_balances_tokens_grant() {
+async fn members_need_act_as() {
 	let e = env().await;
 	let alice = e.member(ALICE);
 	let a = id(&alice).await;
-	let set = TokensChange {
-		change: BalanceChange::Set(8),
-		note: None,
-	};
 	for c in [&e.client, &alice] {
 		assert_eq!(c.members().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-		assert_eq!(c.change_tokens(a, &set).await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 	}
-	let granter = e.caller(&Who::member("root").may(&[sa_auth::Tokens::Grant.as_str()]));
-	assert_eq!(granter.members().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-	assert_eq!(granter.change_tokens(a, &set).await.unwrap().balance, 8);
-	assert_eq!(granter.change_tokens(9999, &set).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	let actor = e.caller(&Who::member("root").may(&[sa_auth::Members::ActAs.as_str()]));
-	assert_eq!(actor.change_tokens(a, &set).await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-	let root = id(&granter).await;
+	let root = id(&actor).await;
 	let member = |id, sub: &str, balance| MemberDto {
 		id,
 		email: format!("{sub}@x.com"),
@@ -917,7 +935,11 @@ async fn members_need_act_as_and_their_balances_tokens_grant() {
 		claimed: true,
 		balance,
 	};
-	assert_eq!(actor.members().await.unwrap(), vec![member(a, ALICE, 8), member(root, "root", 1000)]);
+	assert_eq!(
+		actor.members().await.unwrap(),
+		vec![member(a, ALICE, 0), member(root, "root", 0)],
+		"no balance from the conductor yet"
+	);
 	e.server.abort();
 }
 
@@ -927,14 +949,14 @@ async fn members_need_act_as_and_their_balances_tokens_grant() {
 async fn acting_as_a_member_needs_members_act_as() {
 	let e = env().await;
 	let alice = e.member(ALICE);
-	alice.add_gmail("alice@gmail.com").await.unwrap();
+	let g = e.gmb(ALICE, "alice@gmail.com", PLACE).await;
 	let a = id(&alice).await;
 	let admin = e.admin();
 	assert_eq!(admin.overview().await.unwrap(), vec![], "without the header, the admin's own");
 	let as_alice = admin.clone().as_member(a);
 	assert_eq!(as_alice.overview().await.unwrap(), alice.overview().await.unwrap());
-	as_alice.add_gmail("ops@gmail.com").await.unwrap();
-	assert_eq!(alice.overview().await.unwrap().len(), 2, "the admin's write is alice's");
+	as_alice.track(g, &NewTrack::default()).await.unwrap();
+	assert_eq!(alice.overview().await.unwrap()[0].gmbs[0].tracks.len(), 1, "the admin's write is alice's");
 	assert_eq!(as_alice.me().await.unwrap().email, "root@x.com");
 	assert_eq!(admin.as_member(9999).overview().await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	for c in [e.client.clone(), e.member(BOB)] {
@@ -949,14 +971,14 @@ async fn acting_as_a_member_needs_members_act_as() {
 #[tokio::test]
 async fn an_unverified_sign_in_cannot_claim_its_addresss_rows() {
 	let e = env().await;
-	e.unclaimed("carol@x.com", "carol.ops@gmail.com").await;
+	e.unclaimed("carol@x.com", "@carol_chan").await;
 	let unverified = Who {
 		verified: false,
 		..Who::member("carol")
 	};
 	assert_eq!(e.caller(&unverified).me().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-	let overview = e.member("carol").overview().await.unwrap();
-	assert_eq!(overview.iter().map(|g| g.gmail.gmail.as_str()).collect::<Vec<_>>(), ["carol.ops@gmail.com"]);
+	let channels = e.member("carol").tg_channels().await.unwrap();
+	assert_eq!(channels.iter().map(|c| c.destination.as_str()).collect::<Vec<_>>(), ["@carol_chan"]);
 	e.server.abort();
 }
 
@@ -965,7 +987,7 @@ async fn an_unverified_sign_in_cannot_claim_its_addresss_rows() {
 async fn an_address_another_account_holds_cannot_be_claimed() {
 	let e = env().await;
 	e.member("dan").me().await.unwrap();
-	e.unclaimed("dan@x.com", "dan.ops@gmail.com").await;
+	e.unclaimed("dan@x.com", "@dan_chan").await;
 	let twin = Who {
 		sub: "dan-twin".into(),
 		..Who::member("dan")
@@ -974,79 +996,14 @@ async fn an_address_another_account_holds_cannot_be_claimed() {
 	e.server.abort();
 }
 
-/// A member's balance is an admin's to set, and theirs to read with every change that made it.
-#[tokio::test]
-async fn an_admin_sets_a_members_tokens() {
-	let e = env().await;
-	let alice = e.member(ALICE);
-	let me = alice.me().await.unwrap();
-	assert_eq!(me.tokens.balance, 1000, "twice the cap on first sight");
-	let set = |n| TokensChange {
-		change: BalanceChange::Set(n),
-		note: Some("trial".into()),
-	};
-	let admin = e.admin();
-	assert_eq!(admin.change_tokens(me.id, &set(8)).await.unwrap().balance, 8);
-	assert_eq!(alice.me().await.unwrap().tokens.balance, 8);
-	let ledger = alice.ledger().await.unwrap();
-	assert_eq!(
-		ledger.iter().map(|l| (l.kind, l.delta, l.by.as_deref())).collect::<Vec<_>>(),
-		[(TokenKind::Set, -992, Some("root@x.com")), (TokenKind::Accrual, 1000, None)]
-	);
-	let bad = TokensChange {
-		change: BalanceChange::Add(0),
-		note: None,
-	};
-	assert_eq!(admin.change_tokens(me.id, &bad).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST));
-	e.server.abort();
-}
-
-/// A grant is owed, not held: the member claims it as a kick-back, with the note that says
-/// what it is for.
-#[tokio::test]
-async fn a_grant_is_a_kickback_to_claim() {
-	let e = env().await;
-	let alice = e.member(ALICE);
-	let me = alice.me().await.unwrap();
-	let admin = e.admin();
-	let grant = |note: Option<&str>| TokensChange {
-		change: BalanceChange::Grant(1000),
-		note: note.map(Into::into),
-	};
-	for note in [None, Some(" ")] {
-		assert_eq!(admin.change_tokens(me.id, &grant(note)).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST));
-	}
-	let owed = admin.change_tokens(me.id, &grant(Some("found a bug"))).await.unwrap();
-	assert_eq!(owed.balance, 1000, "not held until claimed");
-	assert_eq!(
-		owed.kickbacks.iter().map(|k| (k.amount, &k.why)).collect::<Vec<_>>(),
-		[(
-			1000,
-			&KickbackWhy::Granted {
-				by: "root@x.com".into(),
-				note: "found a bug".into()
-			}
-		)]
-	);
-
-	assert_eq!(alice.claim_kickbacks().await.unwrap().balance, 2000);
-	let claimed = &alice.ledger().await.unwrap()[0];
-	assert_eq!(
-		(claimed.kind, claimed.delta, claimed.by.as_deref(), claimed.note.as_deref(), claimed.run_id),
-		(TokenKind::Kickback, 1000, Some("root@x.com"), Some("found a bug"), None)
-	);
-	e.server.abort();
-}
-
 /// `serve --dev-member`: every request is that member, so a dashboard runs without the panel.
 #[tokio::test]
 async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	let dir = tempfile::tempdir().unwrap();
-	let mut config = Config {
+	let config = Config {
 		data_dir: Some(dir.path().to_owned()),
 		..Config::default()
 	};
-	config.tokens.start_cap_multiple = Some(2.0);
 	let archive = Archive::open(config).await.unwrap();
 	let seen = Seen {
 		sub: "test",
@@ -1057,7 +1014,19 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	let Claim::Person(test) = archive.person(&seen).await.unwrap() else {
 		panic!("nobody else holds the address")
 	};
-	archive.add_gmail(test, &review_archive::core::dto::NewGmail { gmail: "ops@gmail.com".into() }).await.unwrap();
+	let snapshot = GmbSnapshot {
+		gmbs: vec![MirroredGmb {
+			id: 1,
+			gmail_id: 1,
+			gmail: "ops@gmail.com".into(),
+			owner: "test".into(),
+			removed: false,
+			place_id: PLACE.into(),
+		}],
+		balances: Default::default(),
+		charges_through: 0,
+	};
+	archive.apply_snapshot(&snapshot).await.unwrap();
 	let auth = Auth::Dev {
 		person: test,
 		email: "test@localhost".into(),
@@ -1081,12 +1050,13 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	for view in [
 		"/",
 		"/telegram",
-		"/tokens",
+		"/gmbs",
+		"/gmbs/1",
+		"/gmbs/1/tracks/2",
 		"/gmails/1",
-		"/gmails/1/places/2",
 		"/members/3",
 		"/members/3/",
-		"/members/3/gmails/1/places/2",
+		"/members/3/gmbs/1/tracks/2",
 	] {
 		let page = reqwest::get(format!("{base}{view}")).await.unwrap();
 		assert_eq!(page.status(), StatusCode::OK, "{view} is the dashboard's page");
@@ -1213,9 +1183,9 @@ async fn grafanas_queries_reach_the_api_as_the_viewer_who_asked() {
 	let (mut at_grafana, grafana) = fake_grafana(&socket);
 	let e = env_on(Some(&socket)).await;
 	let alice = e.member(ALICE).me().await.unwrap();
-	e.member(ALICE).add_gmail("alice@gmail.com").await.unwrap();
+	e.gmb(ALICE, "alice@gmail.com", PLACE).await;
 	let bob = e.member(BOB).me().await.unwrap();
-	e.member(BOB).add_gmail("bob@gmail.com").await.unwrap();
+	e.gmb(BOB, "bob@gmail.com", PLACE).await;
 	let infinity = |member: i64| {
 		serde_json::json!({
 			"datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "ra-api"},
@@ -1290,7 +1260,7 @@ async fn grafanas_queries_reach_the_api_as_the_viewer_who_asked() {
 		"alice may not act as bob"
 	);
 	assert_eq!(
-		api.post(format!("{}/me/tokens/claim", e.base)).header(VIEWER_HEADER, &token).send().await.unwrap().status(),
+		api.post(format!("{}/me/gmbs/1/tracks", e.base)).header(VIEWER_HEADER, &token).send().await.unwrap().status(),
 		StatusCode::UNAUTHORIZED,
 		"a viewer's token reads only"
 	);
@@ -1426,26 +1396,17 @@ async fn a_new_bundle_is_never_answered_from_an_old_ones_cache() {
 async fn members_share_places_but_see_only_their_own() {
 	let e = env().await;
 	let (alice, bob) = (e.member(ALICE), e.member(BOB));
-	let a = alice.add_gmail(" Ops.Paris@gmail.com ").await.unwrap();
-	assert_eq!(a.gmail, "ops.paris@gmail.com");
-	assert_eq!(alice.add_gmail("ops.paris@gmail.com").await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST), "twice");
-	assert_eq!(alice.add_gmail("two words").await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST));
-	assert_eq!(
-		e.member("carol").add_gmail(" tg:@Owner ").await.unwrap().gmail,
-		"tg:@owner",
-		"an alias groups as well as an address"
-	);
-	let b = bob.add_gmail("bob@gmail.com").await.unwrap();
+	let a = e.gmb(ALICE, "ops.paris@gmail.com", PLACE).await;
+	let b = e.gmb(BOB, "bob@gmail.com", PLACE).await;
 
 	let track = NewTrack {
-		place: PLACE.into(),
 		lang: Some("fr".into()),
 		..Default::default()
 	};
-	let t = alice.track(a.id, &track).await.unwrap();
-	assert_eq!(bob.track(b.id, &track).await.unwrap().id, t.id, "one place, one target");
+	let t = alice.track(a, &track).await.unwrap();
+	assert_eq!(bob.track(b, &track).await.unwrap().id, t.id, "one place, one target");
 	assert_eq!(e.client.targets().await.unwrap().len(), 1);
-	assert_eq!(bob.track(a.id, &track).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND), "alice's gmail is not bob's");
+	assert_eq!(bob.track(a, &track).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND), "alice's GMB is not bob's");
 
 	// the overview counts screenshots by when they were taken: one today, one a fortnight ago
 	let taken = |id: &str, days_ago: i64| {
@@ -1462,7 +1423,7 @@ async fn members_share_places_but_see_only_their_own() {
 	record(&e, t.id, vec![taken("r1", 0), taken("r2", 14), replied]).await;
 	let overview = alice.overview().await.unwrap();
 	assert_eq!(overview.len(), 1);
-	let loc = &overview[0].locations[0];
+	let loc = first(&overview);
 	assert_eq!(
 		(
 			loc.target.id, loc.snapshots_7d, loc.snapshots_30d, loc.new_7d, loc.live, loc.responded, loc.non_five_star, loc.suspended, loc.removed, loc.reinstating
@@ -1484,50 +1445,50 @@ async fn members_share_places_but_see_only_their_own() {
 	for p in [post("Closed for renovation", 12), post("Open on Sunday", 1), post("Open on Sunday", 1)] {
 		e.archive.record(&p, &target).await.unwrap();
 	}
-	let loc = alice.overview().await.unwrap()[0].locations[0].clone();
+	let loc = first(&alice.overview().await.unwrap()).clone();
 	assert_eq!(loc.posts_7d, 1, "one post, seen twice, in the last week");
 	assert_eq!(loc.latest_post.map(|p| p.text).as_deref(), Some("Open on Sunday"));
 	assert_eq!((loc.last_run_status, loc.last_run_error), (Some(review_archive::core::dto::RunStatus::Ok), None));
 	e.archive.record(&Fails, &target).await.unwrap();
-	let loc = alice.overview().await.unwrap()[0].locations[0].clone();
+	let loc = first(&alice.overview().await.unwrap()).clone();
 	assert_eq!(
 		(loc.last_run_status, loc.last_run_error.as_deref()),
 		(Some(review_archive::core::dto::RunStatus::Failed), Some("the page did not load")),
 		"the card says why"
 	);
 
-	let board = alice.board(a.id, t.id).await.unwrap();
+	let board = alice.board(a, t.id).await.unwrap();
 	let url = board.snapshotted.iter().find_map(|c| c.review.capture_url.clone()).expect("r1 was captured");
 	assert_eq!(&alice.capture_webp(&url).await.unwrap()[8..12], b"WEBP");
 	assert!(e.client.capture_webp(&url).await.is_ok(), "the operator sees everything");
-	assert_eq!(bob.board(a.id, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(bob.board(a, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 
 	let favorite = |on| TrackPatch {
 		favorite: Some(on),
 		..Default::default()
 	};
-	alice.patch_track(a.id, t.id, &favorite(true)).await.unwrap();
-	let loc = alice.overview().await.unwrap()[0].locations[0].clone();
+	alice.patch_track(a, t.id, &favorite(true)).await.unwrap();
+	let loc = first(&alice.overview().await.unwrap()).clone();
 	assert!(loc.favorite && loc.enabled, "a favorite leaves the switch as it was");
-	assert!(!bob.overview().await.unwrap()[0].locations[0].favorite, "alice's favorite is not bob's");
-	assert_eq!(bob.patch_track(a.id, t.id, &favorite(true)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	alice.patch_track(a.id, t.id, &favorite(false)).await.unwrap();
-	assert!(!alice.overview().await.unwrap()[0].locations[0].favorite);
+	assert!(!first(&bob.overview().await.unwrap()).favorite, "alice's favorite is not bob's");
+	assert_eq!(bob.patch_track(a, t.id, &favorite(true)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	alice.patch_track(a, t.id, &favorite(false)).await.unwrap();
+	assert!(!first(&alice.overview().await.unwrap()).favorite);
 
 	assert_eq!(
-		alice.relink(a.id, t.id).await.unwrap_err().status(),
+		alice.relink(a, t.id).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"no GOOGLE_MAPS_KEY to ask Places with"
 	);
-	assert_eq!(bob.relink(a.id, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(bob.relink(a, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 
 	// once bob stops tracking the place, its screenshots are no longer his to see
 	assert!(bob.capture_webp(&url).await.is_ok());
-	bob.untrack(b.id, t.id).await.unwrap();
+	bob.untrack(b, t.id).await.unwrap();
 	assert_eq!(bob.capture_webp(&url).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(bob.overview().await.unwrap()[0].locations, vec![]);
-	assert_eq!(alice.overview().await.unwrap()[0].locations.len(), 1, "alice's track stays");
-	alice.untrack(a.id, t.id).await.unwrap();
+	assert_eq!(bob.overview().await.unwrap()[0].gmbs[0].tracks, vec![]);
+	assert_eq!(alice.overview().await.unwrap()[0].gmbs[0].tracks.len(), 1, "alice's track stays");
+	alice.untrack(a, t.id).await.unwrap();
 	assert_eq!(e.client.targets().await.unwrap().len(), 1, "untracked by all, the target and its archive stay");
 	e.server.abort();
 }
@@ -1539,17 +1500,8 @@ async fn members_share_places_but_see_only_their_own() {
 async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 	let e = env().await;
 	let alice = e.member(ALICE);
-	let g = alice.add_gmail("ops@gmail.com").await.unwrap();
-	let t = alice
-		.track(
-			g.id,
-			&NewTrack {
-				place: PLACE.into(),
-				..Default::default()
-			},
-		)
-		.await
-		.unwrap();
+	let g = e.gmb(ALICE, "ops@gmail.com", PLACE).await;
+	let t = alice.track(g, &NewTrack::default()).await.unwrap();
 	let low = Observed {
 		rating: Some(2),
 		..review("removed")
@@ -1562,35 +1514,34 @@ async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 		(ids(&b.snapshotted), ids(&b.suspended), ids(&b.removed), ids(&b.reinstating))
 	};
 	let counts = |l: &review_archive::core::dto::LocationSummary| (l.suspended, l.removed, l.reinstating);
-	let board = alice.board(g.id, t.id).await.unwrap();
+	let board = alice.board(g, t.id).await.unwrap();
 	assert_eq!(columns(&board), (vec!["kept".into()], vec!["suspended".into()], vec!["removed".into()], vec![]));
-	assert_eq!(counts(&alice.overview().await.unwrap()[0].locations[0]), (1, 1, 0));
+	assert_eq!(counts(first(&alice.overview().await.unwrap())), (1, 1, 0));
 	let (kept, suspended) = (board.snapshotted[0].review.id, board.suspended[0].review.id);
 
 	assert_eq!(
-		alice.reinstate(g.id, kept).await.unwrap_err().status(),
+		alice.reinstate(g, kept).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"a listed review has nothing to appeal"
 	);
-	let asked = alice.reinstate(g.id, suspended).await.unwrap();
-	assert_eq!(alice.reinstate(g.id, suspended).await.unwrap(), asked, "asking twice is the one appeal");
+	let asked = alice.reinstate(g, suspended).await.unwrap();
+	assert_eq!(alice.reinstate(g, suspended).await.unwrap(), asked, "asking twice is the one appeal");
 	assert_eq!(
-		columns(&alice.board(g.id, t.id).await.unwrap()),
+		columns(&alice.board(g, t.id).await.unwrap()),
 		(vec!["kept".into()], vec![], vec!["removed".into()], vec!["suspended".into()])
 	);
-	assert_eq!(counts(&alice.overview().await.unwrap()[0].locations[0]), (0, 1, 1));
+	assert_eq!(counts(first(&alice.overview().await.unwrap())), (0, 1, 1));
 
-	alice.withdraw_reinstatement(g.id, suspended).await.unwrap();
-	assert_eq!(alice.withdraw_reinstatement(g.id, suspended).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	alice.withdraw_reinstatement(g, suspended).await.unwrap();
+	assert_eq!(alice.withdraw_reinstatement(g, suspended).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	assert_eq!(
-		columns(&alice.board(g.id, t.id).await.unwrap()),
+		columns(&alice.board(g, t.id).await.unwrap()),
 		(vec!["kept".into()], vec!["suspended".into()], vec!["removed".into()], vec![])
 	);
-	alice.reinstate(g.id, suspended).await.unwrap();
-	assert_eq!(alice.delete_gmail(g.id).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST), "appeals are kept");
+	alice.reinstate(g, suspended).await.unwrap();
 
 	record(&e, t.id, vec![review("kept"), review("suspended"), low]).await;
-	let board = alice.board(g.id, t.id).await.unwrap();
+	let board = alice.board(g, t.id).await.unwrap();
 	assert_eq!(
 		columns(&board),
 		(vec!["removed".into(), "suspended".into(), "kept".into()], vec![], vec![], vec![]),
@@ -1601,19 +1552,16 @@ async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 	e.server.abort();
 }
 
-/// A place is scanned while any track of it is on under a gmail that is on; turning
-/// tracks off is the member's own and leaves the shared target as it was.
+/// A place is scanned while any track of it is on; turning tracks off is the member's own and
+/// leaves the shared target as it was.
 #[tokio::test]
 async fn a_place_is_scanned_while_anyone_has_it_on() {
 	let e = env().await;
 	let (alice, bob) = (e.member(ALICE), e.member(BOB));
-	let (a, b) = (alice.add_gmail("a@gmail.com").await.unwrap(), bob.add_gmail("b@gmail.com").await.unwrap());
-	let track = NewTrack {
-		place: PLACE.into(),
-		..Default::default()
-	};
-	let t = alice.track(a.id, &track).await.unwrap().id;
-	bob.track(b.id, &track).await.unwrap();
+	let (a, b) = (e.gmb(ALICE, "a@gmail.com", PLACE).await, e.gmb(BOB, "b@gmail.com", PLACE).await);
+	let track = NewTrack::default();
+	let t = alice.track(a, &track).await.unwrap().id;
+	bob.track(b, &track).await.unwrap();
 	let untracked = e
 		.client
 		.add_target(&NewTarget {
@@ -1633,27 +1581,25 @@ async fn a_place_is_scanned_while_anyone_has_it_on() {
 	};
 	assert!(scanned().await);
 	let overview = alice.overview().await.unwrap();
-	assert!(overview[0].gmail.enabled && overview[0].locations[0].enabled, "on by default");
+	assert!(first(&overview).enabled, "on by default");
 
 	let switch = |on| TrackPatch {
 		enabled: Some(on),
 		..Default::default()
 	};
-	alice.patch_track(a.id, t, &switch(false)).await.unwrap();
-	assert!(!alice.overview().await.unwrap()[0].locations[0].enabled);
+	alice.patch_track(a, t, &switch(false)).await.unwrap();
+	assert!(!first(&alice.overview().await.unwrap()).enabled);
 	assert!(scanned().await, "bob still has it on");
-	bob.set_gmail_enabled(b.id, false).await.unwrap();
-	assert!(!scanned().await, "bob's track is on, under a gmail that is off");
-	assert!(bob.overview().await.unwrap()[0].locations[0].enabled, "a gmail's switch leaves its tracks' own");
+	bob.patch_track(b, t, &switch(false)).await.unwrap();
+	assert!(!scanned().await, "nobody has it on");
 	assert!(e.client.target(t).await.unwrap().target.enabled, "the shared target is untouched");
 
 	assert_eq!(
-		bob.patch_track(a.id, t, &switch(true)).await.unwrap_err().status(),
+		bob.patch_track(a, t, &switch(true)).await.unwrap_err().status(),
 		Some(StatusCode::NOT_FOUND),
-		"alice's gmail is not bob's"
+		"alice's GMB is not bob's"
 	);
-	assert_eq!(bob.set_gmail_enabled(a.id, true).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	bob.set_gmail_enabled(b.id, true).await.unwrap();
+	bob.patch_track(b, t, &switch(true)).await.unwrap();
 	assert!(scanned().await);
 	e.server.abort();
 }
@@ -1713,13 +1659,10 @@ async fn a_second_test_post_within_a_minute_is_a_429() {
 async fn a_members_interval_schedules_every_place_they_pay_for() {
 	let e = env().await;
 	let (alice, bob) = (e.member(ALICE), e.member(BOB));
-	let (a, b) = (alice.add_gmail("alice@gmail.com").await.unwrap(), bob.add_gmail("bob@gmail.com").await.unwrap());
-	let track = NewTrack {
-		place: PLACE.into(),
-		..Default::default()
-	};
-	let t = alice.track(a.id, &track).await.unwrap();
-	bob.track(b.id, &track).await.unwrap();
+	let (a, b) = (e.gmb(ALICE, "alice@gmail.com", PLACE).await, e.gmb(BOB, "bob@gmail.com", PLACE).await);
+	let track = NewTrack::default();
+	let t = alice.track(a, &track).await.unwrap();
+	bob.track(b, &track).await.unwrap();
 	let scheduled = async || e.client.target(t.id).await.unwrap().target.interval_secs;
 	let every = |interval: &str| SettingsPatch { interval: Some(interval.into()) };
 	let day = 86_400;
@@ -1742,17 +1685,21 @@ async fn a_members_interval_schedules_every_place_they_pay_for() {
 	assert_eq!(alice.patch_settings(&every("6h")).await.unwrap(), interval(Some(6 * 3600)));
 	bob.patch_settings(&every("2d")).await.unwrap();
 	assert_eq!(scheduled().await, 6 * 3600);
-	assert_eq!(bob.overview().await.unwrap()[0].locations[0].target.interval_secs, 6 * 3600, "the place is shared");
+	assert_eq!(first(&bob.overview().await.unwrap()).target.interval_secs, 6 * 3600, "the place is shared");
 	assert_eq!(alice.patch_settings(&SettingsPatch::default()).await.unwrap(), interval(Some(6 * 3600)), "absent stays");
 
-	alice.set_gmail_enabled(a.id, false).await.unwrap();
-	assert_eq!(scheduled().await, 2 * day, "alice pays for nothing while her gmail is off");
-	alice.set_gmail_enabled(a.id, true).await.unwrap();
+	let switch = |on| TrackPatch {
+		enabled: Some(on),
+		..Default::default()
+	};
+	alice.patch_track(a, t.id, &switch(false)).await.unwrap();
+	assert_eq!(scheduled().await, 2 * day, "alice pays for nothing while her track is off");
+	alice.patch_track(a, t.id, &switch(true)).await.unwrap();
 
 	assert_eq!(alice.reset_settings().await.unwrap(), interval(None));
 	assert_eq!(scheduled().await, day, "alice is back on the default, sooner than bob's");
-	alice.untrack(a.id, t.id).await.unwrap();
-	bob.untrack(b.id, t.id).await.unwrap();
+	alice.untrack(a, t.id).await.unwrap();
+	bob.untrack(b, t.id).await.unwrap();
 	assert_eq!(scheduled().await, 12 * 3600, "nobody pays: the place's own");
 
 	assert_eq!(

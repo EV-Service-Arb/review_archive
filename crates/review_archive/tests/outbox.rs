@@ -18,7 +18,7 @@ use review_archive::{
 	config::{Defaults, WebhookConfig},
 	core::{
 		Coverage, Known, Observed, PersonId, ReviewId, Scan, Target, TargetKind,
-		dto::{Event, EventPayload, JobKind, JobStatus, NewTgChannel, NewWebhook, RunStatus},
+		dto::{Event, EventPayload, GmbSnapshot, JobKind, JobStatus, MirroredGmb, NewTgChannel, NewWebhook, RunStatus},
 		schedule::Schedule,
 		tokens::{Meter, Tokens},
 	},
@@ -392,20 +392,40 @@ async fn telegram_channels_get_their_members_places_only() {
 		person(&store, "carol").await,
 		person(&store, "dave").await,
 	);
-	let alice = store.add_gmail(alice_p, "ops@gmail.com", now).await.unwrap();
-	store.track(Some(alice_p), alice.id, watched.id, now).await.unwrap();
+	let elsewhere = "ChIJelsewhereelsewhere";
+	// (gmb = gmail id, owner, place)
+	let gmbs = [
+		(1, "alice", &*watched.place_id),
+		(2, "bob", elsewhere),
+		(3, "carol", &*watched.place_id),
+		(4, "carol", elsewhere),
+		(5, "dave", &*watched.place_id),
+	];
+	let snapshot = GmbSnapshot {
+		gmbs: gmbs
+			.iter()
+			.map(|&(id, owner, place)| MirroredGmb {
+				id,
+				gmail_id: id,
+				gmail: format!("{owner}{id}@gmail.com"),
+				owner: owner.into(),
+				removed: false,
+				place_id: place.into(),
+			})
+			.collect(),
+		balances: Default::default(),
+		charges_through: 0,
+	};
+	store.apply_snapshot(&snapshot, now).await.unwrap();
+	store.track(Some(alice_p), 1, watched.id, now).await.unwrap();
 	store.add_tg_channel(alice_p, &channel("@alice_chan", None), now).await.unwrap();
-	let bob = store.add_gmail(bob_p, "bob@gmail.com", now).await.unwrap();
-	store.track(Some(bob_p), bob.id, other, now).await.unwrap();
+	store.track(Some(bob_p), 2, other, now).await.unwrap();
 	store.add_tg_channel(bob_p, &channel("@bob_chan", None), now).await.unwrap();
 	// carol tracks the same place, but her channel's gmail tracks nothing
-	let carol = store.add_gmail(carol_p, "c1@gmail.com", now).await.unwrap();
-	let carol_empty = store.add_gmail(carol_p, "c2@gmail.com", now).await.unwrap();
-	store.track(Some(carol_p), carol.id, watched.id, now).await.unwrap();
-	store.add_tg_channel(carol_p, &channel("@carol_chan", Some(carol_empty.id)), now).await.unwrap();
+	store.track(Some(carol_p), 3, watched.id, now).await.unwrap();
+	store.add_tg_channel(carol_p, &channel("@carol_chan", Some(4)), now).await.unwrap();
 	// dave's chat does not have the bot
-	let dave = store.add_gmail(dave_p, "d@gmail.com", now).await.unwrap();
-	store.track(Some(dave_p), dave.id, watched.id, now).await.unwrap();
+	store.track(Some(dave_p), 5, watched.id, now).await.unwrap();
 	store.add_tg_channel(dave_p, &channel("@nochat", None), now).await.unwrap();
 
 	let rec = Recorder {
@@ -413,10 +433,7 @@ async fn telegram_channels_get_their_members_places_only() {
 		blobs: &blobs,
 		now: Timestamp::now,
 		schedule: &Schedule::default(),
-		tokens: &Tokens {
-			start_cap_multiple: Some(2.0),
-			..Tokens::default()
-		},
+		tokens: &Tokens::default(),
 	};
 	let mut shot = review("b", "rude");
 	shot.capture = Some(review_archive::core::Capture {

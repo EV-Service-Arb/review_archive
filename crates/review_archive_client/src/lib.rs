@@ -30,9 +30,9 @@ use std::fmt;
 use reqwest::{Method, RequestBuilder, StatusCode, Url};
 pub use review_archive_core::dto;
 use review_archive_core::dto::{
-	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LayoutDto, LedgerEntry, MEMBER_HEADER, Me, MemberDto, NewGmail, NewLayout,
-	NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery,
-	Switch, TargetDetail, TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto,
+	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, MEMBER_HEADER, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewTgChannel,
+	NewTrack, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto, TargetPatch,
+	TgChannelDto, TrackPatch, WaitQuery, WebhookDto,
 };
 use serde::de::DeserializeOwned;
 
@@ -259,45 +259,19 @@ impl Client {
 		Self::json(self.request(Method::GET, "me")?).await
 	}
 
-	/// `GET /members`: everyone, with their balances.
+	/// `GET /members`: everyone, with what they hold.
 	pub async fn members(&self) -> Result<Vec<MemberDto>, Error> {
 		Self::json(self.request(Method::GET, "members")?).await
 	}
 
-	/// `POST /members/{id}/tokens`: sets a member's balance, adds to it, or owes them a grant.
-	pub async fn change_tokens(&self, member: i64, change: &TokensChange) -> Result<TokensDto, Error> {
-		Self::json(self.request(Method::POST, &format!("members/{member}/tokens"))?.json(change)).await
-	}
-
-	/// `GET /me/tokens`: the member's token ledger, newest first.
-	pub async fn ledger(&self) -> Result<Vec<LedgerEntry>, Error> {
-		Self::json(self.request(Method::GET, "me/tokens")?).await
-	}
-
-	/// `POST /me/tokens/claim`: adds the member's pending kick-backs to their balance.
-	pub async fn claim_kickbacks(&self) -> Result<TokensDto, Error> {
-		Self::json(self.request(Method::POST, "me/tokens/claim")?).await
-	}
-
-	/// `GET /me/usage`: the member's charges by day, and what they track.
-	pub async fn usage(&self) -> Result<Usage, Error> {
-		Self::json(self.request(Method::GET, "me/usage")?).await
-	}
-
-	/// `GET /me/overview`: the member's gmails, each with its places.
+	/// `GET /me/overview`: the member's gmails, each with its GMBs and their places as tracked.
 	pub async fn overview(&self) -> Result<Vec<GmailOverview>, Error> {
 		Self::json(self.request(Method::GET, "me/overview")?).await
 	}
 
-	/// `POST /me/gmails`.
-	pub async fn add_gmail(&self, gmail: &str) -> Result<GmailDto, Error> {
-		Self::json(self.request(Method::POST, "me/gmails")?.json(&NewGmail { gmail: gmail.to_owned() })).await
-	}
-
-	/// `DELETE /me/gmails/{gmail}`.
-	pub async fn delete_gmail(&self, gmail: i64) -> Result<(), Error> {
-		Self::send(self.request(Method::DELETE, &format!("me/gmails/{gmail}"))?).await?;
-		Ok(())
+	/// `GET /me/gmbs`: the archive's tag on each of the member's GMBs.
+	pub async fn my_gmbs(&self) -> Result<MyGmbs, Error> {
+		Self::json(self.request(Method::GET, "me/gmbs")?).await
 	}
 
 	/// `GET /me/settings`.
@@ -315,58 +289,47 @@ impl Client {
 		Self::json(self.request(Method::DELETE, "me/settings")?).await
 	}
 
-	/// `PATCH /me/gmails/{gmail}`: on or off.
-	pub async fn set_gmail_enabled(&self, gmail: i64, enabled: bool) -> Result<(), Error> {
-		Self::send(self.request(Method::PATCH, &format!("me/gmails/{gmail}"))?.json(&Switch { enabled })).await?;
+	/// `POST /me/gmbs/{gmb}/tracks`: the place's target, shared or new.
+	pub async fn track(&self, gmb: i64, req: &NewTrack) -> Result<TargetDto, Error> {
+		Self::json(self.request(Method::POST, &format!("me/gmbs/{gmb}/tracks"))?.json(req)).await
+	}
+
+	/// `DELETE /me/gmbs/{gmb}/tracks/{target}`.
+	pub async fn untrack(&self, gmb: i64, target: i64) -> Result<(), Error> {
+		Self::send(self.request(Method::DELETE, &format!("me/gmbs/{gmb}/tracks/{target}"))?).await?;
 		Ok(())
 	}
 
-	/// `GET /me/places`: every place a pasted id or Maps URL may mean.
-	pub async fn places(&self, place: &str) -> Result<Vec<PlaceDto>, Error> {
-		Self::json(self.request(Method::GET, "me/places")?.query(&PlaceQuery { place: place.to_owned() })).await
-	}
-
-	/// `POST /me/gmails/{gmail}/tracks`: the place's target, shared or new.
-	pub async fn track(&self, gmail: i64, req: &NewTrack) -> Result<TargetDto, Error> {
-		Self::json(self.request(Method::POST, &format!("me/gmails/{gmail}/tracks"))?.json(req)).await
-	}
-
-	/// `DELETE /me/gmails/{gmail}/tracks/{target}`.
-	pub async fn untrack(&self, gmail: i64, target: i64) -> Result<(), Error> {
-		Self::send(self.request(Method::DELETE, &format!("me/gmails/{gmail}/tracks/{target}"))?).await?;
+	/// `PATCH /me/gmbs/{gmb}/tracks/{target}`: on or off, favorite or not.
+	pub async fn patch_track(&self, gmb: i64, target: i64, patch: &TrackPatch) -> Result<(), Error> {
+		Self::send(self.request(Method::PATCH, &format!("me/gmbs/{gmb}/tracks/{target}"))?.json(patch)).await?;
 		Ok(())
 	}
 
-	/// `PATCH /me/gmails/{gmail}/tracks/{target}`: on or off, favorite or not.
-	pub async fn patch_track(&self, gmail: i64, target: i64, patch: &TrackPatch) -> Result<(), Error> {
-		Self::send(self.request(Method::PATCH, &format!("me/gmails/{gmail}/tracks/{target}"))?.json(patch)).await?;
-		Ok(())
+	/// `POST /me/gmbs/{gmb}/tracks/{target}/relink`: the place as Google knows it now.
+	pub async fn relink(&self, gmb: i64, target: i64) -> Result<TargetDto, Error> {
+		Self::json(self.request(Method::POST, &format!("me/gmbs/{gmb}/tracks/{target}/relink"))?).await
 	}
 
-	/// `POST /me/gmails/{gmail}/tracks/{target}/relink`: the place as Google knows it now.
-	pub async fn relink(&self, gmail: i64, target: i64) -> Result<TargetDto, Error> {
-		Self::json(self.request(Method::POST, &format!("me/gmails/{gmail}/tracks/{target}/relink"))?).await
-	}
-
-	/// `POST /me/gmails/{gmail}/tracks/{target}/scan`: scan a tracked place now. Returns the job id.
-	pub async fn scan_tracked(&self, gmail: i64, target: i64) -> Result<i64, Error> {
-		let accepted: JobAccepted = Self::json(self.request(Method::POST, &format!("me/gmails/{gmail}/tracks/{target}/scan"))?).await?;
+	/// `POST /me/gmbs/{gmb}/tracks/{target}/scan`: scan a tracked place now. Returns the job id.
+	pub async fn scan_tracked(&self, gmb: i64, target: i64) -> Result<i64, Error> {
+		let accepted: JobAccepted = Self::json(self.request(Method::POST, &format!("me/gmbs/{gmb}/tracks/{target}/scan"))?).await?;
 		Ok(accepted.job_id)
 	}
 
-	/// `GET /me/gmails/{gmail}/locations/{target}/board`.
-	pub async fn board(&self, gmail: i64, target: i64) -> Result<Board, Error> {
-		Self::json(self.request(Method::GET, &format!("me/gmails/{gmail}/locations/{target}/board"))?).await
+	/// `GET /me/gmbs/{gmb}/tracks/{target}/board`.
+	pub async fn board(&self, gmb: i64, target: i64) -> Result<Board, Error> {
+		Self::json(self.request(Method::GET, &format!("me/gmbs/{gmb}/tracks/{target}/board"))?).await
 	}
 
-	/// `PUT /me/gmails/{gmail}/reinstatements/{review}`: reinstatement asked of Google, now.
-	pub async fn reinstate(&self, gmail: i64, review: i64) -> Result<ReinstatementDto, Error> {
-		Self::json(self.request(Method::PUT, &format!("me/gmails/{gmail}/reinstatements/{review}"))?).await
+	/// `PUT /me/gmbs/{gmb}/reinstatements/{review}`: reinstatement asked of Google, now.
+	pub async fn reinstate(&self, gmb: i64, review: i64) -> Result<ReinstatementDto, Error> {
+		Self::json(self.request(Method::PUT, &format!("me/gmbs/{gmb}/reinstatements/{review}"))?).await
 	}
 
-	/// `DELETE /me/gmails/{gmail}/reinstatements/{review}`: withdrawn, kept on record.
-	pub async fn withdraw_reinstatement(&self, gmail: i64, review: i64) -> Result<(), Error> {
-		Self::send(self.request(Method::DELETE, &format!("me/gmails/{gmail}/reinstatements/{review}"))?).await?;
+	/// `DELETE /me/gmbs/{gmb}/reinstatements/{review}`: withdrawn, kept on record.
+	pub async fn withdraw_reinstatement(&self, gmb: i64, review: i64) -> Result<(), Error> {
+		Self::send(self.request(Method::DELETE, &format!("me/gmbs/{gmb}/reinstatements/{review}"))?).await?;
 		Ok(())
 	}
 

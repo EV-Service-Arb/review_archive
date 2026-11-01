@@ -1,12 +1,13 @@
-//! What a member does: their gmails, what those track, appeals, Telegram channels. The
-//! member is who the caller authenticated as; everything is scoped to them in the store.
+//! What a member does: what their GMBs track, appeals, Telegram channels. The member is who
+//! the caller authenticated as; everything is scoped to them in the store. GMBs and balances
+//! are the conductor's: it pushes them here, and follows what walks cost.
 
 use jiff::Timestamp;
 use review_archive_core::{
 	GbpLocation, PersonId, Rejected, ReviewId, TargetId, check_lang,
 	dto::{
-		Board, GmailDto, GmailOverview, JobKind, LedgerEntry, MemberDto, NewGmail, NewTgChannel, NewTrack, PlaceDto, ReinstatementDto, Settings, SettingsPatch, TargetDto, TargetPatch,
-		TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage,
+		Board, Charges, GmailOverview, GmbSnapshot, JobKind, MAX_CHARGES, MemberDto, MyGmbs, NewTgChannel, NewTrack, ReinstatementDto, Settings, SettingsPatch, TargetDto, TargetPatch,
+		TgChannelDto, TrackPatch,
 	},
 	maps::cost,
 	parse_interval,
@@ -22,16 +23,16 @@ impl Archive {
 		self.store()?.person(seen, Timestamp::now()).await
 	}
 
-	/// Everyone, with their balances.
+	/// Everyone, with what they hold.
 	pub async fn members(&self) -> eyre::Result<Vec<MemberDto>> {
 		let mut out = Vec::new();
 		for p in self.store()?.people().await? {
 			out.push(MemberDto {
-				balance: self.store()?.balance(PersonId(p.id), Timestamp::now(), &self.inner.tokens).await?,
+				balance: self.store()?.holdings(p.sub.as_slice()).await?,
 				id: p.id,
 				email: p.email,
 				name: p.name,
-				claimed: p.claimed,
+				claimed: p.sub.is_some(),
 			});
 		}
 		Ok(out)
@@ -45,35 +46,15 @@ impl Archive {
 		}
 	}
 
-	/// Adds a managing gmail to the member.
-	pub async fn add_gmail(&self, member: PersonId, req: &NewGmail) -> eyre::Result<GmailDto> {
-		let gmail = req.gmail.trim().to_lowercase();
-		if gmail.is_empty() || gmail.contains(char::is_whitespace) {
-			return Err(Rejected::invalid(format!("{:?} is not an address or an alias for one", req.gmail)).into());
-		}
-		self.store()?.add_gmail(member, &gmail, Timestamp::now()).await
-	}
-
-	/// Removes a gmail with its tracks and the channels scoped to it; one with appeals on
-	/// record stays.
-	pub async fn delete_gmail(&self, member: PersonId, id: i64) -> eyre::Result<()> {
-		self.store()?.delete_gmail(member, id, Timestamp::now()).await
-	}
-
-	/// Every place a pasted id or Maps URL may mean, to pick one to track by its id.
-	pub async fn places(&self, input: &str) -> eyre::Result<Vec<PlaceDto>> {
-		crate::places::candidates(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), input).await
-	}
-
-	/// Tracks a place under the member's gmail: the target on that place, language and
-	/// source if there is one — enabled, if it was not — else a new one.
-	pub async fn track(&self, member: PersonId, gmail: i64, req: &NewTrack) -> eyre::Result<TargetDto> {
+	/// Tracks the member's GMB's place: the target on that place, language and source if there
+	/// is one — enabled, if it was not — else a new one.
+	pub async fn track(&self, member: PersonId, gmb: i64, req: &NewTrack) -> eyre::Result<TargetDto> {
 		let store = self.store()?;
-		store.check_gmail(Some(member), gmail).await?;
+		store.check_gmb(Some(member), gmb).await?;
 		let lang = req.lang.clone().unwrap_or_else(|| self.inner.defaults.lang.clone());
 		check_lang(&lang)?;
 		let gbp = req.gbp.as_deref().map(str::parse::<GbpLocation>).transpose()?;
-		let (place_id, resolved) = crate::places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), &req.place).await?;
+		let place_id = store.gmb_place(gmb).await?;
 		let target = match store.find_target(&place_id, &lang, gbp.as_ref()).await? {
 			Some(t) if t.enabled => t,
 			Some(t) =>
@@ -85,37 +66,32 @@ impl Archive {
 					},
 				)
 				.await?,
-			None => self.insert_target(place_id, resolved.as_ref(), req.label.clone(), Some(lang), None, gbp, true).await?,
+			None => self.insert_target(place_id, None, req.label.clone(), Some(lang), None, gbp, true).await?,
 		};
-		store.track(Some(member), gmail, target.id, Timestamp::now()).await?;
+		store.track(Some(member), gmb, target.id, Timestamp::now()).await?;
 		Ok(target.into())
 	}
 
-	/// The operator puts a target under any gmail.
-	pub async fn assign(&self, gmail: i64, target: TargetId) -> eyre::Result<()> {
-		self.store()?.track(None, gmail, target, Timestamp::now()).await
+	/// The operator puts a target under any GMB.
+	pub async fn assign(&self, gmb: i64, target: TargetId) -> eyre::Result<()> {
+		self.store()?.track(None, gmb, target, Timestamp::now()).await
 	}
 
-	/// Stops the member's gmail tracking a target; the target and its archive stay until `defaults.untracked_retention` after no gmail tracks it.
-	pub async fn untrack(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<()> {
-		self.store()?.untrack(member, gmail, target, Timestamp::now()).await
+	/// Stops the member's GMB tracking a target; the target and its archive stay until `defaults.untracked_retention` after no GMB tracks it.
+	pub async fn untrack(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<()> {
+		self.store()?.untrack(member, gmb, target, Timestamp::now()).await
 	}
 
-	/// Switches the member's gmail on or off: off, its places are scanned only if someone else has them on.
-	pub async fn set_gmail_enabled(&self, member: PersonId, gmail: i64, on: bool) -> eyre::Result<()> {
-		self.store()?.set_gmail_enabled(member, gmail, on).await
-	}
-
-	/// Changes the member's gmail's track of a place: on or off, favorite or not.
-	pub async fn patch_track(&self, member: PersonId, gmail: i64, target: TargetId, patch: &TrackPatch) -> eyre::Result<()> {
-		self.store()?.patch_track(member, gmail, target, patch).await
+	/// Changes the member's GMB's track of a place: on or off, favorite or not.
+	pub async fn patch_track(&self, member: PersonId, gmb: i64, target: TargetId, patch: &TrackPatch) -> eyre::Result<()> {
+		self.store()?.patch_track(member, gmb, target, patch).await
 	}
 
 	/// Asks Google about a tracked place again and takes its id, name and address as Google
 	/// gives them now. Refused when the newer id is another target's already.
-	pub async fn relink(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<TargetDto> {
+	pub async fn relink(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<TargetDto> {
 		let store = self.store()?;
-		store.check_track(member, gmail, target).await?;
+		store.check_track(member, gmb, target).await?;
 		let key = self
 			.inner
 			.secrets
@@ -123,7 +99,9 @@ impl Archive {
 			.as_deref()
 			.ok_or_else(|| Rejected::invalid("re-linking a place needs GOOGLE_MAPS_KEY"))?;
 		let t = store.target(target).await?;
-		let place = crate::places::details(&self.inner.http, crate::places::PLACES, key, &t.place_id).await?;
+		let place = sa_places::details(&self.inner.http, sa_places::PLACES, key, &t.place_id)
+			.await
+			.map_err(crate::failure::places_error)?;
 		if place.place_id != t.place_id
 			&& let Some(other) = store.find_target(&place.place_id, &t.lang, t.gbp.as_ref()).await?
 		{
@@ -133,40 +111,46 @@ impl Archive {
 		Ok(store.target(target).await?.into())
 	}
 
-	/// The member's gmails and each one's places.
+	/// The member's gmails, their GMBs, and each one's places as tracked.
 	pub async fn overview(&self, member: PersonId) -> eyre::Result<Vec<GmailOverview>> {
-		self.store()?.overview(member, Timestamp::now(), &self.inner.tokens).await
+		self.store()?.overview(member, Timestamp::now()).await
 	}
 
-	/// Queues a scan of a place the member's gmail tracks, on top of its schedule; the member
+	/// The member's GMBs' tags for the conductor's page.
+	pub async fn my_gmbs(&self, member: PersonId) -> eyre::Result<MyGmbs> {
+		self.store()?.my_gmbs(member).await
+	}
+
+	/// Queues a scan of a place the member's GMB tracks, on top of its schedule; the member
 	/// pays for it. Returns the job id.
-	pub async fn scan_tracked(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<i64> {
+	pub async fn scan_tracked(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<i64> {
 		let store = self.store()?;
-		store.check_track(member, gmail, target).await?;
+		store.check_track(member, gmb, target).await?;
 		let now = Timestamp::now();
 		#[cfg(feature = "maps")]
 		if let Some(why) = self.closed(store.target(target).await?.kind, true, now).await? {
 			return Err(Rejected::Busy(why).into());
 		}
-		if store.held_together(&[member], now, &self.inner.tokens).await? < cost::FIRST_SCREEN {
+		let sub = store.person_by_id(member).await?.and_then(|p| p.sub).expect("check_track matched their GMB by their sub");
+		if store.holdings(&[sub]).await? < cost::FIRST_SCREEN {
 			return Err(Rejected::Busy("you are out of tokens".into()).into());
 		}
 		store.enqueue_job(JobKind::Scan, target, None, Some(member), self.inner.defaults.max_queued_jobs, now).await
 	}
 
 	/// A tracked place's reviews: snapshotted, suspended, removed, reinstating.
-	pub async fn board(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<Board> {
-		self.store()?.board(member, gmail, target).await
+	pub async fn board(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<Board> {
+		self.store()?.board(member, gmb, target).await
 	}
 
 	/// Records that the review's reinstatement was asked of Google, now.
-	pub async fn reinstate(&self, member: PersonId, gmail: i64, review: ReviewId) -> eyre::Result<ReinstatementDto> {
-		self.store()?.reinstate(member, gmail, review, Timestamp::now()).await
+	pub async fn reinstate(&self, member: PersonId, gmb: i64, review: ReviewId) -> eyre::Result<ReinstatementDto> {
+		self.store()?.reinstate(member, gmb, review, Timestamp::now()).await
 	}
 
 	/// Withdraws the open appeal; it stays on record.
-	pub async fn withdraw_reinstatement(&self, member: PersonId, gmail: i64, review: ReviewId) -> eyre::Result<()> {
-		self.store()?.withdraw_reinstatement(member, gmail, review, Timestamp::now()).await
+	pub async fn withdraw_reinstatement(&self, member: PersonId, gmb: i64, review: ReviewId) -> eyre::Result<()> {
+		self.store()?.withdraw_reinstatement(member, gmb, review, Timestamp::now()).await
 	}
 
 	/// A capture's WebP, if it shows a review of a place the member tracks.
@@ -238,39 +222,16 @@ impl Archive {
 		store.settings(member).await
 	}
 
-	/// The member's tokens, renewed up to now.
-	pub async fn tokens(&self, member: PersonId) -> eyre::Result<TokensDto> {
-		let cfg = &self.inner.tokens;
-		let store = self.store()?;
-		Ok(TokensDto {
-			balance: store.balance(member, Timestamp::now(), cfg).await?,
-			daily: cfg.daily,
-			cap: cfg.cap,
-			kickbacks: store.kickbacks(member).await?,
-		})
+	/// The conductor's snapshot of GMBs and balances; see [`Store::apply_snapshot`](crate::store::Store::apply_snapshot).
+	pub async fn apply_snapshot(&self, snap: &GmbSnapshot) -> eyre::Result<()> {
+		self.store()?.apply_snapshot(snap, Timestamp::now()).await
 	}
 
-	/// Adds the member's pending kick-backs to their balance.
-	pub async fn claim_kickbacks(&self, member: PersonId) -> eyre::Result<TokensDto> {
-		self.store()?.claim(member, Timestamp::now(), &self.inner.tokens).await?;
-		self.tokens(member).await
-	}
-
-	/// The member's ledger, newest first: 200 rows.
-	pub async fn ledger(&self, member: PersonId) -> eyre::Result<Vec<LedgerEntry>> {
-		self.store()?.ledger(member, 200).await
-	}
-
-	/// What the member's tokens bought over the last 30 days.
-	pub async fn usage(&self, member: PersonId) -> eyre::Result<Usage> {
-		self.store()?.usage(member, Timestamp::now()).await
-	}
-
-	/// Sets or adds to the member's balance, or owes them a grant, as admin `by`.
-	pub async fn change_tokens(&self, member: PersonId, req: &TokensChange, by: &str) -> eyre::Result<TokensDto> {
-		self.store()?
-			.change_balance(member, req.change, by, req.note.as_deref(), Timestamp::now(), &self.inner.tokens)
-			.await?;
-		self.tokens(member).await
+	/// The charge feed past `after`, `limit` (1 to [`MAX_CHARGES`]) at most.
+	pub async fn charges(&self, after: i64, limit: u32) -> eyre::Result<Charges> {
+		if !(1..=MAX_CHARGES).contains(&limit) {
+			return Err(Rejected::invalid(format!("limit is 1 to {MAX_CHARGES}, not {limit}")).into());
+		}
+		self.store()?.charges(after, limit).await
 	}
 }

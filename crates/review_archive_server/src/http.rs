@@ -21,11 +21,11 @@ use axum::{
 };
 use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
-	PersonId, ReviewId, TargetId,
+	ReviewId, TargetId,
 	dto::{
-		Board, CaptureRequest, DayStats, ErrorBody, EventPayload, ExportQuery, GmailDto, GmailOverview, JobAccepted, JobDto, LayoutDto, LedgerEntry, Me, MemberDto, NewGmail, NewLayout,
-		NewTarget, NewTgChannel, NewTrack, NewWebhook, PlaceDto, PlaceQuery, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery,
-		Switch, TargetDetail, TargetDto, TargetPatch, TgChannelDto, TokensChange, TokensDto, TrackPatch, Usage, WaitQuery, WebhookDto, stats_csv,
+		Board, CaptureRequest, Charges, ChargesQuery, DayStats, ErrorBody, EventPayload, ExportQuery, GmailOverview, GmbSnapshot, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs,
+		NewLayout, NewTarget, NewTgChannel, NewTrack, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery,
+		TargetDetail, TargetDto, TargetPatch, TgChannelDto, TrackPatch, WaitQuery, WebhookDto, stats_csv,
 	},
 };
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ use utoipa::{
 use v_utils::{Timeframe, macros::SettingsNested};
 
 use crate::{
-	auth::{Auth, Caller, Member, TestPosts, VIEWER_HEADER, Viewers, acts_as, authenticate, grants_tokens, operates_archive},
+	auth::{Auth, Caller, Member, TestPosts, VIEWER_HEADER, Viewers, acts_as, authenticate, conductor, operates_archive},
 	worker::Signals,
 };
 
@@ -74,7 +74,7 @@ impl AppState {
 		Self {
 			archive,
 			auth: Arc::new(auth),
-			test_posts: Arc::new(TestPosts::new()),
+			test_posts: Arc::default(),
 			viewers: Arc::new(Viewers::new()),
 			signals,
 			cfg: Arc::new(cfg),
@@ -101,29 +101,22 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		.route("/layouts/{dock}/{band}", axum::routing::put(publish_layout))
 		.route_layer(middleware::from_fn(operates_archive));
 	let members = Router::new().route("/members", get(members)).route_layer(middleware::from_fn(acts_as));
-	let tokens = Router::new().route("/members/{id}/tokens", post(change_tokens)).route_layer(middleware::from_fn(grants_tokens));
 	let me = Router::new()
 		.route("/me", get(me))
-		.route("/me/tokens", get(ledger))
-		.route("/me/tokens/claim", post(claim_kickbacks))
-		.route("/me/usage", get(usage))
 		.route("/me/overview", get(overview))
+		.route("/me/gmbs", get(my_gmbs))
 		.route("/me/settings", get(settings).patch(patch_settings).delete(reset_settings))
-		.route("/me/gmails", post(add_gmail))
-		.route("/me/gmails/{gmail}", axum::routing::delete(delete_gmail).patch(set_gmail_enabled))
-		.route("/me/places", get(places))
-		.route("/me/gmails/{gmail}/tracks", post(track))
-		.route("/me/gmails/{gmail}/tracks/{target}", axum::routing::delete(untrack).patch(patch_track))
-		.route("/me/gmails/{gmail}/tracks/{target}/relink", post(relink))
-		.route("/me/gmails/{gmail}/tracks/{target}/scan", post(scan_tracked))
-		.route("/me/gmails/{gmail}/locations/{target}/board", get(board))
-		.route("/me/gmails/{gmail}/reinstatements/{review}", axum::routing::put(reinstate).delete(withdraw))
+		.route("/me/gmbs/{gmb}/tracks", post(track))
+		.route("/me/gmbs/{gmb}/tracks/{target}", axum::routing::delete(untrack).patch(patch_track))
+		.route("/me/gmbs/{gmb}/tracks/{target}/relink", post(relink))
+		.route("/me/gmbs/{gmb}/tracks/{target}/scan", post(scan_tracked))
+		.route("/me/gmbs/{gmb}/tracks/{target}/board", get(board))
+		.route("/me/gmbs/{gmb}/reinstatements/{review}", axum::routing::put(reinstate).delete(withdraw))
 		.route("/me/tg-channels", get(tg_channels).post(add_tg_channel))
 		.route("/me/tg-channels/{id}", axum::routing::delete(delete_tg_channel))
 		.route("/me/tg-channels/{id}/test", post(test_tg_channel));
 	let timed = admin
 		.merge(members)
-		.merge(tokens)
 		.merge(me)
 		.route("/captures/{file}", get(capture_webp))
 		.route("/layouts/{dock}", get(layouts))
@@ -141,7 +134,15 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 	let mut app = Router::new()
 		.route("/health", get(|| async { "ok" }))
 		.route("/openapi.json", get(|| async { Json(ApiDoc::openapi()) }))
-		.merge(authed);
+		.merge(authed)
+		.merge(
+			// the conductor's own calls: never a person, so outside `authenticate`
+			Router::new()
+				.route("/api/conductor/gmbs", axum::routing::put(apply_snapshot))
+				.route("/api/conductor/charges", get(charges))
+				.layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, state.cfg.request_timeout.duration()))
+				.route_layer(middleware::from_fn_with_state(state.clone(), conductor)),
+		);
 	if let Some(dir) = mfe {
 		let bundle = Router::new()
 			.fallback_service(ServeDir::new(dir))
@@ -157,11 +158,11 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 			app = app
 				.route("/", get(page.clone()))
 				.route("/telegram", get(page.clone()))
-				.route("/tokens", get(page.clone()))
 				.route("/settings", get(page.clone()))
 				.route("/act-as", get(page.clone()))
+				.route("/gmbs", get(page.clone()))
+				.route("/gmbs/{*view}", get(page.clone()))
 				.route("/gmails/{*view}", get(page.clone()))
-				.route("/members/{id}/tokens", get(page.clone())) // the API's path for a balance change; its GET is the member tab's ledger
 				.route("/members/{member}/{*view}", get(page.clone()))
 				.route("/members/{member}/", get(page.clone()))
 				.route("/members/{member}", get(page));
@@ -298,13 +299,14 @@ impl IntoResponse for ApiError {
 }
 
 impl From<eyre::Report> for ApiError {
-	/// The caller's mistakes are 404 / 400 / 429 with the reason. Anything else is a 5xx:
+	/// The caller's mistakes are 404 / 400 / 429 / 409 with the reason. Anything else is a 5xx:
 	/// reported, its details kept in the log rather than the response.
 	fn from(e: eyre::Report) -> Self {
 		match e.downcast_ref::<Rejected>() {
 			Some(Rejected::NotFound(m)) => Self(StatusCode::NOT_FOUND, m.clone()),
 			Some(Rejected::Invalid(m)) => Self(StatusCode::BAD_REQUEST, m.clone()),
 			Some(Rejected::Busy(m)) => Self(StatusCode::TOO_MANY_REQUESTS, m.clone()),
+			Some(Rejected::Conflict(m)) => Self(StatusCode::CONFLICT, m.clone()),
 			None => {
 				crate::report(&e, "request failed");
 				Self(StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
@@ -524,46 +526,25 @@ async fn me(State(s): State<AppState>, caller: Caller) -> ApiResult<Json<Me>> {
 		email: mine.email,
 		name: mine.name,
 		permissions: caller.permissions.iter().map(str::to_owned).collect(),
-		tokens: s.archive.tokens(caller.person).await?,
 	}))
 }
 
-/// Everyone who signed in here, and the addresses from before people had ids, with their balances.
+/// Everyone who signed in here, and the addresses from before people had ids, with what they hold.
 #[utoipa::path(get, path = "/members", tag = "me", responses((status = 200, body = [MemberDto]), (status = 403, body = ErrorBody)))]
 async fn members(State(s): State<AppState>) -> ApiResult<Json<Vec<MemberDto>>> {
 	Ok(Json(s.archive.members().await?))
 }
 
-/// Sets a member's balance, adds to it, or owes them a grant.
-#[utoipa::path(post, path = "/members/{id}/tokens", tag = "me", params(("id" = i64, Path)), request_body = TokensChange,
-	responses((status = 200, body = TokensDto), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody)))]
-async fn change_tokens(State(s): State<AppState>, caller: Caller, Path(id): Path<i64>, JsonBody(req): JsonBody<TokensChange>) -> ApiResult<Json<TokensDto>> {
-	s.archive.check_person(PersonId(id)).await?;
-	Ok(Json(s.archive.change_tokens(PersonId(id), &req, &caller.email).await?))
-}
-
-/// The member's token ledger, newest first; each charge with its run and place.
-#[utoipa::path(get, path = "/me/tokens", tag = "me", responses((status = 200, body = [LedgerEntry])))]
-async fn ledger(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Vec<LedgerEntry>>> {
-	Ok(Json(s.archive.ledger(m).await?))
-}
-
-/// Adds the member's pending kick-backs to their balance.
-#[utoipa::path(post, path = "/me/tokens/claim", tag = "me", responses((status = 200, body = TokensDto)))]
-async fn claim_kickbacks(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<TokensDto>> {
-	Ok(Json(s.archive.claim_kickbacks(m).await?))
-}
-
-/// The member's charges a day at a time over the last 30 days, and the places they track now.
-#[utoipa::path(get, path = "/me/usage", tag = "me", responses((status = 200, body = Usage)))]
-async fn usage(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Usage>> {
-	Ok(Json(s.archive.usage(m).await?))
-}
-
-/// The member's gmails, each with its places, by screenshots over the last 7 days.
+/// The member's gmails, each with its GMBs and their places as tracked, by screenshots over the last 7 days.
 #[utoipa::path(get, path = "/me/overview", tag = "me", responses((status = 200, body = [GmailOverview])))]
 async fn overview(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Vec<GmailOverview>>> {
 	Ok(Json(s.archive.overview(m).await?))
+}
+
+/// The archive's tag on each of the member's GMBs, for the conductor's page.
+#[utoipa::path(get, path = "/me/gmbs", tag = "me", responses((status = 200, body = MyGmbs)))]
+async fn my_gmbs(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<MyGmbs>> {
+	Ok(Json(s.archive.my_gmbs(m).await?))
 }
 
 /// What the member chose, each beside its default.
@@ -584,95 +565,82 @@ async fn reset_settings(State(s): State<AppState>, Member(m): Member) -> ApiResu
 	Ok(Json(s.archive.reset_settings(m).await?))
 }
 
-/// Adds a managing gmail: the Google account a group of the member's places is managed from.
-#[utoipa::path(post, path = "/me/gmails", tag = "me", request_body = NewGmail, responses((status = 201, body = GmailDto), (status = 400, body = ErrorBody)))]
-async fn add_gmail(State(s): State<AppState>, Member(m): Member, JsonBody(req): JsonBody<NewGmail>) -> ApiResult<(StatusCode, Json<GmailDto>)> {
-	Ok((StatusCode::CREATED, Json(s.archive.add_gmail(m, &req).await?)))
-}
-
-/// Removes a gmail with its tracks and the Telegram channels scoped to it. A gmail with
-/// reinstatement requests on record is kept (400).
-#[utoipa::path(delete, path = "/me/gmails/{gmail}", tag = "me", params(("gmail" = i64, Path)), responses((status = 204), (status = 400, body = ErrorBody), (status = 404, body = ErrorBody)))]
-async fn delete_gmail(State(s): State<AppState>, Member(m): Member, Path(gmail): Path<i64>) -> ApiResult<StatusCode> {
-	s.archive.delete_gmail(m, gmail).await?;
-	Ok(StatusCode::NO_CONTENT)
-}
-
-/// Switches a gmail on or off. Its places are scanned while some member has them on under a gmail that is on.
-#[utoipa::path(patch, path = "/me/gmails/{gmail}", tag = "me", params(("gmail" = i64, Path)), request_body = Switch, responses((status = 204), (status = 404, body = ErrorBody)))]
-async fn set_gmail_enabled(State(s): State<AppState>, Member(m): Member, Path(gmail): Path<i64>, JsonBody(req): JsonBody<Switch>) -> ApiResult<StatusCode> {
-	s.archive.set_gmail_enabled(m, gmail, req.enabled).await?;
-	Ok(StatusCode::NO_CONTENT)
-}
-
-/// Every place a pasted place id or Maps URL may mean: the one its id names, else each place
-/// bearing the URL's name. Tracking takes one of them by its id.
-#[utoipa::path(get, path = "/me/places", tag = "me", params(PlaceQuery), responses((status = 200, body = [PlaceDto]), (status = 400, body = ErrorBody)))]
-async fn places(State(s): State<AppState>, Member(_): Member, Query(q): Query<PlaceQuery>) -> ApiResult<Json<Vec<PlaceDto>>> {
-	Ok(Json(s.archive.places(&q.place).await?))
-}
-
-/// Tracks a place under the gmail. A place already watched (same place, language and
-/// source) is shared, not scanned twice.
-#[utoipa::path(post, path = "/me/gmails/{gmail}/tracks", tag = "me", params(("gmail" = i64, Path)), request_body = NewTrack,
+/// Tracks the GMB's place. A place already watched (same place, language and source) is
+/// shared, not scanned twice.
+#[utoipa::path(post, path = "/me/gmbs/{gmb}/tracks", tag = "me", params(("gmb" = i64, Path)), request_body = NewTrack,
 	responses((status = 201, body = TargetDto), (status = 400, body = ErrorBody), (status = 404, body = ErrorBody)))]
-async fn track(State(s): State<AppState>, Member(m): Member, Path(gmail): Path<i64>, JsonBody(req): JsonBody<NewTrack>) -> ApiResult<(StatusCode, Json<TargetDto>)> {
-	Ok((StatusCode::CREATED, Json(s.archive.track(m, gmail, &req).await?)))
+async fn track(State(s): State<AppState>, Member(m): Member, Path(gmb): Path<i64>, JsonBody(req): JsonBody<NewTrack>) -> ApiResult<(StatusCode, Json<TargetDto>)> {
+	Ok((StatusCode::CREATED, Json(s.archive.track(m, gmb, &req).await?)))
 }
 
-/// Stops tracking; the place and its archive stay until `defaults.untracked_retention` after no gmail tracks it.
-#[utoipa::path(delete, path = "/me/gmails/{gmail}/tracks/{target}", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)),
+/// Stops tracking; the place and its archive stay until `defaults.untracked_retention` after no GMB tracks it.
+#[utoipa::path(delete, path = "/me/gmbs/{gmb}/tracks/{target}", tag = "me", params(("gmb" = i64, Path), ("target" = i64, Path)),
 	responses((status = 204), (status = 404, body = ErrorBody)))]
-async fn untrack(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>) -> ApiResult<StatusCode> {
-	s.archive.untrack(m, gmail, TargetId(target)).await?;
+async fn untrack(State(s): State<AppState>, Member(m): Member, Path((gmb, target)): Path<(i64, i64)>) -> ApiResult<StatusCode> {
+	s.archive.untrack(m, gmb, TargetId(target)).await?;
 	Ok(StatusCode::NO_CONTENT)
 }
 
-/// Switches the gmail's track of a place on or off, or marks it a favorite; the place's target stays as it is.
-#[utoipa::path(patch, path = "/me/gmails/{gmail}/tracks/{target}", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)), request_body = TrackPatch,
+/// Switches the GMB's track of a place on or off, or marks it a favorite; the place's target stays as it is.
+#[utoipa::path(patch, path = "/me/gmbs/{gmb}/tracks/{target}", tag = "me", params(("gmb" = i64, Path), ("target" = i64, Path)), request_body = TrackPatch,
 	responses((status = 204), (status = 404, body = ErrorBody)))]
-async fn patch_track(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>, JsonBody(req): JsonBody<TrackPatch>) -> ApiResult<StatusCode> {
-	s.archive.patch_track(m, gmail, TargetId(target), &req).await?;
+async fn patch_track(State(s): State<AppState>, Member(m): Member, Path((gmb, target)): Path<(i64, i64)>, JsonBody(req): JsonBody<TrackPatch>) -> ApiResult<StatusCode> {
+	s.archive.patch_track(m, gmb, TargetId(target), &req).await?;
 	Ok(StatusCode::NO_CONTENT)
 }
 
 /// Asks Google about a tracked place again: its id, name and address become what Google gives now.
-#[utoipa::path(post, path = "/me/gmails/{gmail}/tracks/{target}/relink", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)),
+#[utoipa::path(post, path = "/me/gmbs/{gmb}/tracks/{target}/relink", tag = "me", params(("gmb" = i64, Path), ("target" = i64, Path)),
 	responses((status = 200, body = TargetDto), (status = 400, body = ErrorBody), (status = 404, body = ErrorBody)))]
-async fn relink(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>) -> ApiResult<Json<TargetDto>> {
-	Ok(Json(s.archive.relink(m, gmail, TargetId(target)).await?))
+async fn relink(State(s): State<AppState>, Member(m): Member, Path((gmb, target)): Path<(i64, i64)>) -> ApiResult<Json<TargetDto>> {
+	Ok(Json(s.archive.relink(m, gmb, TargetId(target)).await?))
 }
 
 /// Queues a scan of a tracked place, on top of its schedule; the member who asks pays for it.
-#[utoipa::path(post, path = "/me/gmails/{gmail}/tracks/{target}/scan", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)),
+#[utoipa::path(post, path = "/me/gmbs/{gmb}/tracks/{target}/scan", tag = "me", params(("gmb" = i64, Path), ("target" = i64, Path)),
 	responses((status = 202, body = JobAccepted), (status = 404, body = ErrorBody), (status = 429, body = ErrorBody)))]
-async fn scan_tracked(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>) -> ApiResult<(StatusCode, Json<JobAccepted>)> {
-	let job_id = s.archive.scan_tracked(m, gmail, TargetId(target)).await?;
+async fn scan_tracked(State(s): State<AppState>, Member(m): Member, Path((gmb, target)): Path<(i64, i64)>) -> ApiResult<(StatusCode, Json<JobAccepted>)> {
+	let job_id = s.archive.scan_tracked(m, gmb, TargetId(target)).await?;
 	s.signals.job_queued.notify_one();
 	Ok((StatusCode::ACCEPTED, Json(JobAccepted { job_id })))
 }
 
 /// A tracked place's reviews in four columns: snapshotted, suspended, removed, reinstating.
-#[utoipa::path(get, path = "/me/gmails/{gmail}/locations/{target}/board", tag = "me", params(("gmail" = i64, Path), ("target" = i64, Path)),
+#[utoipa::path(get, path = "/me/gmbs/{gmb}/tracks/{target}/board", tag = "me", params(("gmb" = i64, Path), ("target" = i64, Path)),
 	responses((status = 200, body = Board), (status = 404, body = ErrorBody)))]
-async fn board(State(s): State<AppState>, Member(m): Member, Path((gmail, target)): Path<(i64, i64)>) -> ApiResult<Json<Board>> {
-	Ok(Json(s.archive.board(m, gmail, TargetId(target)).await?))
+async fn board(State(s): State<AppState>, Member(m): Member, Path((gmb, target)): Path<(i64, i64)>) -> ApiResult<Json<Board>> {
+	Ok(Json(s.archive.board(m, gmb, TargetId(target)).await?))
 }
 
 /// Records that the removed review's reinstatement was asked of Google, now. Asking again
 /// while one is open answers the open one.
-#[utoipa::path(put, path = "/me/gmails/{gmail}/reinstatements/{review}", tag = "me", params(("gmail" = i64, Path), ("review" = i64, Path)),
+#[utoipa::path(put, path = "/me/gmbs/{gmb}/reinstatements/{review}", tag = "me", params(("gmb" = i64, Path), ("review" = i64, Path)),
 	responses((status = 200, body = ReinstatementDto), (status = 400, body = ErrorBody), (status = 404, body = ErrorBody)))]
-async fn reinstate(State(s): State<AppState>, Member(m): Member, Path((gmail, review)): Path<(i64, i64)>) -> ApiResult<Json<ReinstatementDto>> {
-	Ok(Json(s.archive.reinstate(m, gmail, ReviewId(review)).await?))
+async fn reinstate(State(s): State<AppState>, Member(m): Member, Path((gmb, review)): Path<(i64, i64)>) -> ApiResult<Json<ReinstatementDto>> {
+	Ok(Json(s.archive.reinstate(m, gmb, ReviewId(review)).await?))
 }
 
 /// Withdraws the open request; it stays on record as withdrawn.
-#[utoipa::path(delete, path = "/me/gmails/{gmail}/reinstatements/{review}", tag = "me", params(("gmail" = i64, Path), ("review" = i64, Path)),
+#[utoipa::path(delete, path = "/me/gmbs/{gmb}/reinstatements/{review}", tag = "me", params(("gmb" = i64, Path), ("review" = i64, Path)),
 	responses((status = 204), (status = 404, body = ErrorBody)))]
-async fn withdraw(State(s): State<AppState>, Member(m): Member, Path((gmail, review)): Path<(i64, i64)>) -> ApiResult<StatusCode> {
-	s.archive.withdraw_reinstatement(m, gmail, ReviewId(review)).await?;
+async fn withdraw(State(s): State<AppState>, Member(m): Member, Path((gmb, review)): Path<(i64, i64)>) -> ApiResult<StatusCode> {
+	s.archive.withdraw_reinstatement(m, gmb, ReviewId(review)).await?;
 	Ok(StatusCode::NO_CONTENT)
+}
+
+/// The conductor's GMBs and balances, taken whole or not at all.
+#[utoipa::path(put, path = "/api/conductor/gmbs", tag = "conductor", request_body = GmbSnapshot,
+	responses((status = 204), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody), (status = 409, body = ErrorBody)))]
+async fn apply_snapshot(State(s): State<AppState>, JsonBody(snap): JsonBody<GmbSnapshot>) -> ApiResult<StatusCode> {
+	s.archive.apply_snapshot(&snap).await?;
+	Ok(StatusCode::NO_CONTENT)
+}
+
+/// What walks cost, for the conductor to charge: the feed past `after`.
+#[utoipa::path(get, path = "/api/conductor/charges", tag = "conductor", params(ChargesQuery),
+	responses((status = 200, body = Charges), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody)))]
+async fn charges(State(s): State<AppState>, Query(q): Query<ChargesQuery>) -> ApiResult<Json<Charges>> {
+	Ok(Json(s.archive.charges(q.after, q.limit).await?))
 }
 
 #[utoipa::path(get, path = "/me/tg-channels", tag = "me", responses((status = 200, body = [TgChannelDto])))]

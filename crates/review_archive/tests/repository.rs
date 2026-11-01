@@ -731,7 +731,20 @@ async fn an_untracked_place_is_purged_after_a_week() {
 	let review_archive::store::people::Claim::Person(member) = e.store.person(&seen, now()).await.unwrap() else {
 		panic!("a fresh archive refuses nobody")
 	};
-	let gmail = e.store.add_gmail(member, "ops", now()).await.unwrap().id;
+	let gmb = |removed| review_archive::core::dto::GmbSnapshot {
+		gmbs: vec![review_archive::core::dto::MirroredGmb {
+			id: 1,
+			gmail_id: 1,
+			gmail: "ops".into(),
+			owner: "m".into(),
+			removed,
+			place_id: e.target.place_id.clone(),
+		}],
+		balances: Default::default(),
+		charges_through: 0,
+	};
+	e.store.apply_snapshot(&gmb(false), now()).await.unwrap();
+	let gmail = 1;
 	e.store.track(Some(member), gmail, e.target.id, now()).await.unwrap();
 	e.store.untrack(member, gmail, e.target.id, now()).await.unwrap();
 	assert!(!e.store.target(e.target.id).await.unwrap().enabled, "off the schedule");
@@ -741,7 +754,7 @@ async fn an_untracked_place_is_purged_after_a_week() {
 	e.store.track(Some(member), gmail, e.target.id, now()).await.unwrap();
 	assert!(e.store.target(e.target.id).await.unwrap().enabled, "back on the schedule, archive and all");
 	assert_eq!(e.by_source_id().await.len(), 1);
-	e.store.delete_gmail(member, gmail, now()).await.unwrap();
+	e.store.apply_snapshot(&gmb(true), now()).await.unwrap();
 
 	e.clock.set("2026-09-14T09:59:59Z");
 	assert_eq!(archive.purge_untracked(now()).await.unwrap(), 0, "a week from the last track, not the first");

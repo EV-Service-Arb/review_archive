@@ -166,7 +166,7 @@ pub struct Added {
 	/// The target.
 	pub target: Target,
 	/// Set when the input was a URL without a place id.
-	pub resolved: Option<review_archive_core::dto::PlaceDto>,
+	pub resolved: Option<sa_places::Place>,
 }
 
 impl Archive {
@@ -211,7 +211,7 @@ impl Archive {
 		stored.store.check_unchecked_captures(&stored.blobs).await
 	}
 
-	/// Purges what no gmail has tracked for `defaults.untracked_retention`: its reviews, captures and their blobs.
+	/// Purges what no GMB has tracked for `defaults.untracked_retention`: its reviews, captures and their blobs.
 	#[cfg(feature = "store")]
 	pub async fn purge_untracked(&self, now: Timestamp) -> eyre::Result<usize> {
 		let stored = self.stored()?;
@@ -355,7 +355,9 @@ impl Archive {
 			.ok_or_else(|| Rejected::invalid("name the place: `place` or `maps_url`"))?;
 		let interval = req.interval.as_deref().map(parse_interval).transpose()?;
 		let gbp = req.gbp.as_deref().map(str::parse::<GbpLocation>).transpose()?;
-		let (place_id, resolved) = crate::places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), place).await?;
+		let (place_id, resolved) = sa_places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), place)
+			.await
+			.map_err(crate::failure::places_error)?;
 		Ok(Added {
 			target: self.insert_target(place_id, resolved.as_ref(), req.label.clone(), req.lang.clone(), interval, gbp, true).await?,
 			resolved,
@@ -366,7 +368,7 @@ impl Archive {
 	async fn insert_target(
 		&self,
 		place_id: String,
-		resolved: Option<&review_archive_core::dto::PlaceDto>,
+		resolved: Option<&sa_places::Place>,
 		label: Option<String>,
 		lang: Option<String>,
 		interval: Option<Timeframe>,
@@ -381,7 +383,9 @@ impl Archive {
 		let looked_up;
 		let resolved = match (resolved, self.inner.secrets.google_maps_key.as_deref()) {
 			(None, Some(key)) => {
-				looked_up = crate::places::details(&self.inner.http, crate::places::PLACES, key, &place_id).await?;
+				looked_up = sa_places::details(&self.inner.http, sa_places::PLACES, key, &place_id)
+					.await
+					.map_err(crate::failure::places_error)?;
 				Some(&looked_up)
 			}
 			(resolved, _) => resolved,
@@ -459,7 +463,7 @@ impl Archive {
 			let store = self.store()?;
 			let now = Timestamp::now();
 			let payers = store.bill(target.id, job, false, now, &self.inner.tokens).await?.payers;
-			if !payers.is_empty() && store.held_together(&payers, now, &self.inner.tokens).await? < review_archive_core::maps::cost::FIRST_SCREEN {
+			if !payers.is_empty() && store.holdings(&payers).await? < review_archive_core::maps::cost::FIRST_SCREEN {
 				return Err(Rejected::Busy(format!("target {} is held: the members paying for it are out of tokens", target.id)).into());
 			}
 		}
@@ -759,7 +763,9 @@ impl Archive {
 		}
 		let lang = req.lang.clone().unwrap_or_else(|| self.inner.defaults.lang.clone());
 		check_lang(&lang)?;
-		let (place_id, resolved) = crate::places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), place).await?;
+		let (place_id, resolved) = sa_places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), place)
+			.await
+			.map_err(crate::failure::places_error)?;
 		let target = match store.find_target(&place_id, &lang, None).await? {
 			Some(t) => t,
 			None => self.insert_target(place_id, resolved.as_ref(), None, Some(lang), None, None, false).await?,
@@ -947,8 +953,8 @@ impl Archive {
 			} {
 				continue;
 			}
-			// held until its members' balances renew, which is when it is looked at again
-			if t.kind == TargetKind::Maps && store.held(t.id, now, &self.inner.tokens).await? {
+			// held until a snapshot of the conductor's gives its members tokens; it is looked at again then
+			if t.kind == TargetKind::Maps && store.held(t.id).await? {
 				continue;
 			}
 			let mut due = self.due_at(&t).await?;

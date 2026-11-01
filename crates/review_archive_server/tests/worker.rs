@@ -137,7 +137,7 @@ fn serve_whose_worker_cannot_go_on_exits_78() {
 	std::fs::write(
 		&config,
 		format!(
-			"data_dir = {:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\nbrowser.lean = []\ntokens.start_cap_multiple = 2.0\n",
+			"data_dir = {:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\nbrowser.lean = []\n",
 			dir.0.join("data")
 		),
 	)
@@ -170,11 +170,7 @@ fn serve_with_every_account_signed_out_exits_78_at_boot() {
 	let dir = TempDir::new("serve-signed-out");
 	let data = dir.0.join("data");
 	let config = dir.0.join("config.toml");
-	std::fs::write(
-		&config,
-		format!("data_dir = {data:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\ntokens.start_cap_multiple = 2.0\n"),
-	)
-	.unwrap();
+	std::fs::write(&config, format!("data_dir = {data:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\n")).unwrap();
 	let cli = |args: &[&str]| {
 		let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_review_archive"));
 		c.arg("--config").arg(&config).args(args).env("APP_ENV", "development");
@@ -232,11 +228,7 @@ fn serve_without_the_login_check_outlives_every_account_signed_out() {
 	let dir = TempDir::new("serve-no-login-check");
 	let data = dir.0.join("data");
 	let config = dir.0.join("config.toml");
-	std::fs::write(
-		&config,
-		format!("data_dir = {data:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\ntokens.start_cap_multiple = 2.0\n"),
-	)
-	.unwrap();
+	std::fs::write(&config, format!("data_dir = {data:?}\nbind = \"127.0.0.1:0\"\nbrowser.executable = \"/nonexistent/chromium\"\n")).unwrap();
 	let cli = |args: &[&str]| {
 		let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_review_archive"));
 		c.arg("--config").arg(&config).args(args).env("APP_ENV", "development");
