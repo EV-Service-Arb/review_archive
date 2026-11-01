@@ -1,15 +1,17 @@
-// `nix run .#dev-mfe` with `?grafana=true` driven in a headless Chromium, as the member's tab: the overview's cards are
+// The conductor's local stack with `?grafana=true` driven in a headless Chromium, as the member's tab: the overview's cards are
 // /me/overview's, a facet narrows them, a card opens its board, whose lanes are the board's and whose
 // gone cards appeal and withdraw by drag, back returns, and (the gmail on) a card's switch writes and
 // redraws — all in one page load and one Grafana frame.
 // `node examples/with_grafana.cjs <member> <gmail> <facet> [<base>]` inside `nix develop`, `<base>` the
-// serve's (`http://127.0.0.1:59110`, dev-mfe's). The switch and the drags write: run it on a copy
-// of the data dir, `serve.lock` held so nothing walks.
+// conductor's (`http://127.0.0.1:59120`: site_conductor's `nix run .#local-stack`, signed in as an admin,
+// who acts as `<member>`). The switch and the drags write: run the stack on a copy of the data dir
+// (`REVIEW_ARCHIVE_DATA_DIR`).
 const path = require('path');
 const { chromium } = require(path.dirname(process.env.PLAYWRIGHT_CLI_JS));
 const assert = require('assert');
 
-const BASE = process.argv[5] ?? 'http://127.0.0.1:59110';
+const BASE = process.argv[5] ?? 'http://127.0.0.1:59120';
+const API = `${BASE}/api/review_archive`;
 const [member, gmail] = process.argv.slice(2, 4).map(Number);
 const facet = process.argv[4];
 const HOLDS = {
@@ -24,16 +26,22 @@ const HOLDS = {
 	off: (g, l) => !l.enabled || !g.enabled,
 };
 
-const overview = async () =>
-	(await (await fetch(BASE + '/me/overview', { headers: { 'x-member': String(member) } })).json()).find((x) => x.id === gmail);
+let page;
+const get = async (path) => {
+	const r = await page.request.get(API + path, { headers: { 'x-member': String(member) } });
+	assert.ok(r.ok(), `GET ${path}: ${r.status()}`);
+	return r.json();
+};
+const overview = async () => (await get('/me/overview')).find((x) => x.id === gmail);
 const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorAll('.ra-card').length === n, n, { timeout: 30000 });
 
 (async () => {
-	const g = await overview();
-	assert.ok(g, `member ${member} has no gmail ${gmail}`);
 	assert.ok(HOLDS[facet], `facets: ${Object.keys(HOLDS).join(', ')}`);
 	const browser = await chromium.launch({ executablePath: process.env.REVIEW_ARCHIVE_CHROME, headless: true });
-	const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+	page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+	await page.goto(`${BASE}/auth/login?return_to=/`); // the stack's dev sign-in: a session at once
+	const g = await overview();
+	assert.ok(g, `member ${member} has no gmail ${gmail}`);
 	page.on('pageerror', (e) => console.log('pageerror:', e.message));
 	page.on('response', async (r) => {
 		if (r.status() >= 400 && r.url().includes('/grafana/api/ds/query')) console.log(r.status(), (await r.text()).slice(0, 400));
@@ -41,7 +49,7 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	let documents = 0;
 	page.on('request', (r) => r.resourceType() === 'document' && r.frame() === page.mainFrame() && documents++);
 
-	const OVERVIEW = `${BASE}/members/${member}/gmails/${gmail}`;
+	const OVERVIEW = `${BASE}/review_archive/members/${member}/gmails/${gmail}`;
 	await page.goto(`${OVERVIEW}?grafana=true`); // the tab keeps it, the router drops it from the address
 	const frame = await (await page.waitForSelector('iframe[src*="/grafana/"]')).contentFrame();
 	await frame.waitForSelector('.ra-card', { timeout: 60000 });
@@ -75,12 +83,11 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 
 	const target = g.locations[0].target.id;
 	await frame.click('.ra-card .ra-label');
-	await page.waitForURL(`**/members/${member}/gmails/${gmail}/places/${target}`);
+	await page.waitForURL(`**/review_archive/members/${member}/gmails/${gmail}/places/${target}`);
 	let t = Date.now();
 	await frame.waitForSelector('text=Reviews per run', { timeout: 30000 });
 	await kept();
-	const board = async () =>
-		(await fetch(`${BASE}/me/gmails/${gmail}/locations/${target}/board`, { headers: { 'x-member': String(member) } })).json();
+	const board = () => get(`/me/gmails/${gmail}/locations/${target}/board`);
 	const LANES = { snapshotted: 'Snapshotted', suspended: 'Suspended', removed: 'Removed', reinstating: 'Reinstating' };
 	// a lane's tab is titled with its count; a lane in a tab not shown is not drawn
 	const tab = (lane, n) => frame.locator('.tl-tab').getByText(`${LANES[lane]} · ${n}`, { exact: true });
