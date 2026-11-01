@@ -1,7 +1,7 @@
-// The conductor's local stack with `?grafana=true` driven in a headless Chromium, as the member's tab: the overview's cards are
-// /me/overview's, a facet narrows them, a card opens its board, whose lanes are the board's and whose
-// gone cards appeal and withdraw by drag, back returns, and (the gmail on) a card's switch writes and
-// redraws — all in one page load and one Grafana frame.
+// The conductor's local stack with `?grafana=true` driven in a headless Chromium, as the member's tab: a gmail's cards are
+// its GMBs' tracks in /me/overview, a facet narrows them, a card opens its board, whose lanes are the board's and whose
+// gone cards appeal and withdraw by drag, back returns, and a card's switch writes and redraws — all in one page
+// load and one Grafana frame.
 // `node examples/with_grafana.cjs <member> <gmail> <facet> [<base>]` inside `nix develop`, `<base>` the
 // conductor's (`http://127.0.0.1:59120`: site_conductor's `nix run .#local-stack`, signed in as an admin,
 // who acts as `<member>`). The switch and the drags write: run the stack on a copy of the data dir
@@ -15,12 +15,12 @@ const API = `${BASE}/api/review_archive`;
 const [member, gmail] = process.argv.slice(2, 4).map(Number);
 const facet = process.argv[4];
 const HOLDS = {
-	favorite: (g, l) => l.favorite,
-	'posted 7d': (g, l) => l.posts_7d > 0,
-	'out of tokens': (g, l) => l.held,
-	failing: (g, l) => ['failed', 'partial'].includes(l.last_run_status),
-	scanning: (g, l) => l.scan != null,
-	off: (g, l) => !l.enabled || !g.enabled,
+	favorite: (l) => l.favorite,
+	'posted 7d': (l) => l.posts_7d > 0,
+	'out of tokens': (l) => l.held,
+	failing: (l) => ['failed', 'partial'].includes(l.last_run_status),
+	scanning: (l) => l.scan != null,
+	off: (l) => !l.enabled,
 };
 
 let page;
@@ -29,7 +29,8 @@ const get = async (path) => {
 	assert.ok(r.ok(), `GET ${path}: ${r.status()}`);
 	return r.json();
 };
-const overview = async () => (await get('/me/overview')).find((x) => x.id === gmail);
+// the gmail's cards: each GMB's tracks, with the GMB's id
+const overview = async () => (await get('/me/overview')).find((x) => x.id === gmail)?.gmbs.flatMap((b) => b.tracks.map((l) => ({ ...l, gmb: b.id })));
 const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorAll('.ra-card').length === n, n, { timeout: 30000 });
 
 (async () => {
@@ -37,8 +38,8 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	const browser = await chromium.launch({ executablePath: process.env.REVIEW_ARCHIVE_CHROME, headless: true });
 	page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 	await page.goto(`${BASE}/auth/login?return_to=/`); // the stack's dev sign-in: a session at once
-	const g = await overview();
-	assert.ok(g, `member ${member} has no gmail ${gmail}`);
+	const cards = await overview();
+	assert.ok(cards?.length, `member ${member} has no gmail ${gmail}, or it tracks nothing`);
 	page.on('pageerror', (e) => console.log('pageerror:', e.message));
 	page.on('response', async (r) => {
 		if (r.status() >= 400 && r.url().includes('/grafana/api/ds/query')) console.log(r.status(), (await r.text()).slice(0, 400));
@@ -52,39 +53,35 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	await frame.waitForSelector('.ra-card', { timeout: 60000 });
 	const kept = async () => assert.strictEqual(await frame.evaluate(() => window.marker), 'kept', 'the frame did not reload');
 	const labels = await frame.$$eval('.ra-card .ra-label', (els) => els.map((e) => e.textContent));
-	assert.deepStrictEqual(labels, g.locations.map((l) => l.target.label), 'cards are /me/overview, in its order');
+	assert.deepStrictEqual(labels, cards.map((l) => l.target.label), 'cards are /me/overview, in its order');
 	console.log('cards match:', labels.length);
 
 	await frame.evaluate(() => (window.marker = 'kept'));
-	const held = g.locations.filter((l) => HOLDS[facet](g, l)).length;
+	const held = cards.filter(HOLDS[facet]).length;
 	await page.getByRole('button', { name: facet, exact: true }).click();
 	await count(frame, held);
 	await kept();
 	await page.getByRole('button', { name: 'Clear' }).click();
-	await count(frame, g.locations.length);
+	await count(frame, cards.length);
 	await kept();
 	console.log(`facet "${facet}": ${held} cards, the frame kept`);
 
-	if (g.enabled) {
-		const was = g.locations[0].enabled;
-		for (const want of [!was, was]) {
-			await frame.click('.ra-card .ra-switch');
-			await frame.waitForFunction((on) => document.querySelector('.ra-card .ra-switch').classList.contains('on') === on, want, { timeout: 30000 });
-			assert.strictEqual((await overview()).locations[0].enabled, want);
-		}
-		assert.strictEqual(page.url().split('?')[0], OVERVIEW, 'the switch is not the card: no board opened');
-		console.log('switch: written and redrawn, both ways');
-	} else {
-		console.log('switch: not tried, the gmail is off');
+	const on = cards[0].enabled;
+	for (const want of [!on, on]) {
+		await frame.click('.ra-card .ra-switch');
+		await frame.waitForFunction((on) => document.querySelector('.ra-card .ra-switch').classList.contains('on') === on, want, { timeout: 30000 });
+		assert.strictEqual((await overview())[0].enabled, want);
 	}
+	assert.strictEqual(page.url().split('?')[0], OVERVIEW, 'the switch is not the card: no board opened');
+	console.log('switch: written and redrawn, both ways');
 
-	const target = g.locations[0].target.id;
+	const [gmb, target] = [cards[0].gmb, cards[0].target.id];
 	await frame.click('.ra-card .ra-label');
-	await page.waitForURL(`**/review_archive/members/${member}/gmails/${gmail}/places/${target}`);
+	await page.waitForURL(`**/review_archive/members/${member}/gmbs/${gmb}/tracks/${target}`);
 	let t = Date.now();
 	await frame.waitForSelector('text=Reviews per run', { timeout: 30000 });
 	await kept();
-	const board = () => get(`/me/gmails/${gmail}/locations/${target}/board`);
+	const board = () => get(`/me/gmbs/${gmb}/tracks/${target}/board`);
 	const LANES = { snapshotted: 'Snapshotted', suspended: 'Suspended', removed: 'Removed', reinstating: 'Reinstating' };
 	// a lane's tab is titled with its count; a lane in a tab not shown is not drawn
 	const tab = (lane, n) => frame.locator('.tl-tab').getByText(`${LANES[lane]} · ${n}`, { exact: true });
@@ -136,7 +133,7 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	await page.goBack();
 	await page.waitForURL((u) => `${u.origin}${u.pathname}` === OVERVIEW);
 	t = Date.now();
-	await count(frame, g.locations.length);
+	await count(frame, cards.length);
 	await kept();
 	console.log(`back on the overview in ${Date.now() - t} ms`);
 	assert.strictEqual(documents, 1, 'one page load in all');
