@@ -715,6 +715,8 @@ pub struct GmbSummary {
 	pub id: i64,
 	/// The Google place id.
 	pub place_id: String,
+	/// The conductor's switch; off, none of its tracks is walked, whatever their own switches.
+	pub enabled: bool,
 	/// Its places as tracked here, a target per language and source, by snapshots over 7 days,
 	/// most first; empty: not tracked.
 	pub tracks: Vec<LocationSummary>,
@@ -882,7 +884,7 @@ pub struct MemberDto {
 pub struct MyGmbs {
 	/// By GMB id; removed GMBs are left out.
 	pub gmbs: std::collections::BTreeMap<i64, GmbReviews>,
-	/// Places with a track on, now.
+	/// Places with a track on under a GMB switched on, now.
 	pub places_tracked: i64,
 }
 
@@ -890,7 +892,7 @@ pub struct MyGmbs {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GmbReviews {
-	/// A track of it is on.
+	/// It is switched on, and a track of it is on.
 	pub tracked: bool,
 	/// The place's star average, from its most recently walked tracked target; `null` when never walked.
 	pub rating: Option<f64>,
@@ -913,6 +915,8 @@ pub struct MirroredGmb {
 	pub owner: String,
 	/// The GMB, or its gmail, is removed.
 	pub removed: bool,
+	/// The conductor's switch; off, the archive walks none of its tracks.
+	pub enabled: bool,
 	/// The Google place id.
 	pub place_id: String,
 }

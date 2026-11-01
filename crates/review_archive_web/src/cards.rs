@@ -46,7 +46,7 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 	rsx! {
 		div { class: "relative",
 		Link {
-			class: if loc.enabled { "block h-full text-left" } else { "block h-full text-left opacity-50" },
+			class: if loc.enabled && gmb.enabled { "block h-full text-left" } else { "block h-full text-left opacity-50" },
 			to: to.clone(),
 			onclick: move |_| reviews.set(Reviews::default()),
 			Card { class: if loc.favorite { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 border-accent-warn" } else { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 hover:border-ink-soft" },

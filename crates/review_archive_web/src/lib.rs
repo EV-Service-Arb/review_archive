@@ -174,6 +174,8 @@ fn may(p: impl Permission) -> bool {
 struct Gmb {
 	id: i64,
 	gmail: GmailDto,
+	/// The conductor's switch.
+	enabled: bool,
 }
 
 /// What a tab shows.
@@ -637,7 +639,10 @@ fn Workspace(view: Route) -> Element {
 
 	rsx! {
 		div { class: "{shell}",
-			Rail { gmails: gmails.clone(), current, at: at.clone(), tab }
+			// the person's own gmails are in the conductor's sidebar
+			if tab.is_some() {
+				Rail { gmails: gmails.clone(), current, at: at.clone(), tab }
+			}
 			div { class: "flex min-h-0 min-w-0 flex-1 flex-col",
 				if let Some(acting) = acting {
 					div { class: "border-b border-border bg-accent-warn/15 px-6 py-2 text-accent-warn", "{acting}" }
@@ -653,7 +658,7 @@ fn Workspace(view: Route) -> Element {
 						settings::Page {}
 					},
 					(View::Gmb { gmb, target }, _) => match gmb_of(gmb) {
-						Some((gmail, b)) => rsx! { GmbPage { gmb: Gmb { id: b.id, gmail }, place_id: b.place_id, tracks: b.tracks, target, tab } },
+						Some((gmail, b)) => rsx! { GmbPage { gmb: Gmb { id: b.id, gmail, enabled: b.enabled }, place_id: b.place_id, tracks: b.tracks, target, tab } },
 						None => rsx! { div { class: "p-6 text-ink-soft", "No GMB #{gmb} of yours: it may have been removed." } },
 					},
 					(_, None) if gmails.is_empty() => rsx! {
@@ -668,7 +673,11 @@ fn Workspace(view: Route) -> Element {
 						let mut untracked = Vec::new();
 						for g in gmails.iter().filter(shown) {
 							for b in &g.gmbs {
-								let gmb = Gmb { id: b.id, gmail: g.gmail.clone() };
+								let gmb = Gmb {
+									id: b.id,
+									gmail: g.gmail.clone(),
+									enabled: b.enabled,
+								};
 								match b.tracks.is_empty() {
 									true => untracked.push((gmb, b.place_id.clone())),
 									false => cards.extend(b.tracks.iter().map(|l| (gmb.clone(), l.clone()))),
@@ -684,20 +693,20 @@ fn Workspace(view: Route) -> Element {
 	}
 }
 
-/// A link to the conductor's GMBs page, where they are added: the shell routes it (`ev:navigate`),
+/// A link to the conductor's home, where GMBs are added: the shell routes it (`ev:navigate`),
 /// else the browser follows it.
 #[component]
 fn AddGmb() -> Element {
-	const GMBS: &str = "/gmbs";
+	const HOME: &str = "/";
 	rsx! {
 		a {
 			class: "text-ink underline-offset-2 hover:underline",
-			href: GMBS,
+			href: HOME,
 			onclick: move |e: MouseEvent| {
 				let init = web_sys::CustomEventInit::new();
 				init.set_cancelable(true);
 				let detail = js_sys::Object::new();
-				js_sys::Reflect::set(&detail, &"href".into(), &GMBS.into()).expect("setting a field");
+				js_sys::Reflect::set(&detail, &"href".into(), &HOME.into()).expect("setting a field");
 				init.set_detail(&detail);
 				let ev = web_sys::CustomEvent::new_with_event_init_dict("ev:navigate", &init).expect("a plain event");
 				// `false`: the shell took it

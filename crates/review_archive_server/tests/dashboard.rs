@@ -67,6 +67,7 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 				gmail: "ops@gmail.com".into(),
 				owner: "owner".into(),
 				removed: false,
+				enabled: true,
 				place_id: format!("ChIJdashboardtest{id:0>8}"),
 			})
 			.collect(),
