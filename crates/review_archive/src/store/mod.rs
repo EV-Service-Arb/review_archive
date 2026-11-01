@@ -13,6 +13,7 @@ pub mod export;
 mod jobs;
 mod layouts;
 mod members;
+mod mirror;
 pub mod people;
 mod tokens;
 mod webhooks;
@@ -27,8 +28,8 @@ use eyre::WrapErr;
 use jiff::{Timestamp, civil::Date};
 pub use jobs::ClaimedJob;
 use review_archive_core::{
-	GbpLocation, Known, KnownReview, Observed, OwnerPost, PersonId, Rejected, ReviewId, Target, TargetId, TargetKind, check_lang, content_hash,
-	dto::{CaptureDto, Counts, DayStats, Event, JobStatus, PlaceDto, ReviewDetail, ReviewDto, RunDto, RunStatus, TargetPatch, VersionDto, capture_url},
+	GbpLocation, Known, KnownReview, Observed, OwnerPost, Rejected, ReviewId, Target, TargetId, TargetKind, check_lang, content_hash,
+	dto::{CaptureDto, Counts, DayStats, Event, JobStatus, ReviewDetail, ReviewDto, RunDto, RunStatus, TargetPatch, VersionDto, capture_url},
 	fmt_ts, parse_interval,
 	reconcile::Plan,
 	schedule::{Breaker, LastRun, Schedule},
@@ -118,7 +119,7 @@ pub struct RunEnd<'a> {
 	/// What its walk spent; a failed one too, Google saw it all the same.
 	pub tokens: i64,
 	/// Who pays for it: [`Bill::payers`].
-	pub payers: &'a [PersonId],
+	pub payers: &'a [String],
 	/// Its charges go back to its payers: it failed, or met a [`review_archive_core::Warning::Failure`].
 	pub kick_back: bool,
 }
@@ -390,8 +391,8 @@ fn target_columns(default_interval: Timeframe) -> String {
 	format!(
 		"t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang,
 		 COALESCE((SELECT MIN(COALESCE(pe.interval_secs, {default})) FROM tracks tr
-		           JOIN managing_gmails mg ON mg.id = tr.managing_gmail_id JOIN people pe ON pe.id = mg.person_id
-		           WHERE tr.target_id = t.id AND tr.enabled AND mg.enabled), t.interval_secs) AS interval_secs,
+		           JOIN gmb_mirror mg ON mg.id = tr.gmb_id LEFT JOIN people pe ON pe.sub = mg.owner
+		           WHERE tr.target_id = t.id AND tr.enabled), t.interval_secs) AS interval_secs,
 		 t.enabled, t.created_at"
 	)
 }
@@ -457,16 +458,15 @@ impl Store {
 
 	/// Every target, by id.
 	pub async fn targets(&self) -> eyre::Result<Vec<Target>> {
-		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {} FROM targets t WHERE t.id > 0 ORDER BY t.id", self.target_columns)))
+		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {} FROM targets t ORDER BY t.id", self.target_columns)))
 			.fetch_all(&self.pool)
 			.await
 			.wrap_err("listing targets")?;
 		rows.into_iter().map(Target::try_from).collect()
 	}
 
-	/// Deletes every target no gmail has tracked since `before`, with its archive. What members
-	/// were charged or owed for its runs stays, under the `other` run (0). Returns the captures'
-	/// blobs no capture points at any more.
+	/// Deletes every target no GMB has tracked since `before`, with its archive; the charge feed
+	/// keeps its runs' rows. Returns the captures' blobs no capture points at any more.
 	pub(crate) async fn purge_untracked(&self, before: Timestamp) -> eyre::Result<Vec<String>> {
 		let mut tx = self.write().await?;
 		let targets: Vec<i64> = sqlx::query_scalar("SELECT id FROM targets WHERE untracked_at <= ?")
@@ -490,8 +490,6 @@ impl Store {
 				"DELETE FROM reviews WHERE target_id = ?",
 				"DELETE FROM posts WHERE target_id = ?",
 				"DELETE FROM jobs WHERE target_id = ?",
-				"UPDATE token_ledger SET run_id = 0 WHERE run_id IN (SELECT id FROM runs WHERE target_id = ?)",
-				"UPDATE kickbacks SET run_id = 0 WHERE run_id IN (SELECT id FROM runs WHERE target_id = ?)",
 				"DELETE FROM runs WHERE target_id = ?",
 				"DELETE FROM targets WHERE id = ?",
 			] {
@@ -520,7 +518,7 @@ impl Store {
 			"SELECT {columns} FROM targets t
 			 WHERE t.enabled
 			   AND (NOT EXISTS (SELECT 1 FROM tracks k WHERE k.target_id = t.id)
-			        OR EXISTS (SELECT 1 FROM tracks k JOIN managing_gmails g ON g.id = k.managing_gmail_id WHERE k.target_id = t.id AND k.enabled AND g.enabled))
+			        OR EXISTS (SELECT 1 FROM tracks k WHERE k.target_id = t.id AND k.enabled))
 			 ORDER BY t.id"
 		)))
 		.fetch_all(&self.pool)
@@ -531,7 +529,7 @@ impl Store {
 
 	/// One target; [`Rejected::NotFound`] when there is none.
 	pub async fn target(&self, id: TargetId) -> eyre::Result<Target> {
-		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {} FROM targets t WHERE t.id = ? AND t.id > 0", self.target_columns)))
+		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {} FROM targets t WHERE t.id = ?", self.target_columns)))
 			.bind(id.0)
 			.fetch_optional(&self.pool)
 			.await
@@ -585,7 +583,7 @@ impl Store {
 	}
 
 	/// Points a target at the place Google now knows it as.
-	pub async fn relink(&self, target: TargetId, place: &PlaceDto) -> eyre::Result<()> {
+	pub async fn relink(&self, target: TargetId, place: &sa_places::Place) -> eyre::Result<()> {
 		let done = sqlx::query("UPDATE targets SET place_id = ?, name = ?, address = ? WHERE id = ?")
 			.bind(&place.place_id)
 			.bind(&place.name)
@@ -1130,7 +1128,7 @@ async fn finish(tx: &mut SqliteConnection, end: RunEnd<'_>, counts: Counts, seen
 		.await
 		.wrap_err("recording run end")?;
 	assert!(end.kick_back || end.status != RunStatus::Failed, "a failed run is ours, not its payers'");
-	tokens::charge(tx, end.run, end.tokens, end.payers, end.kick_back, now).await?;
+	mirror::charge(tx, &end, now).await?;
 	if let Some(job) = end.job {
 		let failed = end.status == RunStatus::Failed;
 		let status = if failed { JobStatus::Failed } else { JobStatus::Done };

@@ -10,8 +10,7 @@
 use review_archive::{
 	Archive, CaptureRequest, SessionError,
 	config::Config,
-	core::dto::{NewGmail, NewTarget, NewTrack, ReviewsQuery, RunStatus},
-	store::people::{Claim, Seen},
+	core::dto::{NewTarget, ReviewsQuery, RunStatus},
 };
 
 #[path = "support/busy.rs"]
@@ -28,11 +27,6 @@ fn starved(failure: &str) {
 
 /// The Eiffel Tower: public, and reviewed every few minutes.
 const PLACE_ID: &str = "ChIJLU7jZClu5kcR4PcOOO6p3I0";
-
-/// Shared from the Maps app; a name search for what it redirects to finds a namesake in Flushing (#37).
-const SHARE_LINK: &str = "https://maps.app.goo.gl/xpeH4R7UKWfVeXqC8";
-/// Shiny Maids of Hicksville, the place the link shares.
-const SHARED_PLACE_ID: &str = "ChIJ89hmOOCBwokRDrDlHKKRT6c";
 
 /// The data dir, kept when the test fails: a failed walk's error names the page it saved under it.
 struct Kept(Option<tempfile::TempDir>);
@@ -69,7 +63,6 @@ fn config(dir: &std::path::Path) -> Config {
 	config.defaults.max_reviews_initial = 12;
 	config.defaults.max_reviews_per_scan = 12;
 	config.defaults.lang = "fr".into();
-	config.tokens.start_cap_multiple = Some(2.0);
 	config
 }
 
@@ -162,63 +155,4 @@ async fn live_capture_on_a_profile_that_met_negotiate() {
 			"{failure}"
 		);
 	}
-}
-
-/// What the dashboard does with a pasted link: list its places, track the one. No `GOOGLE_MAPS_KEY`:
-/// the link carries a feature id, and resolving it must not fall back to a name search.
-#[tokio::test]
-#[ignore = "live: needs Chrome and the network"]
-async fn live_a_share_link_tracks_the_place_it_shares() {
-	let dir = Kept::new();
-	let archive = Archive::open(config(dir.path())).await.unwrap();
-	let seen = Seen {
-		sub: "sub",
-		email: "member@example.com",
-		email_verified: true,
-		name: "Member",
-	};
-	let Claim::Person(member) = archive.person(&seen).await.unwrap() else {
-		panic!("a fresh archive refuses nobody")
-	};
-	let gmail = archive.add_gmail(member, &NewGmail { gmail: "manager@gmail.com".into() }).await.unwrap().id;
-
-	let places = archive.places(SHARE_LINK).await.unwrap();
-	assert_eq!(places.iter().map(|p| p.place_id.as_str()).collect::<Vec<_>>(), [SHARED_PLACE_ID], "{places:?}");
-	let picked = archive
-		.track(
-			member,
-			gmail,
-			&NewTrack {
-				place: places[0].place_id.clone(),
-				..Default::default()
-			},
-		)
-		.await
-		.unwrap();
-	let pasted = archive
-		.track(
-			member,
-			gmail,
-			&NewTrack {
-				place: SHARE_LINK.into(),
-				..Default::default()
-			},
-		)
-		.await
-		.unwrap();
-	assert_eq!(picked.place_id, SHARED_PLACE_ID);
-	assert_eq!(pasted.id, picked.id);
-
-	let summary = archive.scan_target(review_archive::core::TargetId(picked.id)).await.unwrap();
-	archive.close().await;
-	println!("{summary}");
-	let error = summary.error.as_deref();
-	if summary.status == RunStatus::Failed {
-		let error = error.expect("a failed run says why");
-		starved(error);
-		assert!(error.contains("code: review_archive::google::"), "{summary}");
-		return;
-	}
-	assert_eq!(error, None, "{summary}");
-	assert!((1..=5).contains(&summary.counts.new), "a guest sees at most 5: {summary}");
 }

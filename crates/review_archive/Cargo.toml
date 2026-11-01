@@ -22,6 +22,7 @@ settings = ["dep:clap", "dep:schemars", "v_utils/cli", "review_archive_core/sett
 store = [
     "dep:futures",
     "dep:hmac",
+    "dep:sa_places",
     "dep:sqlx",
     "dep:tempfile",
     "dep:tg_types",
@@ -42,6 +43,7 @@ miette.workspace = true
 playwright-rs = { workspace = true, optional = true }
 reqwest = { workspace = true, features = ["multipart"] }
 review_archive_core.workspace = true
+sa_places = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true

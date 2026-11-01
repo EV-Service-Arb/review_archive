@@ -22,7 +22,6 @@ review_archive_core = { path = "crates/review_archive_core", version = "0.1.0" }
 review_archive_server = { path = "crates/review_archive_server", version = "0.1.0" }
 
 axum = "0.8"
-base64 = "0.22"
 browser_manipulation = "0.4.6"
 clap = { version = "4", features = ["derive"] }
 color-eyre = "0.6"
@@ -42,7 +41,8 @@ playwright-rs = "=0.19.0" # the version browser_manipulation pins: its launch er
 rand = "0.10"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }
 rustix = { version = "1", features = ["process"] }
-sa_auth = { git = "https://github.com/EV-Service-Arb/panel", rev = "396ebcef5a2561c5f37ce9a12ee5334b11d81f91" }
+sa_auth = { git = "https://github.com/EV-Service-Arb/panel", rev = "365a04f61dbf16281675eabfe24150f09f124f89" }
+sa_places = { git = "https://github.com/EV-Service-Arb/panel", rev = "365a04f61dbf16281675eabfe24150f09f124f89" }
 sa_ui = { git = "https://github.com/EV-Service-Arb/panel", rev = "003926e852549637be3d2f34a0322f1d72494dc9" }
 schemars = "1"
 scraper = "0.27"

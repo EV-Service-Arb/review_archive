@@ -1,8 +1,9 @@
-//! Members pay for the walks of the places they track: a ledger renewed daily up to a cap,
-//! charges split across trackers with the run's end, and no walk for a place whose trackers
-//! are out of tokens, nor past the account's hourly limit. What a member paid adds up by day.
+//! Members pay for the walks of the places they track: what they hold is the conductor's
+//! balance less the charges the feed holds past its cursor, a walk's charge goes into the feed
+//! with the run's end, and no walk for a place whose trackers are out of tokens, nor past the
+//! account's hourly limit.
 
-use std::{path::Path, sync::Mutex};
+use std::{cell::RefCell, path::Path, sync::Mutex};
 
 use jiff::{SignedDuration, Timestamp};
 use review_archive::{
@@ -10,8 +11,7 @@ use review_archive::{
 	config::Config,
 	core::{
 		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId, Warning,
-		dto::{BalanceChange, KickbackWhy, LocationSummary, NewGmail, NewTarget, ScanState, TokenKind, UsageDay},
-		schedule::Schedule,
+		dto::{ChargeDto, GmbSnapshot, LocationSummary, MirroredGmb, NewTarget, ScanState},
 		tokens::{Meter, Tokens},
 	},
 	record::Recorder,
@@ -76,7 +76,8 @@ async fn card(archive: &Archive, member: PersonId, t: TargetId) -> LocationSumma
 		.await
 		.unwrap()
 		.into_iter()
-		.flat_map(|g| g.locations)
+		.flat_map(|g| g.gmbs)
+		.flat_map(|b| b.tracks)
 		.find(|l| l.target.id == t.0)
 		.unwrap()
 }
@@ -109,17 +110,9 @@ impl ReviewSource for Spends {
 	}
 }
 
-fn tokens() -> Tokens {
-	Tokens {
-		start_cap_multiple: Some(2.0),
-		..Tokens::default()
-	}
-}
-
 async fn open(dir: &Path) -> Archive {
 	Archive::open(Config {
 		data_dir: Some(dir.to_owned()),
-		tokens: tokens(),
 		..Config::default()
 	})
 	.await
@@ -148,88 +141,118 @@ async fn person(store: &Store, sub: &str) -> PersonId {
 	}
 }
 
-/// `member` tracks `t` under a gmail of their own; returns the gmail.
-async fn tracks(archive: &Archive, member: PersonId, t: TargetId) -> i64 {
-	let g = archive.add_gmail(member, &NewGmail { gmail: format!("{member}.ops") }).await.unwrap();
-	archive.assign(g.id, t).await.unwrap();
-	g.id
+/// What the conductor pushed last.
+struct Conductor(RefCell<GmbSnapshot>);
+
+impl Conductor {
+	fn new() -> Self {
+		Self(RefCell::new(GmbSnapshot {
+			gmbs: vec![],
+			balances: Default::default(),
+			charges_through: 0,
+		}))
+	}
+
+	async fn push(&self, archive: &Archive) {
+		let snap = self.0.borrow().clone();
+		archive.apply_snapshot(&snap).await.unwrap();
+	}
+
+	/// `sub` tracks `t` under a GMB of their own; returns the GMB.
+	async fn tracks(&self, archive: &Archive, sub: &str, t: &Target) -> i64 {
+		let id = {
+			let mut snap = self.0.borrow_mut();
+			let id = snap.gmbs.len() as i64 + 1;
+			snap.gmbs.push(MirroredGmb {
+				id,
+				gmail_id: id,
+				gmail: format!("{sub}.ops"),
+				owner: sub.into(),
+				removed: false,
+				place_id: t.place_id.clone(),
+			});
+			id
+		};
+		self.push(archive).await;
+		archive.assign(id, t.id).await.unwrap();
+		id
+	}
+
+	/// `sub` holds `n`: the conductor has charged everything the feed holds so far.
+	async fn set(&self, archive: &Archive, sub: &str, n: i64) {
+		let through = archive.charges(0, 500).await.unwrap().next;
+		{
+			let mut snap = self.0.borrow_mut();
+			snap.balances.insert(sub.into(), n);
+			snap.charges_through = through;
+		}
+		self.push(archive).await;
+	}
 }
 
-async fn set(archive: &Archive, member: PersonId, n: i64) {
-	archive
-		.store()
-		.unwrap()
-		.change_balance(member, BalanceChange::Set(n), "root", None, Timestamp::now(), &tokens())
-		.await
-		.unwrap();
+async fn holds(archive: &Archive, sub: &str) -> i64 {
+	archive.store().unwrap().holdings(&[sub.into()]).await.unwrap()
 }
 
-#[tokio::test]
-async fn renewal_stops_at_the_cap_and_never_takes_back() {
-	let dir = tempfile::tempdir().unwrap();
-	let store = open(dir.path()).await.store().unwrap().clone();
-	let cfg = tokens();
-	let a = person(&store, "a").await;
-	let t0: Timestamp = "2026-10-01T09:00:00Z".parse().unwrap();
-	let day = |n: i64| t0 + SignedDuration::from_hours(24 * n);
-	assert_eq!(store.balance(a, t0, &cfg).await.unwrap(), 1000, "twice the cap on first sight");
-	assert_eq!(store.balance(a, day(3), &cfg).await.unwrap(), 1000, "nothing renews above the cap");
-
-	assert_eq!(store.change_balance(a, BalanceChange::Set(400), "root", None, day(3), &cfg).await.unwrap(), 400);
-	assert_eq!(store.balance(a, day(4), &cfg).await.unwrap(), 415);
-	assert_eq!(store.balance(a, day(4) + SignedDuration::from_hours(5), &cfg).await.unwrap(), 415, "once a day");
-	assert_eq!(store.balance(a, day(100), &cfg).await.unwrap(), 500);
-
-	let bought = store.change_balance(a, BalanceChange::Add(200), "root", Some("inv-1"), day(100), &cfg).await.unwrap();
-	assert_eq!(bought, 700);
-	assert_eq!(store.balance(a, day(130), &cfg).await.unwrap(), 700, "above the cap stays");
-
-	assert_eq!(store.change_balance(a, BalanceChange::Set(8), "root", None, day(130), &cfg).await.unwrap(), 8);
-	assert_eq!(store.balance(a, day(130), &cfg).await.unwrap(), 8);
-	// days spent at the cap renew nothing afterwards: renewal counts from the last day it ran
-	assert_eq!(store.balance(a, day(131), &cfg).await.unwrap(), 23);
+async fn feed(archive: &Archive) -> Vec<ChargeDto> {
+	archive.charges(0, 500).await.unwrap().charges
 }
 
 #[tokio::test]
 async fn trackers_split_a_walk_within_their_balances() {
 	let dir = tempfile::tempdir().unwrap();
 	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
 	let t = target(&archive, "ChIJtokenstest000000split").await;
-	let poor = person(archive.store().unwrap(), "poor").await;
-	let rich = person(archive.store().unwrap(), "rich").await;
-	tracks(&archive, poor, t.id).await;
-	tracks(&archive, rich, t.id).await;
-	set(&archive, poor, 5).await;
-	set(&archive, rich, 100).await;
+	person(archive.store().unwrap(), "poor").await;
+	person(archive.store().unwrap(), "rich").await;
+	conductor.tracks(&archive, "poor", &t).await;
+	conductor.tracks(&archive, "rich", &t).await;
+	conductor.set(&archive, "poor", 5).await;
+	conductor.set(&archive, "rich", 100).await;
 
 	let rec = archive.record(&Spends(20), &t).await.unwrap();
 	assert_eq!(archive.runs(t.id, &Default::default()).await.unwrap()[0].tokens, 20);
-	for (member, left, paid) in [(poor, 0, -5), (rich, 85, -15)] {
-		assert_eq!(archive.tokens(member).await.unwrap().balance, left, "{member}");
-		let charge = archive.ledger(member).await.unwrap().into_iter().find(|l| l.kind == TokenKind::Charge).unwrap();
-		assert_eq!((charge.delta, charge.run_id, charge.target_id), (paid, Some(rec.run.0), Some(t.id.0)), "{member}");
+	let charged = feed(&archive).await;
+	assert_eq!(charged.len(), 1);
+	let c = &charged[0];
+	assert_eq!(
+		(c.key.as_str(), c.payers.as_slice(), c.spent, c.kick_back, c.label.as_str()),
+		(
+			format!("run:{}", rec.run.0).as_str(),
+			["poor".to_owned(), "rich".to_owned()].as_slice(),
+			20,
+			false,
+			t.place_id.as_str()
+		)
+	);
+	for (sub, left) in [("poor", 0), ("rich", 90)] {
+		assert_eq!(holds(&archive, sub).await, left, "{sub}");
 	}
 
 	// the operator's own look is no member's to pay for
 	let job = archive.enqueue_scan(t.id).await.unwrap();
 	archive.store().unwrap().claim_job(Timestamp::now()).await.unwrap().unwrap();
 	recorder(&archive, &BlobStore::new(dir.path().join("blobs"))).record(&Spends(10), &t, Some(job)).await.unwrap();
-	assert_eq!(archive.tokens(rich).await.unwrap().balance, 85);
+	assert_eq!(feed(&archive).await.len(), 1);
 }
 
 #[tokio::test]
 async fn a_place_whose_trackers_are_out_of_tokens_waits() {
 	let dir = tempfile::tempdir().unwrap();
 	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
 	let t = target(&archive, "ChIJtokenstest00000broke").await;
-	let broke = person(archive.store().unwrap(), "broke").await;
-	tracks(&archive, broke, t.id).await;
-	set(&archive, broke, 0).await;
+	person(archive.store().unwrap(), "broke").await;
+	conductor.tracks(&archive, "broke", &t).await;
+	conductor.set(&archive, "broke", 0).await;
 	let now = Timestamp::now();
 	assert!(archive.due(now).await.unwrap().is_empty());
 	assert_eq!(archive.next_due(now).await.unwrap(), None, "nothing to wake up for until a balance renews");
 
-	tracks(&archive, person(archive.store().unwrap(), "flush").await, t.id).await;
+	person(archive.store().unwrap(), "flush").await;
+	conductor.tracks(&archive, "flush", &t).await;
+	conductor.set(&archive, "flush", 100).await;
 	assert_eq!(archive.due(now).await.unwrap().iter().map(|t| t.id).collect::<Vec<_>>(), [t.id]);
 }
 
@@ -248,99 +271,35 @@ async fn the_hour_closes_maps_whoever_pays() {
 }
 
 #[tokio::test]
-async fn usage_sums_a_members_own_charges_by_utc_day() {
-	let dir = tempfile::tempdir().unwrap();
-	let archive = open(dir.path()).await;
-	let store = archive.store().unwrap();
-	let shared = target(&archive, "ChIJtokenstest000usage01").await;
-	let own = target(&archive, "ChIJtokenstest000usage02").await;
-	let me = person(store, "me").await;
-	let other = person(store, "other").await;
-	let g = archive.add_gmail(me, &NewGmail { gmail: "me.ops".into() }).await.unwrap();
-	archive.assign(g.id, shared.id).await.unwrap();
-	archive.assign(g.id, own.id).await.unwrap();
-	tracks(&archive, other, shared.id).await;
-	set(&archive, me, 1000).await;
-	set(&archive, other, 1000).await;
-
-	let blobs = BlobStore::new(dir.path().join("blobs"));
-	let walk = |now: fn() -> Timestamp, t: Target, cost: i64| {
-		let (archive, blobs) = (&archive, &blobs);
-		async move {
-			let rec = Recorder {
-				store: archive.store().unwrap(),
-				blobs,
-				now,
-				schedule: &Schedule::default(),
-				tokens: &tokens(),
-			};
-			rec.record(&Spends(cost), &t, None).await.unwrap();
-		}
-	};
-	walk(|| "2026-10-04T23:30:00Z".parse().unwrap(), own.clone(), 7).await;
-	walk(|| "2026-10-05T00:30:00Z".parse().unwrap(), shared.clone(), 10).await; // split with `other`
-	walk(|| "2026-10-05T02:00:00Z".parse().unwrap(), own.clone(), 3).await;
-	walk(|| "2026-08-01T12:00:00Z".parse().unwrap(), own.clone(), 50).await; // past the window
-
-	let usage = store.usage(me, "2026-10-06T08:00:00Z".parse().unwrap()).await.unwrap();
-	assert_eq!(usage.days.len(), 30);
-	assert_eq!(usage.days[0].day, "2026-09-07");
-	let charged: Vec<&UsageDay> = usage.days.iter().filter(|d| d.walks > 0).collect();
-	assert_eq!(
-		charged,
-		[
-			&UsageDay {
-				day: "2026-10-04".into(),
-				walks: 1,
-				tokens: 7
-			},
-			&UsageDay {
-				day: "2026-10-05".into(),
-				walks: 2,
-				tokens: 8
-			},
-		]
-	);
-	assert_eq!(
-		usage.days.last().unwrap(),
-		&UsageDay {
-			day: "2026-10-06".into(),
-			walks: 0,
-			tokens: 0
-		}
-	);
-	assert_eq!(usage.places_tracked, 2);
-	assert_eq!(store.usage(other, "2026-10-06T08:00:00Z".parse().unwrap()).await.unwrap().places_tracked, 1);
-}
-
-#[tokio::test]
 async fn a_scan_a_member_asks_for_is_theirs_alone_to_pay() {
 	let dir = tempfile::tempdir().unwrap();
 	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
 	let t = target(&archive, "ChIJtokenstest00000asked").await;
 	let a = person(archive.store().unwrap(), "a").await;
-	let b = person(archive.store().unwrap(), "b").await;
-	let g = tracks(&archive, a, t.id).await;
-	tracks(&archive, b, t.id).await;
-	set(&archive, a, 100).await;
-	set(&archive, b, 100).await;
+	person(archive.store().unwrap(), "b").await;
+	let g = conductor.tracks(&archive, "a", &t).await;
+	conductor.tracks(&archive, "b", &t).await;
+	conductor.set(&archive, "a", 100).await;
+	conductor.set(&archive, "b", 100).await;
 
 	let job = archive.scan_tracked(a, g, t.id).await.unwrap();
 	assert_eq!(archive.store().unwrap().claim_job(Timestamp::now()).await.unwrap().unwrap().id, job);
 	let blobs = BlobStore::new(dir.path().join("blobs"));
 	recorder(&archive, &blobs).record(&Spends(10), &t, Some(job)).await.unwrap();
-	assert_eq!(archive.tokens(a).await.unwrap().balance, 90);
-	assert_eq!(archive.tokens(b).await.unwrap().balance, 100);
+	assert_eq!(holds(&archive, "a").await, 90);
+	assert_eq!(holds(&archive, "b").await, 100);
 }
 
 #[tokio::test]
 async fn a_member_out_of_tokens_cannot_ask_for_a_scan() {
 	let dir = tempfile::tempdir().unwrap();
 	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
 	let t = target(&archive, "ChIJtokenstest000000poor").await;
 	let broke = person(archive.store().unwrap(), "broke").await;
-	let g = tracks(&archive, broke, t.id).await;
-	set(&archive, broke, 0).await;
+	let g = conductor.tracks(&archive, "broke", &t).await;
+	conductor.set(&archive, "broke", 0).await;
 	let refused = archive.scan_tracked(broke, g, t.id).await.unwrap_err();
 	assert!(matches!(refused.downcast_ref::<Rejected>(), Some(Rejected::Busy(_))), "{refused:#}");
 }
@@ -349,10 +308,11 @@ async fn a_member_out_of_tokens_cannot_ask_for_a_scan() {
 async fn a_scan_a_member_asks_for_leaves_the_schedule_alone() {
 	let dir = tempfile::tempdir().unwrap();
 	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
 	let t = target(&archive, "ChIJtokenstest00schedule").await;
 	let m = person(archive.store().unwrap(), "m").await;
-	let g = tracks(&archive, m, t.id).await;
-	set(&archive, m, 100).await;
+	let g = conductor.tracks(&archive, "m", &t).await;
+	conductor.set(&archive, "m", 100).await;
 	archive.record(&Spends(5), &t).await.unwrap();
 	let due = archive.due_at(&t).await.unwrap().unwrap();
 
@@ -375,9 +335,10 @@ async fn the_card_shows_a_scan_queued_then_running_then_gone() {
 	let archive = open(dir.path()).await;
 	let t = target(&archive, "ChIJtokenstest00000card1").await;
 	let other = target(&archive, "ChIJtokenstest00000card2").await;
+	let conductor = Conductor::new();
 	let m = person(archive.store().unwrap(), "m").await;
-	let g = tracks(&archive, m, t.id).await;
-	set(&archive, m, 100).await;
+	let g = conductor.tracks(&archive, "m", &t).await;
+	conductor.set(&archive, "m", 100).await;
 	assert_eq!(card(&archive, m, t.id).await.scan, None);
 
 	archive.enqueue_scan(other.id).await.unwrap();
@@ -402,80 +363,35 @@ async fn the_card_shows_a_scan_queued_then_running_then_gone() {
 async fn a_failure_is_kicked_back() {
 	let dir = tempfile::tempdir().unwrap();
 	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
 	let t = target(&archive, "ChIJtokenstest000kickback").await;
-	let a = person(archive.store().unwrap(), "a").await;
-	tracks(&archive, a, t.id).await;
-	set(&archive, a, 100).await;
+	person(archive.store().unwrap(), "a").await;
+	conductor.tracks(&archive, "a", &t).await;
+	conductor.set(&archive, "a", 100).await;
 
-	let rec = archive.record(&Warns(20, Warning::Failure("screenshot of x failed".into())), &t).await.unwrap();
-	let tokens = archive.tokens(a).await.unwrap();
-	assert_eq!(tokens.balance, 80, "charged all the same");
-	assert_eq!(
-		tokens.kickbacks.iter().map(|k| (k.amount, &k.why)).collect::<Vec<_>>(),
-		[(
-			20,
-			&KickbackWhy::Failed {
-				run_id: rec.run.0,
-				target_label: t.place_id.clone(),
-				error: "screenshot of x failed".into()
-			}
-		)]
-	);
-
-	let claimed = archive.claim_kickbacks(a).await.unwrap();
-	assert_eq!((claimed.balance, claimed.kickbacks.len()), (100, 0));
-	let back = archive.ledger(a).await.unwrap().into_iter().find(|l| l.kind == TokenKind::Kickback).unwrap();
-	assert_eq!((back.delta, back.run_id, back.target_id), (20, Some(rec.run.0), Some(t.id.0)));
-	assert_eq!(archive.claim_kickbacks(a).await.unwrap().balance, 100, "claimed once");
-
+	archive.record(&Warns(20, Warning::Failure("screenshot of x failed".into())), &t).await.unwrap();
+	assert_eq!(holds(&archive, "a").await, 80, "charged all the same");
 	archive.record(&Warns(10, Warning::Limit("out of tokens".into())), &t).await.unwrap();
-	let tokens = archive.tokens(a).await.unwrap();
-	assert_eq!((tokens.balance, tokens.kickbacks.len()), (90, 0), "a limit is no failure");
-
-	let b = person(archive.store().unwrap(), "b").await;
-	tracks(&archive, b, t.id).await;
-	set(&archive, b, 4).await;
 	archive.record(&BreaksAfter(20), &t).await.unwrap();
-	assert_eq!(archive.tokens(a).await.unwrap().balance, 74);
-	assert_eq!(archive.tokens(b).await.unwrap().balance, 0);
-	assert_eq!(archive.claim_kickbacks(a).await.unwrap().balance, 90, "each gets back what they paid");
-	assert_eq!(archive.claim_kickbacks(b).await.unwrap().balance, 4);
+	let kicked: Vec<_> = feed(&archive).await.iter().map(|c| (c.spent, c.kick_back)).collect();
+	assert_eq!(kicked, [(20, true), (10, false), (20, true)], "a limit is no failure");
 }
 
-/// A purged place leaves nothing behind but what its members were charged and are owed, under `other`.
+/// A purged place leaves the charges of its runs in the feed.
 #[tokio::test]
-async fn a_purged_places_tokens_stay_under_other() {
+async fn a_purged_places_charges_stay_in_the_feed() {
 	let dir = tempfile::tempdir().unwrap();
 	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
 	let t = target(&archive, "ChIJtokenstest00000purged").await;
 	let a = person(archive.store().unwrap(), "a").await;
-	let gmail = tracks(&archive, a, t.id).await;
-	set(&archive, a, 100).await;
+	let gmb = conductor.tracks(&archive, "a", &t).await;
+	conductor.set(&archive, "a", 100).await;
 	archive.record(&Spends(20), &t).await.unwrap();
-	archive.record(&Warns(10, Warning::Failure("screenshot of x failed".into())), &t).await.unwrap();
-	archive.untrack(a, gmail, t.id).await.unwrap();
+	archive.untrack(a, gmb, t.id).await.unwrap();
 
 	archive.purge_untracked(Timestamp::now() + SignedDuration::from_hours(24 * 7)).await.unwrap();
-	let tokens = archive.tokens(a).await.unwrap();
-	assert_eq!(tokens.balance, 70);
-	let labels: Vec<_> = tokens
-		.kickbacks
-		.iter()
-		.map(|k| match &k.why {
-			KickbackWhy::Failed { target_label, .. } => (target_label.as_str(), k.amount),
-			KickbackWhy::Granted { .. } => unreachable!("none granted"),
-		})
-		.collect();
-	assert_eq!(labels, [("other", 10)]);
-	let charges: Vec<_> = archive
-		.ledger(a)
-		.await
-		.unwrap()
-		.into_iter()
-		.filter(|l| l.kind == TokenKind::Charge)
-		.map(|l| (l.delta, l.target_label))
-		.collect();
-	assert_eq!(charges, [(-10, Some("other".into())), (-20, Some("other".into()))]);
-	assert!(archive.store().unwrap().targets().await.unwrap().is_empty(), "`other` is no target");
-	assert_eq!(archive.claim_kickbacks(a).await.unwrap().balance, 80);
+	assert!(archive.store().unwrap().targets().await.unwrap().is_empty());
+	assert_eq!(feed(&archive).await.iter().map(|c| c.spent).collect::<Vec<_>>(), [20]);
+	assert_eq!(holds(&archive, "a").await, 80);
 }

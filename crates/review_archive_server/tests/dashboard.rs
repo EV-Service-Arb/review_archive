@@ -7,7 +7,10 @@ use browser_manipulation::{Browser, Launch, Robot, Viewport};
 use review_archive::{
 	Archive,
 	config::Config,
-	core::dto::{NewGmail, NewTrack},
+	core::{
+		TargetId,
+		dto::{GmbSnapshot, MirroredGmb, NewTrack, TrackPatch},
+	},
 	store::people::{Claim, Seen},
 };
 use serde::Deserialize;
@@ -55,25 +58,40 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 	let Claim::Person(owner) = archive.person(&seen).await.unwrap() else {
 		panic!("a fresh archive")
 	};
-	let gmail = archive.add_gmail(owner, &NewGmail { gmail: "ops@gmail.com".into() }).await.unwrap().id;
-	for (i, label) in [SHORT, TWO_LINES, LONGER].into_iter().enumerate() {
+	let labels = [SHORT, TWO_LINES, LONGER];
+	let snapshot = GmbSnapshot {
+		gmbs: (1..=3)
+			.map(|id| MirroredGmb {
+				id,
+				gmail_id: 1,
+				gmail: "ops@gmail.com".into(),
+				owner: "owner".into(),
+				removed: false,
+				place_id: format!("ChIJdashboardtest{id:0>8}"),
+			})
+			.collect(),
+		balances: Default::default(),
+		charges_through: 0,
+	};
+	archive.apply_snapshot(&snapshot).await.unwrap();
+	for (gmb, label) in (1..).zip(labels) {
 		let track = NewTrack {
-			place: format!("ChIJdashboardtest{i:0>8}"),
 			label: Some(label.into()),
 			..Default::default()
 		};
-		archive.track(owner, gmail, &track).await.unwrap();
+		let t = archive.track(owner, gmb, &track).await.unwrap();
+		// no scans: there is no browser for them
+		let off = TrackPatch {
+			enabled: Some(false),
+			favorite: None,
+		};
+		archive.patch_track(owner, gmb, TargetId(t.id), &off).await.unwrap();
 	}
-	archive.set_gmail_enabled(owner, gmail, false).await.unwrap(); // no scans: there is no browser for them
 	archive.close().await;
 
 	let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
 	let config = dir.path().join("config.toml");
-	std::fs::write(
-		&config,
-		format!("data_dir = {data:?}\nmfe_dir = {mfe:?}\nbind = \"127.0.0.1:{port}\"\n[tokens]\nstart_cap_multiple = 2.0\n"),
-	)
-	.unwrap();
+	std::fs::write(&config, format!("data_dir = {data:?}\nmfe_dir = {mfe:?}\nbind = \"127.0.0.1:{port}\"\n")).unwrap();
 	let mut serve = tokio::process::Command::new(env!("CARGO_BIN_EXE_review_archive"))
 		.arg("--config")
 		.arg(&config)
@@ -102,7 +120,7 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 	.unwrap_or_else(|e| busy::busy(format!("Chromium did not start: {e}")));
 	let mut tab = browser.tab().await.unwrap();
 	let names = async {
-		while tab.goto(&format!("http://127.0.0.1:{port}/gmails/{gmail}")).await.is_err() {
+		while tab.goto(&format!("http://127.0.0.1:{port}/gmails/1")).await.is_err() {
 			tokio::time::sleep(Duration::from_millis(100)).await;
 		}
 		while tab.eval::<BTreeMap<String, Name>>(MEASURE, [SHORT, TWO_LINES, LONGER]).await.unwrap().len() < 3 {

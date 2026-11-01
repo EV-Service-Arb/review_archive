@@ -87,11 +87,10 @@ Out — do not build, even as an option:
 
 ### Place id resolution
 
-`target add` accepts a place id, a Google Maps URL, or a share link (`maps.app.goo.gl`, `share.google`, expanded to the Maps or Search URL behind it; a Search URL's `q` is the name). From a URL, take the id it carries
+`target add` resolves through `sa_places` (the conductor's crate, which its GMBs use too): a place id, a Google Maps URL, or a share link (`maps.app.goo.gl`, `share.google`, expanded to the Maps or Search URL behind it; a Search URL's `q` is the name). From a URL, take the id it carries
 (`!1s0x…:0x…` in `data=` is the place id, re-encoded). A cid alone (`?cid=`, a Search viewer's `svid`) makes an id Places details answers with the place's own; otherwise search Places API (New)
 `places:searchText` (`GOOGLE_MAPS_KEY`) for the URL's name. A place is never guessed: only
-hits bearing that exact name count, and when several do, the person picks one by its id
-(`GET /me/places`).
+hits bearing that exact name count, and when several do, the operator adds one by its id.
 
 ## Storage
 
@@ -183,7 +182,7 @@ needs) and `http.max_concurrent` are served at once; `/health` and `/openapi.jso
 
 Config: v_utils `Settings` (`--config`, else `$XDG_CONFIG_HOME/review_archive.{toml,nix,…}`;
 each key also a flag, e.g. `--schedule-min-interval`) for data dir, bind address, defaults,
-pacing (`[schedule]`, `[worker]`, `[http]`, `[webhooks]`, `[browser]`, `[tokens]`); every key has a default but `tokens.start_cap_multiple`,
+pacing (`[schedule]`, `[worker]`, `[http]`, `[webhooks]`, `[browser]`, `[tokens]` — only `per_hour`); every key has a default,
 `review_archive config write-defaults` lists them. Secrets only from env.
 
 ### HTTP API for other services
@@ -237,8 +236,9 @@ Events:
 
 ## Members
 
-Several people track their places here, grouped the way they manage them: by
-**managing gmail**, the Google manager account a small group of GBPs is attached to.
+Several people track their places here. Who manages which GMB is the conductor's: a person's
+gmails (a Google manager account, or an alias for one) and the GMBs (Google places) under each.
+The archive keeps a mirror of them and annotates them; it adds and removes none.
 
 - A **member** is a person: a concierge account the Service-Arb panel vouches for, kept in
   `people(id, sub UNIQUE, email, name, first_seen, interval_secs)` and found or made by `sub` on every
@@ -247,69 +247,68 @@ Several people track their places here, grouped the way they manage them: by
   ids were keyed by email: each address is a person without a `sub`, claimed by the first
   sign-in with it — only when concierge says the address is verified and no other account
   already holds it; otherwise the request is a 403 and an error is logged for an admin.
-- `managing_gmails(id, person_id, gmail, created_at)`, unique per member — a grouping,
-  not a credential: an address, or any alias for one without spaces (`tg:@owner`), lowercased. GBP reads keep the service's one grant: a client adds the service's
-  Google account as a manager of their GBP.
-- `tracks(managing_gmail_id, target_id, created_at)`. Tracking a place finds the target on
-  that place, language and source, or makes one (enabling a disabled one): targets,
-  reviews, captures and blobs stay shared, so two members on one place cost one scan and
-  one capture. Scheduling stays per target, its interval its payers' (see Scheduling). The operator assigns existing targets with
-  `gmail add <member> <gmail>` and `track <gmail-id> <target-id>`.
-- Gmails and tracks are switched on or off by their member (`enabled`, on when added;
-  `PATCH /me/gmails/{id}`, `PATCH /me/gmails/{id}/tracks/{target}`). A target someone
-  tracks is scanned while one of its tracks is on under a gmail that is on; one nobody
-  tracks keeps to its own `enabled`. Switching never touches the shared target.
-- `reinstatements(managing_gmail_id, review_id, requested_at, withdrawn_at, reinstated_at)`
+- `gmb_mirror(id, gmail_id, gmail, owner, removed, place_id)`: the conductor's GMBs, its ids,
+  `owner` a `sub`. `PUT /api/conductor/gmbs` (a Conductor assertion, below) upserts every one
+  in one transaction and never deletes; a GMB whose gmail, owner or place changes, or one
+  missing from the snapshot, is a 409 and nothing is written. A GMB the conductor removes loses
+  its tracks, as an untrack does; its appeals stay. GBP reads keep the service's one grant: a
+  client adds the service's Google account as a manager of their GBP.
+- `tracks(gmb_id, target_id, created_at, enabled, favorite)`. Tracking a GMB finds the target on
+  its place, a language and a source, or makes one (enabling a disabled one); a GMB may have
+  several. Targets, reviews, captures and blobs stay shared, so two members on one place cost
+  one scan and one capture. Scheduling stays per target, its interval its payers' (see
+  Scheduling). The operator assigns an existing target with `track <gmb-id> <target-id>`.
+- Tracks are switched on or off by their member (`enabled`, on when added;
+  `PATCH /me/gmbs/{gmb}/tracks/{target}`). A target someone tracks is scanned while one of its
+  tracks is on; one nobody tracks keeps to its own `enabled`. Switching never touches the
+  shared target.
+- `reinstatements(gmb_id, review_id, requested_at, withdrawn_at, reinstated_at)`
   record that a member asked Google to reinstate a removed review (the archive asks
   nothing of Google). Withdrawing sets `withdrawn_at`; nothing is deleted. A scan that lists
   the review again sets `reinstated_at` in its transaction, and it returns to the
-  Snapshotted column with a "reinstated after N d" badge. A gmail with appeals on record
-  cannot be removed.
-- A member's board of a tracked place has four columns, each by its own time:
+  Snapshotted column with a "reinstated after N d" badge.
+- A member's board of a tracked place (`GET /me/gmbs/{gmb}/tracks/{target}/board`) has four
+  columns, each by its own time:
   Snapshotted (listed, by first sighting), Suspended (gone with 5 stars, no open appeal, by
   `gone_at`), Removed (any other gone, no open appeal, by `gone_at`), Reinstating (gone, open
   appeal, by `requested_at`). The board narrows by 5-star and responded, each required or ruled
   out; a card's `non-5-star` and `responded` tags open it with that one ruled out.
+- `GET /me/gmbs` answers per GMB not removed `{tracked, rating, reviews}` (the place's figures
+  from its most recently walked track) and `places_tracked`: what the conductor's `/gmbs` page
+  tags a GMB with.
 
 ### Tokens
 
 Every Maps walk runs on the operator's signed-in Google account, and each action is
-exposure for it. Tokens price that, and the members whose places are scanned pay.
+exposure for it. Tokens price that; they are the conductor's, and the members whose places are
+scanned pay.
 
 - A walk is metered in `maps::cost`: opening the place 7, the Reviews tab 1, sorting 7
   (each retried click 2), each scroll of the feed 1 — the data requests each sends Google, a
   scroll's ~9 being the unit. "More" and screenshots send none. An unchanged place costs 8;
   a rescan 15 and 1 per screen of cards.
-- `token_ledger(id, person_id, at, delta, kind[accrual|add|set|charge|kickback], run_id, by_email, note)`:
-  append-only; a balance is the sum of its rows. Reading a balance renews it first, a whole
-  day at a time: `tokens.daily` (15) per day while under `tokens.cap` (500); added or claimed
-  tokens above the cap stay. A member seen for the first time starts with `tokens.start_cap_multiple` (no default; 2.0) caps.
-  `set` writes the difference to the balance asked for.
-- A scheduled scan of a target is paid by the members tracking it (a track on, under a gmail
-  that is on). Its walk may spend their balances together, within what the account has left
-  this hour; the next scroll past that ends the walk (`WalkEnd::Budget`), recording a cut as
-  a limit does — a first scan too — so the next scan goes on from there. Whatever the walk
-  spent is charged with the run's end, in its transaction: equal shares, none past its
-  payer's balance, the rest falling on the others. A scan a member asks for
-  (`POST /me/gmails/{g}/tracks/{t}/scan`) is that member's alone, and refused (`429`) while
-  they hold less than a first screen; asked for while the same scan is already queued, it is
-  that job's and its first requester pays. Places nobody tracks, the operator's jobs and
-  ad-hoc captures are paid by no one and limited by the hour only.
-- Kick-backs are what we owe a member: `kickbacks(id, person_id, run_id, amount, at,
-  claimed_at, by_email, note)`, a run's or an admin's grant. A run that failed, or met a
-  failure (`Warning::Failure`; a `Warning::Limit` is none), is ours: its end transaction
-  writes one per payer, owed what they paid. A grant (our mistake, a reward) needs its note,
-  which the member sees before claiming. Pending ones are not balance;
-  `POST /me/tokens/claim` turns them into `kickback` rows. The hour still counts the run.
-- Nothing is sold here: a payment is an admin's `add`, its reference in `note`.
-- `GET /me` carries the signed-in person's `tokens {balance, daily, cap, kickbacks}`
-  (pending, each with its run, place and the run's error); `GET /me/tokens` is
-  the member's ledger, each charge with its run and place; `GET /me/usage` its charges summed
-  per UTC day over the last 30 (`{day, walks, tokens}`, every day present) and the places it
-  tracks now. `GET /members` lists every person
-  with their balance; `POST /members/{id}/tokens` `{set | add | grant: n, note?}` sets,
-  adds to, or grants one. Both need `sa:review_archive:tokens:grant`.
-  A place held for tokens shows "out of tokens" on its card (`held`).
+- What a member holds is their balance in the conductor's last snapshot (`mirror_balances`, by
+  `sub`; none told is 0) less the equal shares (`ceil(spent / payers)`) of the charges past
+  the snapshot's `charges_through` that name them, never below 0. No network is asked: a
+  conductor away leaves walks going, and their charges wait in the feed.
+- A scheduled scan of a target is paid by the members tracking it (a track on). Its walk may
+  spend their holdings together, within what the account has left this hour
+  (`tokens.per_hour`); the next scroll past that ends the walk (`WalkEnd::Budget`), recording a
+  cut as a limit does — a first scan too — so the next scan goes on from there. A scan a member
+  asks for (`POST /me/gmbs/{gmb}/tracks/{target}/scan`) is that member's alone, and refused
+  (`429`) while they hold less than a first screen; asked for while the same scan is already
+  queued, it is that job's and its first requester pays. Places nobody tracks, the operator's
+  jobs and ad-hoc captures are paid by no one and limited by the hour only.
+- The run's end transaction writes what it cost to `token_charges(id, run_id, payers, spent,
+  kick_back, label, at)` when it had payers and spent anything; `kick_back` when it failed or
+  met a failure (`Warning::Failure`; a `Warning::Limit` is none): the conductor owes each payer
+  back what they paid. A run a stopped process left open writes none. The hour still counts
+  the run. Purge leaves the feed alone (no foreign key to `runs`).
+- `GET /api/conductor/charges?after=&limit=` (1–500) is the feed, ascending, `next` the page's
+  last id. The conductor splits each charge within its balances, owes the kick-backs, and tells
+  the archive the cursor in its next snapshot; a `charges_through` behind the stored one or past
+  the feed is a 409.
+- A place held for tokens shows "out of tokens" on its card (`held`).
 
 ### Auth
 
@@ -325,26 +324,28 @@ the service.
   is the caller's `sa:review_archive:*` slice.
 - `sa:review_archive:archive:operate` opens the archive's own routes: targets, scans,
   captures, jobs, reviews, stats, webhooks, export, and any capture's WebP.
-  `sa:review_archive:members:act_as` opens `GET /members`; `sa:review_archive:tokens:grant`,
-  `POST /members/{id}/tokens`.
+  `sa:review_archive:members:act_as` opens `GET /members`.
+- `/api/conductor/*` takes a Conductor assertion only (the panel itself, no user); a User or
+  Source assertion is a 401. Not served under `--dev-member`.
 - `/me` routes are every signed-in person's own, and `GET /captures/{sha}.webp` of the places
-  their gmails track. With `sa:review_archive:members:act_as`, `X-Member: <person id>` acts as
-  that member: their gmails, boards and channels, their writes; anyone else sending it gets 403.
+  their GMBs track. With `sa:review_archive:members:act_as`, `X-Member: <person id>` acts as
+  that member: their GMBs, boards and channels, their writes; anyone else sending it gets 403.
 - `POST /me/tg-channels/{id}/test` posts at most once a minute per person (429).
 - CSRF is the panel's: it checks its own header on every write before forwarding. Its Grafana route
   does not: a Grafana query is a POST that only reads, its fetches GETs as the viewer
   (ARCHITECTURE.md § Invariants).
 - `serve --dev-member <alias | permissions | none>` (loopback, outside production): every
   request is one person holding that, without the panel, for a local dashboard
-  (`nix run .#dev-mfe`): the member with gmails, so it shows what the worker scans; with
-  several, the one `--dev-as <person id>` names; before anyone has one, a made-up `dev`. Each
-  `serve` sets their balance to a new member's (`tokens.start_cap_multiple` caps).
+  (`nix run .#dev-mfe`): the owner of a mirrored GMB, so it shows what the worker scans; with
+  several, the one `--dev-as <person id>` names; before anyone has one, a made-up `dev`. Its
+  balance is the mirror's: standalone, with no conductor, its places are held.
   `--no-login-check` (outside production; `nix run .#dev-mfe` passes it): no boot check of the
   Google accounts, and every one signed out fails walks without ending `serve`.
 
 ### Telegram
 
-- `tg_channels(person_id, managing_gmail_id NULL = all, destination, events)`;
+- `tg_channels(person_id, gmail_id NULL = all, destination, events)`, `gmail_id` the
+  conductor's, as the mirror knows it;
   `destination` is what the member pasted (`@channel`, `-100…`, `<group>/<topic>`),
   parsed as `tg_types::TelegramDestination`.
 - Events go through the outbox (`webhook_deliveries`, a row names exactly one hook or
@@ -365,9 +366,10 @@ sends the top window to the sign-in with `return_to` = the page, which comes bac
 in. Design: Figma "review_archive / dashboard", on ev_lib's `uikit`. One holding
 `members:act_as` gets tabs: their own dashboard, and one per member picked from
 `GET /members` at `/act-as` (the panel's account menu links there), acting as them through
-`X-Member`; the open tabs outlive a full load of the page, per browser tab. Where it is is its URL — `/gmails/{id}`,
-`/gmails/{id}/places/{target}`, `/telegram`, `/tokens` (the ledger), under `/members/{id}`
-for a member's tab. Standalone (`--dev-member`), the binary serves the same page at `/`.
+`X-Member`; the open tabs outlive a full load of the page, per browser tab. Where it is is its URL — `/gmbs` (the
+overview), `/gmbs/{id}` (a GMB's board, a switch between its tracks, or a language to track it
+in), `/gmails/{id}`, `/telegram`, under `/members/{id}` for a member's tab. Adding a GMB is the
+conductor's `/gmbs` page. Standalone (`--dev-member`), the binary serves the same page at `/`.
 `?grafana=true` on its URL has Grafana draw the overview and a place's board, for that browser tab
 (`?grafana=false` undoes it); otherwise the legacy UI does.
 

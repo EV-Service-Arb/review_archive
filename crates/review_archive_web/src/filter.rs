@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use ev_lib::uikit_dioxus::{Button, ButtonVariant, Input, Size, Toggle, ToggleVariant};
 use regex_lite::{Regex, RegexBuilder};
-use review_archive_client::dto::{GmailDto, LocationSummary, RunStatus};
+use review_archive_client::dto::{LocationSummary, RunStatus};
 use strum::IntoEnumIterator;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, strum::Display, strum::EnumIter)]
@@ -28,14 +28,14 @@ enum Facet {
 }
 
 impl Facet {
-	fn holds(self, g: &GmailDto, l: &LocationSummary) -> bool {
+	fn holds(self, l: &LocationSummary) -> bool {
 		match self {
 			Self::Favorite => l.favorite,
 			Self::Posted7d => l.posts_7d > 0,
 			Self::OutOfTokens => l.held,
 			Self::Failing => matches!(l.last_run_status, Some(RunStatus::Failed | RunStatus::Partial)),
 			Self::Scanning => l.scan.is_some(),
-			Self::Off => !l.enabled || !g.enabled,
+			Self::Off => !l.enabled,
 		}
 	}
 }
@@ -56,13 +56,13 @@ impl Filter {
 	}
 
 	/// The cards that pass. An invalid pattern passes every card: the bar shows why.
-	pub(crate) fn keep(&self, cards: Vec<(GmailDto, LocationSummary)>) -> Vec<(GmailDto, LocationSummary)> {
+	pub(crate) fn keep(&self, cards: Vec<(crate::Gmb, LocationSummary)>) -> Vec<(crate::Gmb, LocationSummary)> {
 		let re = self.regex().ok().flatten();
 		cards
 			.into_iter()
 			.filter(|(g, l)| {
-				let text = [l.target.address.as_deref().unwrap_or_default(), &l.target.label, &l.target.place_id, &g.gmail];
-				re.as_ref().is_none_or(|re| text.iter().any(|t| re.is_match(t))) && self.facets.iter().all(|(f, want)| f.holds(g, l) == *want)
+				let text = [l.target.address.as_deref().unwrap_or_default(), &l.target.label, &l.target.place_id, &g.gmail.gmail];
+				re.as_ref().is_none_or(|re| text.iter().any(|t| re.is_match(t))) && self.facets.iter().all(|(f, want)| f.holds(l) == *want)
 			})
 			.collect()
 	}

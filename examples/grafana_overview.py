@@ -13,9 +13,11 @@ ROOT = """(
   $order := $merge($append([], $map($split("${keys}", ","), function($k, $i) { {$k: $i} })));
   $rows := $$[("${gmail}" = "") or ($string(id) = "${gmail}")].(
     $g := $;
-    locations.{
-      "key": $string($g.id) & ":" & $string(target.id),
-      "gmail": $g.id, "gmail_name": $g.gmail, "gmail_on": $g.enabled,
+    gmbs.(
+    $b := $;
+    tracks.{
+      "key": $string($b.id) & ":" & $string(target.id),
+      "gmb": $b.id, "gmail": $g.id, "gmail_name": $g.gmail,
       "target": target.id, "label": target.label, "address": target.address, "place_id": target.place_id,
       "enabled": enabled, "favorite": favorite, "snapshots_7d": snapshots_7d, "snapshots_30d": snapshots_30d,
       "live": live, "listed": listed, "rating": rating, "new_7d": new_7d, "posts_7d": posts_7d,
@@ -23,7 +25,7 @@ ROOT = """(
       "responded": responded, "corrupted": corrupted, "captured": captured, "non_five_star": non_five_star, "suspended": suspended, "removed": removed, "reinstating": reinstating, "held": held,
       "last_run_at": last_run_at, "last_run_status": last_run_status, "last_run_error": last_run_error,
       "scan": scan.state, "scan_since": scan.since, "scan_ahead": scan.ahead, "scan_cost": scan_cost
-    }
+    })
   );
   $sort($append([], $rows[$type($lookup($order, key)) = "number"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })
 )"""
@@ -53,9 +55,9 @@ def hidden(name):
 
 
 CARD_COLUMNS = [
+	("gmb", "gmb", "number"),
 	("gmail", "gmail", "number"),
 	("gmail_name", "gmail_name", "string"),
-	("gmail_on", "gmail_on", "boolean"),
 	("target", "target", "number"),
 	("label", "label", "string"),
 	("address", "address", "string"),
@@ -136,13 +138,13 @@ CONTENT = """<div class="ra-grid">
   <div class="ra-run">
     <span class="ra-line" title="{{last_run_error}}"><i class="ra-dot ra-dot-{{dot this}}"></i>{{scanline this}}{{lastline this}}{{#if last_run_status}}{{last_run_status}}{{else}}never scanned{{/if}}</span>
     {{#if scan}}<span class="ra-btn"><i class="ra-spin"></i></span>{{else}}<button class="ra-btn" data-act="scan" title="scan now, on top of the schedule: ≈ {{scan_cost}} tokens">↻</button>{{/if}}
-    <button class="ra-btn" data-act="enable" title="scanned on the schedule" {{#unless gmail_on}}disabled{{/unless}}><i class="ra-switch{{#if enabled}} on{{/if}}"></i></button>
+    <button class="ra-btn" data-act="enable" title="scanned on the schedule"><i class="ra-switch{{#if enabled}} on{{/if}}"></i></button>
     <details class="ra-menu">
       <summary class="ra-btn" title="more">⋮</summary>
       <div>
         <button data-act="favorite">{{#if favorite}}<i class="ra-gold">★</i> unfavorite{{else}}☆ favorite{{/if}}</button>
         <button data-act="relink" title="ask Google for the place's id, name and address again">⟳ re-link</button>
-        <button data-act="delete" class="ra-del" title="stop tracking under this gmail; the archive stays">🗑 delete</button>
+        <button data-act="delete" class="ra-del" title="stop tracking under this GMB; the archive stays">🗑 delete</button>
       </div>
     </details>
   </div>
@@ -165,7 +167,7 @@ h.registerHelper('ago', ago);
 h.registerHelper('lt', (a, b) => a < b);
 h.registerHelper('fixed', (n, digits) => n.toFixed(digits));
 h.registerHelper('allGmails', () => context.grafana.replaceVariables('${gmail}') === '');
-h.registerHelper('on', (r) => r.enabled && r.gmail_on);
+h.registerHelper('on', (r) => r.enabled);
 h.registerHelper('dot', (r) => r.scan === 'queued' ? 'warn' : r.scan === 'running' ? 'run' : (r.last_run_status || 'never'));
 h.registerHelper('scanline', (r) => r.scan === 'queued'
   ? 'queued · ' + (r.scan_ahead ? r.scan_ahead + ' ahead' : 'next') + ' · since ' + ago(r.scan_since) + ' · '
@@ -177,7 +179,7 @@ h.registerHelper('lastline', (r) => r.last_run_at ? 'last run ' + ago(r.last_run
 AFTER_RENDER = """const up = (m) => window.parent.postMessage(m, window.location.origin);
 context.element.querySelectorAll('.ra-card').forEach((card) => {
   const row = context.data[Number(card.dataset.i)];
-  const ids = { gmail: row.gmail, target: row.target };
+  const ids = { gmb: row.gmb, target: row.target };
   const acts = {
     scan: { kind: 'ra-scan', ...ids },
     enable: { kind: 'ra-enable', ...ids, on: !row.enabled },

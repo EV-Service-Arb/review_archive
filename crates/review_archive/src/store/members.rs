@@ -1,42 +1,24 @@
-//! What is a member's own: their managing gmails, what each tracks, their appeals and
-//! their Telegram channels. Every query here is scoped by the member; the
-//! archive under it (targets, reviews, captures) stays shared.
+//! What is a member's own: what their GMBs (the conductor's, mirrored) track, their appeals
+//! and their Telegram channels. Every query here is scoped by the member; the archive under it
+//! (targets, reviews, captures) stays shared.
 
 use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, Target, TargetId,
-	dto::{Board, BoardCard, GmailDto, GmailOverview, LocationSummary, NewTgChannel, PostDto, ReinstatementDto, ReviewDto, ScanState, TgChannelDto, TrackPatch},
+	dto::{
+		Board, BoardCard, GmailDto, GmailOverview, GmbReviews, GmbSummary, LocationSummary, MyGmbs, NewTgChannel, PostDto, ReinstatementDto, ReviewDto, ScanState, TgChannelDto, TrackPatch,
+	},
 	fmt_ts,
 	maps::cost,
-	tokens::Tokens,
 };
 use sqlx::{FromRow, SqliteConnection};
 
 use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow, no_target, webhooks::parse_events};
 
 #[derive(FromRow)]
-struct GmailRow {
-	id: i64,
-	gmail: String,
-	enabled: bool,
-	created_at: String,
-}
-
-impl From<GmailRow> for GmailDto {
-	fn from(r: GmailRow) -> Self {
-		Self {
-			id: r.id,
-			gmail: r.gmail,
-			enabled: r.enabled,
-			created_at: r.created_at,
-		}
-	}
-}
-
-#[derive(FromRow)]
 struct LocationRow {
-	gmail_id: i64,
+	gmb_id: i64,
 	#[sqlx(flatten)]
 	target: TargetRow,
 	track_enabled: bool,
@@ -79,7 +61,7 @@ struct CardRow {
 struct TgChannelRow {
 	id: i64,
 	destination: String,
-	managing_gmail_id: Option<i64>,
+	gmail_id: Option<i64>,
 	events: String,
 	created_at: String,
 }
@@ -92,18 +74,22 @@ impl TryFrom<TgChannelRow> for TgChannelDto {
 			events: parse_events(r.id, &r.events)?,
 			id: r.id,
 			destination: r.destination,
-			gmail_id: r.managing_gmail_id,
+			gmail_id: r.gmail_id,
 			created_at: r.created_at,
 		})
 	}
 }
 
-fn no_gmail(id: i64) -> Rejected {
-	Rejected::not_found(format!("no gmail {id}"))
+fn no_gmb(id: i64) -> Rejected {
+	Rejected::not_found(format!("no GMB {id}"))
+}
+
+fn no_track(gmb: i64, target: TargetId) -> Rejected {
+	Rejected::not_found(format!("GMB {gmb} does not track target {target}"))
 }
 
 /// A target whose last track went comes off the schedule, and is purged once `defaults.untracked_retention` passes.
-async fn left_untracked(conn: &mut SqliteConnection, target: TargetId, now: Timestamp) -> eyre::Result<()> {
+pub(super) async fn left_untracked(conn: &mut SqliteConnection, target: TargetId, now: Timestamp) -> eyre::Result<()> {
 	sqlx::query("UPDATE targets SET untracked_at = ?, enabled = 0 WHERE id = ?2 AND NOT EXISTS (SELECT 1 FROM tracks WHERE target_id = ?2)")
 		.bind(fmt_ts(now))
 		.bind(target.0)
@@ -114,54 +100,10 @@ async fn left_untracked(conn: &mut SqliteConnection, target: TargetId, now: Time
 }
 
 impl Store {
-	/// Adds a managing gmail to a member.
-	pub async fn add_gmail(&self, member: PersonId, gmail: &str, now: Timestamp) -> eyre::Result<GmailDto> {
-		let row: Option<GmailRow> =
-			sqlx::query_as("INSERT INTO managing_gmails (person_id, gmail, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING id, gmail, enabled, created_at")
-				.bind(member.0)
-				.bind(gmail)
-				.bind(fmt_ts(now))
-				.fetch_optional(&self.pool)
-				.await
-				.wrap_err("adding a gmail")?;
-		Ok(row.ok_or_else(|| Rejected::invalid(format!("{gmail} is already one of your gmails")))?.into())
-	}
-
-	/// Removes a gmail with its tracks and the Telegram channels scoped to it. One with
-	/// appeals is kept: they are the history of what was asked of Google.
-	pub async fn delete_gmail(&self, member: PersonId, id: i64, now: Timestamp) -> eyre::Result<()> {
-		let mut tx = self.write().await?;
-		let appeals: Option<i64> =
-			sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM reinstatements WHERE managing_gmail_id = g.id) FROM managing_gmails g WHERE g.id = ? AND g.person_id = ?")
-				.bind(id)
-				.bind(member.0)
-				.fetch_optional(&mut *tx)
-				.await
-				.wrap_err("loading a gmail")?;
-		match appeals.ok_or_else(|| no_gmail(id))? {
-			0 => {}
-			n => return Err(Rejected::invalid(format!("gmail {id} has {n} reinstatement requests on record; it is kept with them")).into()),
-		}
-		let tracked: Vec<i64> = sqlx::query_scalar("SELECT target_id FROM tracks WHERE managing_gmail_id = ?")
-			.bind(id)
-			.fetch_all(&mut *tx)
-			.await
-			.wrap_err("listing a gmail's places")?;
-		sqlx::query("DELETE FROM managing_gmails WHERE id = ?")
-			.bind(id)
-			.execute(&mut *tx)
-			.await
-			.wrap_err("deleting a gmail")?;
-		for target in tracked {
-			left_untracked(&mut *tx, TargetId(target), now).await?;
-		}
-		tx.commit().await.wrap_err("committing a gmail's removal")
-	}
-
-	/// Tracks a target under a gmail; tracking it twice is tracking it. `member: None` is
-	/// the operator, who may assign any gmail.
-	pub async fn track(&self, member: Option<PersonId>, gmail: i64, target: TargetId, now: Timestamp) -> eyre::Result<()> {
-		self.check_gmail(member, gmail).await?;
+	/// Tracks a target under a GMB; tracking it twice is tracking it. `member: None` is
+	/// the operator, who may assign any GMB.
+	pub async fn track(&self, member: Option<PersonId>, gmb: i64, target: TargetId, now: Timestamp) -> eyre::Result<()> {
+		self.check_gmb(member, gmb).await?;
 		let mut tx = self.write().await?;
 		// back on the schedule it was taken off when its last track went
 		let live = sqlx::query("UPDATE targets SET enabled = enabled OR untracked_at IS NOT NULL, untracked_at = NULL WHERE id = ? AND id > 0")
@@ -172,8 +114,8 @@ impl Store {
 		if live.rows_affected() != 1 {
 			return Err(no_target(target).into());
 		}
-		sqlx::query("INSERT INTO tracks (managing_gmail_id, target_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
-			.bind(gmail)
+		sqlx::query("INSERT INTO tracks (gmb_id, target_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
+			.bind(gmb)
 			.bind(target.0)
 			.bind(fmt_ts(now))
 			.execute(&mut *tx)
@@ -184,70 +126,56 @@ impl Store {
 
 	/// Stops tracking; the target and its archive stay, until `defaults.untracked_retention`
 	/// after its last track went.
-	pub async fn untrack(&self, member: PersonId, gmail: i64, target: TargetId, now: Timestamp) -> eyre::Result<()> {
+	pub async fn untrack(&self, member: PersonId, gmb: i64, target: TargetId, now: Timestamp) -> eyre::Result<()> {
 		let mut tx = self.write().await?;
-		let done = sqlx::query("DELETE FROM tracks WHERE managing_gmail_id = (SELECT id FROM managing_gmails WHERE id = ? AND person_id = ?) AND target_id = ?")
-			.bind(gmail)
+		let done = sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM tracks WHERE gmb_id = ({MEMBERS_GMB}) AND target_id = ?")))
+			.bind(gmb)
 			.bind(member.0)
 			.bind(target.0)
 			.execute(&mut *tx)
 			.await
 			.wrap_err("untracking a target")?;
 		if done.rows_affected() != 1 {
-			return Err(Rejected::not_found(format!("gmail {gmail} does not track target {target}")).into());
+			return Err(no_track(gmb, target).into());
 		}
-		left_untracked(&mut *tx, target, now).await?;
+		left_untracked(&mut tx, target, now).await?;
 		tx.commit().await.wrap_err("committing an untrack")
 	}
 
-	/// Switches a member's gmail on or off.
-	pub async fn set_gmail_enabled(&self, member: PersonId, gmail: i64, on: bool) -> eyre::Result<()> {
-		let done = sqlx::query("UPDATE managing_gmails SET enabled = ? WHERE id = ? AND person_id = ?")
-			.bind(on)
-			.bind(gmail)
-			.bind(member.0)
-			.execute(&self.pool)
-			.await
-			.wrap_err("switching a gmail")?;
-		if done.rows_affected() != 1 {
-			return Err(no_gmail(gmail).into());
-		}
-		Ok(())
-	}
-
 	/// Changes a member's track; absent fields stay.
-	pub async fn patch_track(&self, member: PersonId, gmail: i64, target: TargetId, patch: &TrackPatch) -> eyre::Result<()> {
-		let done = sqlx::query(
-			"UPDATE tracks SET enabled = COALESCE(?, enabled), favorite = COALESCE(?, favorite)
-			 WHERE managing_gmail_id = (SELECT id FROM managing_gmails WHERE id = ? AND person_id = ?) AND target_id = ?",
-		)
+	pub async fn patch_track(&self, member: PersonId, gmb: i64, target: TargetId, patch: &TrackPatch) -> eyre::Result<()> {
+		let done = sqlx::query(sqlx::AssertSqlSafe(format!(
+			"UPDATE tracks SET enabled = COALESCE(?, enabled), favorite = COALESCE(?, favorite) WHERE gmb_id = ({MEMBERS_GMB}) AND target_id = ?"
+		)))
 		.bind(patch.enabled)
 		.bind(patch.favorite)
-		.bind(gmail)
+		.bind(gmb)
 		.bind(member.0)
 		.bind(target.0)
 		.execute(&self.pool)
 		.await
 		.wrap_err("patching a track")?;
 		if done.rows_affected() != 1 {
-			return Err(Rejected::not_found(format!("gmail {gmail} does not track target {target}")).into());
+			return Err(no_track(gmb, target).into());
 		}
 		Ok(())
 	}
 
-	/// The member's gmails and each one's places, by screenshots over 7 days, most first.
-	pub async fn overview(&self, member: PersonId, now: Timestamp, tokens: &Tokens) -> eyre::Result<Vec<GmailOverview>> {
+	/// The member's gmails, each one's GMBs, and their places as tracked, by screenshots over 7 days, most first.
+	pub async fn overview(&self, member: PersonId, now: Timestamp) -> eyre::Result<Vec<GmailOverview>> {
 		let days_ago = |d: i64| fmt_ts(now - SignedDuration::from_hours(24 * d));
-		// one snapshot: every location row's gmail is among the gmails read
+		// one snapshot: every location row's GMB is among the GMBs read
 		let mut tx = self.pool.begin().await.wrap_err("starting a read")?;
-		let gmails: Vec<GmailRow> = sqlx::query_as("SELECT id, gmail, enabled, created_at FROM managing_gmails WHERE person_id = ? ORDER BY gmail")
-			.bind(member.0)
-			.fetch_all(&mut *tx)
-			.await
-			.wrap_err("listing gmails")?;
+		let gmbs: Vec<(i64, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+			"SELECT m.id, m.gmail_id, m.gmail, m.place_id FROM gmb_mirror m WHERE m.id IN ({MEMBERS_GMBS}) ORDER BY m.gmail, m.gmail_id, m.id"
+		)))
+		.bind(member.0)
+		.fetch_all(&mut *tx)
+		.await
+		.wrap_err("listing GMBs")?;
 		let columns = &self.target_columns;
 		let rows: Vec<LocationRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-			"SELECT k.managing_gmail_id AS gmail_id, {columns},
+			"SELECT k.gmb_id, {columns},
 			        k.enabled AS track_enabled, k.favorite,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.published_est >= ?2) AS new_7d,
 			        (SELECT COUNT(*) FROM posts p WHERE p.target_id = t.id AND p.published_est >= ?2) AS posts_7d,
@@ -263,10 +191,10 @@ impl Store {
 			        t.listed, t.rating,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.gone_at IS NOT NULL) AS gone,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.gone_at IS NOT NULL AND r.rating = 5
-			          AND NOT EXISTS (SELECT 1 FROM reinstatements x WHERE x.review_id = r.id AND x.managing_gmail_id = k.managing_gmail_id
+			          AND NOT EXISTS (SELECT 1 FROM reinstatements x WHERE x.review_id = r.id AND x.gmb_id = k.gmb_id
 			            AND x.withdrawn_at IS NULL AND x.reinstated_at IS NULL)) AS suspended,
 			        (SELECT COUNT(*) FROM reviews r JOIN reinstatements x ON x.review_id = r.id
-			          WHERE r.target_id = t.id AND r.gone_at IS NOT NULL AND x.managing_gmail_id = k.managing_gmail_id
+			          WHERE r.target_id = t.id AND r.gone_at IS NOT NULL AND x.gmb_id = k.gmb_id
 			            AND x.withdrawn_at IS NULL AND x.reinstated_at IS NULL) AS reinstating,
 			        (SELECT finished_at FROM runs WHERE target_id = t.id AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS last_run_at,
 			        (SELECT status FROM runs WHERE target_id = t.id AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS last_run_status,
@@ -278,10 +206,9 @@ impl Store {
 			          AND a.id < (SELECT id FROM jobs WHERE target_id = t.id AND status = 'queued' AND kind = 'scan' ORDER BY id LIMIT 1)) AS queued_ahead,
 			        (SELECT tokens FROM runs WHERE target_id = t.id AND ad_hoc = 0 AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) AS scan_cost
 			 FROM tracks k
-			 JOIN managing_gmails g ON g.id = k.managing_gmail_id
 			 JOIN targets t ON t.id = k.target_id
 			 LEFT JOIN posts p ON p.id = (SELECT id FROM posts WHERE target_id = t.id ORDER BY first_seen DESC, id DESC LIMIT 1)
-			 WHERE g.person_id = ?1
+			 WHERE k.gmb_id IN ({MEMBERS_GMBS})
 			 ORDER BY snapshots_7d DESC, t.id"
 		)))
 		.bind(member.0)
@@ -291,7 +218,17 @@ impl Store {
 		.await
 		.wrap_err("loading the overview")?;
 		tx.commit().await.wrap_err("ending a read")?;
-		let mut out: Vec<GmailOverview> = gmails.into_iter().map(|g| GmailOverview { gmail: g.into(), locations: vec![] }).collect();
+		let mut out: Vec<GmailOverview> = Vec::new();
+		for (id, gmail_id, gmail, place_id) in gmbs {
+			if out.last().is_none_or(|g| g.gmail.id != gmail_id) {
+				out.push(GmailOverview {
+					gmail: GmailDto { id: gmail_id, gmail },
+					gmbs: vec![],
+				});
+			}
+			let g = out.last_mut().expect("pushed above");
+			g.gmbs.push(GmbSummary { id, place_id, tracks: vec![] });
+		}
 		for r in rows {
 			let status = r
 				.last_run_status
@@ -299,9 +236,9 @@ impl Store {
 				.map(str::parse)
 				.transpose()
 				.wrap_err_with(|| format!("target {}'s last run has an unknown status", r.target.id))?;
-			let held = self.held(TargetId(r.target.id), now, tokens).await?;
-			let g = out.iter_mut().find(|g| g.gmail.id == r.gmail_id).expect("read in the same transaction");
-			g.locations.push(LocationSummary {
+			let held = self.held(TargetId(r.target.id)).await?;
+			let gmb = out.iter_mut().flat_map(|g| &mut g.gmbs).find(|b| b.id == r.gmb_id).expect("read in the same transaction");
+			gmb.tracks.push(LocationSummary {
 				target: Target::try_from(r.target)?.into(),
 				enabled: r.track_enabled,
 				favorite: r.favorite,
@@ -343,17 +280,17 @@ impl Store {
 		Ok(out)
 	}
 
-	/// A tracked target's reviews in the board's four columns, as this gmail sees them.
+	/// A tracked target's reviews in the board's four columns, as this GMB sees them.
 	// ponytail: every live review in one answer; page `snapshotted` when a place's list outgrows a screen's worth of JSON
-	pub async fn board(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<Board> {
-		self.check_track(member, gmail, target).await?;
+	pub async fn board(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<Board> {
+		self.check_track(member, gmb, target).await?;
 		let select = REVIEW_SELECT.replacen("SELECT ", "SELECT x.requested_at, x.reinstated_at, ", 1);
 		let rows: Vec<CardRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
 			"{select}
-			 LEFT JOIN reinstatements x ON x.id = (SELECT MAX(id) FROM reinstatements WHERE review_id = r.id AND managing_gmail_id = ?1 AND withdrawn_at IS NULL)
+			 LEFT JOIN reinstatements x ON x.id = (SELECT MAX(id) FROM reinstatements WHERE review_id = r.id AND gmb_id = ?1 AND withdrawn_at IS NULL)
 			 WHERE r.target_id = ?2"
 		)))
-		.bind(gmail)
+		.bind(gmb)
 		.bind(target.0)
 		.fetch_all(&self.pool)
 		.await
@@ -384,33 +321,33 @@ impl Store {
 		Ok(board)
 	}
 
-	/// Opens an appeal of a gone review under a gmail tracking its place; one already open
+	/// Opens an appeal of a gone review under a GMB tracking its place; one already open
 	/// stays as it is.
-	pub async fn reinstate(&self, member: PersonId, gmail: i64, review: ReviewId, now: Timestamp) -> eyre::Result<ReinstatementDto> {
+	pub async fn reinstate(&self, member: PersonId, gmb: i64, review: ReviewId, now: Timestamp) -> eyre::Result<ReinstatementDto> {
 		let (target, gone): (i64, bool) = sqlx::query_as("SELECT target_id, gone_at IS NOT NULL FROM reviews WHERE id = ?")
 			.bind(review.0)
 			.fetch_optional(&self.pool)
 			.await
 			.wrap_err("loading a review")?
 			.ok_or_else(|| Rejected::not_found(format!("no review {review}")))?;
-		self.check_track(member, gmail, TargetId(target)).await?;
+		self.check_track(member, gmb, TargetId(target)).await?;
 		if !gone {
 			return Err(Rejected::invalid(format!("review {review} is listed; only a removed review can be appealed")).into());
 		}
 		let mut tx = self.write().await?;
 		sqlx::query(
-			"INSERT INTO reinstatements (managing_gmail_id, review_id, requested_at)
-			 SELECT ?1, ?2, ?3 WHERE NOT EXISTS (SELECT 1 FROM reinstatements WHERE managing_gmail_id = ?1 AND review_id = ?2 AND withdrawn_at IS NULL AND reinstated_at IS NULL)",
+			"INSERT INTO reinstatements (gmb_id, review_id, requested_at)
+			 SELECT ?1, ?2, ?3 WHERE NOT EXISTS (SELECT 1 FROM reinstatements WHERE gmb_id = ?1 AND review_id = ?2 AND withdrawn_at IS NULL AND reinstated_at IS NULL)",
 		)
-		.bind(gmail)
+		.bind(gmb)
 		.bind(review.0)
 		.bind(fmt_ts(now))
 		.execute(&mut *tx)
 		.await
 		.wrap_err("opening an appeal")?;
 		let (requested_at, reinstated_at): (String, Option<String>) =
-			sqlx::query_as("SELECT requested_at, reinstated_at FROM reinstatements WHERE managing_gmail_id = ? AND review_id = ? AND withdrawn_at IS NULL AND reinstated_at IS NULL")
-				.bind(gmail)
+			sqlx::query_as("SELECT requested_at, reinstated_at FROM reinstatements WHERE gmb_id = ? AND review_id = ? AND withdrawn_at IS NULL AND reinstated_at IS NULL")
+				.bind(gmb)
 				.bind(review.0)
 				.fetch_one(&mut *tx)
 				.await
@@ -420,28 +357,28 @@ impl Store {
 	}
 
 	/// Withdraws the open appeal of a review: kept, marked withdrawn.
-	pub async fn withdraw_reinstatement(&self, member: PersonId, gmail: i64, review: ReviewId, now: Timestamp) -> eyre::Result<()> {
-		self.check_gmail(Some(member), gmail).await?;
-		let done = sqlx::query("UPDATE reinstatements SET withdrawn_at = ? WHERE managing_gmail_id = ? AND review_id = ? AND withdrawn_at IS NULL AND reinstated_at IS NULL")
+	pub async fn withdraw_reinstatement(&self, member: PersonId, gmb: i64, review: ReviewId, now: Timestamp) -> eyre::Result<()> {
+		self.check_gmb(Some(member), gmb).await?;
+		let done = sqlx::query("UPDATE reinstatements SET withdrawn_at = ? WHERE gmb_id = ? AND review_id = ? AND withdrawn_at IS NULL AND reinstated_at IS NULL")
 			.bind(fmt_ts(now))
-			.bind(gmail)
+			.bind(gmb)
 			.bind(review.0)
 			.execute(&self.pool)
 			.await
 			.wrap_err("withdrawing an appeal")?;
 		if done.rows_affected() == 0 {
-			return Err(Rejected::not_found(format!("no open appeal of review {review} under gmail {gmail}")).into());
+			return Err(Rejected::not_found(format!("no open appeal of review {review} under GMB {gmb}")).into());
 		}
 		Ok(())
 	}
 
 	/// Whether a capture shows a review of a place the member tracks.
 	pub async fn member_sees_capture(&self, member: PersonId, sha256: &str) -> eyre::Result<bool> {
-		sqlx::query_scalar(
+		sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
 			"SELECT EXISTS (SELECT 1 FROM captures c JOIN reviews r ON r.id = c.review_id JOIN tracks k ON k.target_id = r.target_id
-			                JOIN managing_gmails g ON g.id = k.managing_gmail_id
-			                WHERE c.sha256 = ? AND g.person_id = ?)",
-		)
+				                WHERE c.sha256 = ?1 AND k.gmb_id IN ({}))",
+			MEMBERS_GMBS.replace("?1", "?2")
+		)))
 		.bind(sha256)
 		.bind(member.0)
 		.fetch_one(&self.pool)
@@ -452,11 +389,21 @@ impl Store {
 	/// Adds a Telegram channel; `destination` already parsed by the caller.
 	pub async fn add_tg_channel(&self, member: PersonId, ch: &NewTgChannel, now: Timestamp) -> eyre::Result<TgChannelDto> {
 		if let Some(g) = ch.gmail_id {
-			self.check_gmail(Some(member), g).await?;
+			let known: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+				"SELECT EXISTS (SELECT 1 FROM gmb_mirror WHERE gmail_id = ?2 AND id IN ({MEMBERS_GMBS}))"
+			)))
+			.bind(member.0)
+			.bind(g)
+			.fetch_one(&self.pool)
+			.await
+			.wrap_err("looking up a gmail")?;
+			if !known {
+				return Err(Rejected::not_found(format!("no gmail {g} with a GMB of yours")).into());
+			}
 		}
 		let row: TgChannelRow = sqlx::query_as(
-			"INSERT INTO tg_channels (person_id, managing_gmail_id, destination, events, created_at) VALUES (?, ?, ?, ?, ?)
-			 RETURNING id, destination, managing_gmail_id, events, created_at",
+			"INSERT INTO tg_channels (person_id, gmail_id, destination, events, created_at) VALUES (?, ?, ?, ?, ?)
+			 RETURNING id, destination, gmail_id, events, created_at",
 		)
 		.bind(member.0)
 		.bind(ch.gmail_id)
@@ -471,7 +418,7 @@ impl Store {
 
 	/// A member's Telegram channels.
 	pub async fn tg_channels(&self, member: PersonId) -> eyre::Result<Vec<TgChannelDto>> {
-		let rows: Vec<TgChannelRow> = sqlx::query_as("SELECT id, destination, managing_gmail_id, events, created_at FROM tg_channels WHERE person_id = ? ORDER BY id")
+		let rows: Vec<TgChannelRow> = sqlx::query_as("SELECT id, destination, gmail_id, events, created_at FROM tg_channels WHERE person_id = ? ORDER BY id")
 			.bind(member.0)
 			.fetch_all(&self.pool)
 			.await
@@ -490,33 +437,73 @@ impl Store {
 		Ok(done.rows_affected() == 1)
 	}
 
-	/// [`Rejected::NotFound`] unless the gmail is the member's (any gmail for the operator).
-	pub(crate) async fn check_gmail(&self, member: Option<PersonId>, gmail: i64) -> eyre::Result<()> {
-		let found: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM managing_gmails WHERE id = ?1 AND (?2 IS NULL OR person_id = ?2))")
-			.bind(gmail)
-			.bind(member.map(|m| m.0))
-			.fetch_one(&self.pool)
-			.await
-			.wrap_err("looking up a gmail")?;
+	/// The member's GMBs' tags for the conductor's page.
+	pub async fn my_gmbs(&self, member: PersonId) -> eyre::Result<MyGmbs> {
+		let rows: Vec<(i64, bool, Option<f64>, Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+			"SELECT m.id,
+			        EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled),
+			        w.rating, w.listed
+			 FROM gmb_mirror m
+			 LEFT JOIN targets w ON w.id = (
+			     SELECT k.target_id FROM tracks k JOIN runs r ON r.target_id = k.target_id
+			     WHERE k.gmb_id = m.id AND r.status IN ('ok', 'partial') AND r.ad_hoc = 0
+			     ORDER BY r.finished_at DESC, r.id DESC LIMIT 1)
+			 WHERE m.id IN ({MEMBERS_GMBS})"
+		)))
+		.bind(member.0)
+		.fetch_all(&self.pool)
+		.await
+		.wrap_err("tagging a member's GMBs")?;
+		let places_tracked: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+			"SELECT COUNT(DISTINCT k.target_id) FROM tracks k WHERE k.enabled AND k.gmb_id IN ({MEMBERS_GMBS})"
+		)))
+		.bind(member.0)
+		.fetch_one(&self.pool)
+		.await
+		.wrap_err("counting a member's tracked places")?;
+		Ok(MyGmbs {
+			gmbs: rows.into_iter().map(|(id, tracked, rating, reviews)| (id, GmbReviews { tracked, rating, reviews })).collect(),
+			places_tracked,
+		})
+	}
+
+	/// [`Rejected::NotFound`] unless the GMB is the member's and not removed (any GMB not removed for the operator).
+	pub(crate) async fn check_gmb(&self, member: Option<PersonId>, gmb: i64) -> eyre::Result<()> {
+		let found: bool = sqlx::query_scalar(
+			"SELECT EXISTS (SELECT 1 FROM gmb_mirror m WHERE m.id = ?1 AND NOT m.removed
+			                AND (?2 IS NULL OR m.owner = (SELECT sub FROM people WHERE id = ?2)))",
+		)
+		.bind(gmb)
+		.bind(member.map(|m| m.0))
+		.fetch_one(&self.pool)
+		.await
+		.wrap_err("looking up a GMB")?;
 		if !found {
-			return Err(no_gmail(gmail).into());
+			return Err(no_gmb(gmb).into());
 		}
 		Ok(())
 	}
 
-	/// [`Rejected::NotFound`] unless the member's gmail tracks the target.
-	pub(crate) async fn check_track(&self, member: PersonId, gmail: i64, target: TargetId) -> eyre::Result<()> {
-		let found: bool =
-			sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM tracks k JOIN managing_gmails g ON g.id = k.managing_gmail_id WHERE g.id = ? AND g.person_id = ? AND k.target_id = ?)")
-				.bind(gmail)
-				.bind(member.0)
-				.bind(target.0)
-				.fetch_one(&self.pool)
-				.await
-				.wrap_err("looking up a track")?;
+	/// [`Rejected::NotFound`] unless the member's GMB tracks the target.
+	pub(crate) async fn check_track(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<()> {
+		let found: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+			"SELECT EXISTS (SELECT 1 FROM tracks WHERE gmb_id = ({MEMBERS_GMB}) AND target_id = ?)"
+		)))
+		.bind(gmb)
+		.bind(member.0)
+		.bind(target.0)
+		.fetch_one(&self.pool)
+		.await
+		.wrap_err("looking up a track")?;
 		if !found {
-			return Err(Rejected::not_found(format!("gmail {gmail} does not track target {target}")).into());
+			return Err(no_track(gmb, target).into());
 		}
 		Ok(())
 	}
 }
+
+/// The ids of the GMBs of person `?1`, not removed.
+const MEMBERS_GMBS: &str = "SELECT m.id FROM gmb_mirror m JOIN people p ON p.sub = m.owner WHERE p.id = ?1 AND NOT m.removed";
+
+/// GMB `?` if it is person `?`'s and not removed, as a scalar subquery.
+const MEMBERS_GMB: &str = "SELECT m.id FROM gmb_mirror m JOIN people p ON p.sub = m.owner WHERE m.id = ? AND p.id = ? AND NOT m.removed";

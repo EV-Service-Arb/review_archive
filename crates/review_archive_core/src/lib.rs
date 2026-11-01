@@ -34,7 +34,6 @@
 pub mod dto;
 pub mod gbp;
 pub mod maps;
-pub mod place;
 pub mod reconcile;
 pub mod relative_date;
 pub mod schedule;
@@ -78,7 +77,7 @@ impl fmt::Display for ReviewId {
 
 /// A request the archive turns down: the caller's mistake, not the archive's. It travels
 /// inside `eyre::Report` like any other error; whoever answers requests finds it with
-/// `downcast_ref::<Rejected>()` and says 404, 400 or 429 instead of 500.
+/// `downcast_ref::<Rejected>()` and says 404, 400, 429 or 409 instead of 500.
 #[derive(Clone, Debug, Eq, PartialEq, miette::Diagnostic, thiserror::Error)]
 pub enum Rejected {
 	/// What was named does not exist.
@@ -93,6 +92,10 @@ pub enum Rejected {
 	#[error("{0}")]
 	#[diagnostic(code(review_archive::rejected::busy))]
 	Busy(String),
+	/// It contradicts what is stored; nothing was written.
+	#[error("{0}")]
+	#[diagnostic(code(review_archive::rejected::conflict))]
+	Conflict(String),
 }
 
 impl Rejected {

@@ -5055,6 +5055,7 @@ dependencies = [
  "png",
  "reqwest 0.13.5",
  "review_archive_core",
+ "sa_places",
  "schemars",
  "serde",
  "serde_json",
@@ -5098,7 +5099,6 @@ dependencies = [
 name = "review_archive_core"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
  "clap",
  "csv",
  "eyre",
@@ -5369,7 +5369,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 [[package]]
 name = "sa_auth"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/panel?rev=396ebcef5a2561c5f37ce9a12ee5334b11d81f91#396ebcef5a2561c5f37ce9a12ee5334b11d81f91"
+source = "git+https://github.com/EV-Service-Arb/panel?rev=365a04f61dbf16281675eabfe24150f09f124f89#365a04f61dbf16281675eabfe24150f09f124f89"
 dependencies = [
  "base64 0.22.1",
  "concierge_iam",
@@ -5379,6 +5379,20 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sa_places"
+version = "0.1.0"
+source = "git+https://github.com/EV-Service-Arb/panel?rev=365a04f61dbf16281675eabfe24150f09f124f89#365a04f61dbf16281675eabfe24150f09f124f89"
+dependencies = [
+ "base64 0.22.1",
+ "eyre",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]

@@ -269,6 +269,16 @@ pub enum PlacesError {
 	Http(reqwest::Error),
 }
 
+/// A place resolution's failure: the caller's mistake is [`Rejected::Invalid`], the rest [`PlacesError`].
+#[cfg(feature = "store")]
+pub(crate) fn places_error(e: sa_places::Error) -> eyre::Report {
+	match e {
+		sa_places::Error::Invalid(why) => Rejected::invalid(why).into(),
+		sa_places::Error::Api { asked, status, body } => PlacesError::new_api(asked, status, body).into(),
+		sa_places::Error::Http(e) => PlacesError::from(e).into(),
+	}
+}
+
 #[cfg(all(test, feature = "maps"))]
 mod tests {
 	use std::time::Duration;

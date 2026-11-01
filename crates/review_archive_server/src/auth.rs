@@ -42,15 +42,12 @@ pub enum Auth {
 }
 
 /// Test-posts to Telegram, one per person per [`TEST_GAP`].
+#[derive(Default)]
 pub struct TestPosts(Mutex<HashMap<PersonId, Instant>>);
 
 const TEST_GAP: Duration = Duration::from_secs(60);
 
 impl TestPosts {
-	pub fn new() -> Self {
-		Self(Mutex::new(HashMap::new()))
-	}
-
 	/// Whether `person` may test-post now; if so, the next waits [`TEST_GAP`].
 	pub fn take(&self, person: PersonId) -> bool {
 		let mut last = self.0.lock().expect("held for a lookup only, never across a panic");
@@ -198,9 +195,29 @@ pub async fn acts_as(req: Request, next: Next) -> Response {
 	require(sa_auth::Members::ActAs, req, next).await
 }
 
-/// A member's balance change.
-pub async fn grants_tokens(req: Request, next: Next) -> Response {
-	require(sa_auth::Tokens::Grant, req, next).await
+/// `/api/conductor/*`: the conductor's own assertion, and nobody else's.
+pub async fn conductor(State(state): State<AppState>, req: Request, next: Next) -> Response {
+	let Auth::Panel(keys) = &*state.auth else {
+		return unauthorized(); // `--dev-member` has no conductor to hear from
+	};
+	let Some(token) = req.headers().get(sa_auth::HEADER).and_then(|v| v.to_str().ok()) else {
+		return unauthorized();
+	};
+	let now = jiff::Timestamp::now().as_second();
+	match sa_auth::verify(keys, token, Service::ReviewArchive, req.method().as_str(), req.uri().path(), None, now) {
+		Ok(sa_auth::Assertion {
+			principal: sa_auth::Principal::Conductor,
+			..
+		}) => next.run(req).await,
+		Ok(a) => {
+			tracing::warn!(principal = ?a.principal, "a conductor route asked by someone else");
+			unauthorized()
+		}
+		Err(e) => {
+			tracing::warn!(%e, "an assertion refused");
+			unauthorized()
+		}
+	}
 }
 
 /// Whose `/me` this is: the caller, or the person `X-Member` names: the caller again, or anyone

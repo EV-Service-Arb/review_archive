@@ -68,11 +68,6 @@ impl AppConfig {
 			cfg.tokens.per_hour,
 			cost::FIRST_SCREEN
 		);
-		eyre::ensure!(
-			matches!(cfg.tokens.start_cap_multiple, Some(m) if m.is_finite() && m >= 0.),
-			"tokens.start_cap_multiple ({:?}) must be set, a finite multiple of the cap, 0 or more",
-			cfg.tokens.start_cap_multiple
-		);
 		if let Some(g) = &cfg.grafana {
 			eyre::ensure!(
 				g.root_url.starts_with("http") && g.root_url.ends_with('/'),

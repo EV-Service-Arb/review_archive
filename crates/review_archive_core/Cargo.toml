@@ -15,7 +15,6 @@ openapi = ["dep:utoipa"]
 settings = ["dep:clap", "dep:schemars", "v_utils/cli"]
 
 [dependencies]
-base64.workspace = true
 clap = { workspace = true, optional = true }
 csv.workspace = true
 eyre.workspace = true

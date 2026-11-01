@@ -39,7 +39,6 @@ mod archive;
 pub mod browser;
 pub mod config;
 mod failure;
-pub mod places;
 #[cfg(feature = "store")]
 pub mod record;
 pub mod sources;
