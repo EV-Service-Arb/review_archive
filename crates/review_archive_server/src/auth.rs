@@ -137,8 +137,15 @@ pub async fn authenticate(State(state): State<AppState>, mut req: Request, next:
 				return unauthorized();
 			};
 			let now = jiff::Timestamp::now().as_second();
-			match sa_auth::verify(keys, token, Service::ReviewArchive, req.method().as_str(), req.uri().path(), now) {
-				Ok(a) => a,
+			match sa_auth::verify(keys, token, Service::ReviewArchive, req.method().as_str(), req.uri().path(), None, now) {
+				Ok(sa_auth::Assertion {
+					principal: sa_auth::Principal::User(user),
+					..
+				}) => user,
+				Ok(a) => {
+					tracing::warn!(principal = ?a.principal, "an assertion names no user");
+					return unauthorized();
+				}
 				Err(e) => {
 					tracing::warn!(%e, "an assertion refused");
 					return unauthorized();

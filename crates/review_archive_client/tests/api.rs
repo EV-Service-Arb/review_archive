@@ -78,11 +78,13 @@ fn admin() -> Who {
 fn sign(signer: &Signer, who: &Who, method: &str, path: &str, exp: i64) -> String {
 	signer.sign(&sa_auth::Assertion {
 		aud: sa_auth::Service::ReviewArchive,
-		sub: who.sub.clone(),
-		email: who.email.clone(),
-		email_verified: who.verified,
-		name: who.name.clone(),
-		permissions: who.permissions.iter().cloned().collect(),
+		principal: sa_auth::Principal::User(sa_auth::User {
+			sub: who.sub.clone(),
+			email: who.email.clone(),
+			email_verified: who.verified,
+			name: who.name.clone(),
+			permissions: who.permissions.iter().cloned().collect(),
+		}),
 		method: method.into(),
 		path: path.into(),
 		exp,
