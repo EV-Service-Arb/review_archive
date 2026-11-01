@@ -10,13 +10,12 @@ crates/review_archive_core/     no I/O: no browser, database, network or clock
                                 what callers type in (intervals, langs, dates) and Rejected
   src/reconcile.rs              a scan against what is stored → new / changed / unchanged / gone / reappeared
   src/schedule.rs               when a target is next due: interval, jitter, backoff
-  src/tokens.rs                 risk tokens: daily renewal, splitting a charge, the walk's meter
+  src/tokens.rs                 the account's hourly limit, and the walk's meter
   src/relative_date.rs          "il y a 3 semaines" → an estimated timestamp, and its earliest bound
   src/maps/selectors.rs         every assumption about Google's markup, and the in-page scripts
   src/maps/parse.rs             cards out of HTML (tested on tests/fixtures/, insta snapshots)
     src/maps/mod.rs               walk policies, and what a walk may conclude (coverage, gaps)
   src/gbp.rs                    the Business Profile API's JSON; matching API reviews to Maps cards
-  src/place.rs                  a place id out of what a person pastes
     src/dto.rs                    the JSON of the HTTP API (bodies and queries), shared with the client
 crates/review_archive/          the engine (features: maps, store)
   src/archive.rs                the `Archive` facade
@@ -26,14 +25,14 @@ crates/review_archive/          the engine (features: maps, store)
   src/store/                    SQLite (runtime sqlx queries, embedded migrations/), WebP blobs, export
   src/store/jobs.rs             the job queue (on-demand scans and ad-hoc captures)
   src/store/events.rs           events into the outbox (hooks, members' Telegram channels), in the scan's own transaction
-  src/store/members.rs          per-member state: gmails, tracks, reinstatements, Telegram channels
+  src/store/members.rs          per-member state: tracks, reinstatements, Telegram channels
+  src/store/mirror.rs           the conductor's GMBs and balances as last told, and the charge feed
   src/store/people.rs           people by concierge `sub`; claiming an address's rows from before
-  src/store/tokens.rs           the token ledger: balances, who pays for a scan, the account's hourly limit
+  src/store/tokens.rs           what a member holds, who pays for a scan, the account's hourly limit
   src/store/layouts.rs          the board dock's published layouts, per dock and band, what fresh browsers start from
   src/record.rs                 one scan of one target into the store: run row, source, blobs, reconcile, write
   src/failure.rs                the typed errors (miette codes and help), `describe`, and who a failure waits for
     src/webhooks.rs               where a hook may point; delivering the outbox: signature, retries, the Telegram bot
-  src/places.rs                 Places API search for URLs without an id
 crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, background loops; thin over `Archive`
   src/http.rs                   the API and its OpenAPI document (utoipa, `GET /openapi.json`), `/mfe/`, the page at `/`,
                                 `/grafana/` to the Grafana `serve` runs (`grafana`), its queries tokened (§ Invariants)
@@ -131,9 +130,8 @@ with its own platform implements `sources::ReviewSource` and records through
 - **History is append-only, while anyone tracks it.** Reviews and captures are never deleted; `review_versions` gets a
   row per distinct content, the first sighting included. `gone_at` is set and cleared, never a
   deletion. A place whose last track went is off the schedule, and `defaults.untracked_retention`
-  later it is deleted with its archive and runs; the ledger rows and kick-backs of those runs move to
-  the `other` run (id 0, on the `other` target no lookup finds). A target never tracked is the
-  operator's, and is never purged.
+  later it is deleted with its archive and runs; the charge feed keeps its rows. A target never
+  tracked is the operator's, and is never purged.
 - **A walk that stops short leaves no hole.** A scan stops at a screen of archived cards
   only once it is past the last card a previous walk was cut short at
   (`targets.cut_after`), past every review not completed (still waiting for its
@@ -167,10 +165,12 @@ with its own platform implements `sources::ReviewSource` and records through
   them to 404, 400 and 429, and anything else to a logged 500.
 - **One write lock per transaction.** A write that reads first begins `IMMEDIATE`, so `serve`'s
   worker, its HTTP side and a hand-run `scan` never fail on each other's writes. A scan's
-  reviews, events, cut, run end, job end and token charges commit together.
+  reviews, events, cut, run end, job end and its charge row commit together; so does a
+  conductor's snapshot, whole.
 - **One `serve` per data dir does the background work.** `serve.lock` in the data dir, held
   for the process's life, gates the worker, the deliverer and the blob conversion; a second
-  `serve` on the same dir (a rolling update's newcomer) answers HTTP and waits for it.
+  `serve` on the same dir (a rolling update's newcomer) answers HTTP — the conductor's calls
+  included, ordered by the write lock — and waits for it.
 - **One browser, one queue.** A single worker uses the browser, on one profile at a time
   (another only when an account is signed out, or to touch a standby while idle): queued jobs first
     (`POST /targets/{id}/scan`, `POST /captures`), oldest first — but no more than `worker.jobs_in_a_row`
@@ -194,17 +194,18 @@ with its own platform implements `sources::ReviewSource` and records through
   (`browser/host.rs`, per-process PSS included), failed or not.
 - **Public facts are shared; per-member state only annotates.** Targets, reviews, versions,
   captures and blobs belong to no one: a place tracked by several members is one target,
-  scanned once. What is a member's — gmails, tracks, reinstatements, Telegram channels —
-  points at those facts and never alters them (tracking may put a disabled target back on
+  scanned once. Who manages which GMB is the conductor's, mirrored here. What is a member's —
+  tracks and reinstatements of their GMBs, Telegram channels — points at those facts and
+  never alters them (tracking may put a disabled target back on
   the schedule; a target whose every track is switched off is left off it); every member query is scoped by the member's person id in SQL.
-- **Tokens are a ledger; a balance is its sum; members pay for the scans of their places.**
-  `token_ledger` rows are only added (renewal, an admin's set as a difference, charges). A
-  walk is metered by `maps::cost` and stops at what its payers hold and the account's hour
-  (`tokens.per_hour`) leaves; it is charged in the run's end transaction. A run that failed,
-  or met any failure, kicks its charges back to its payers in that transaction, pending until
-  the member claims them; the account's hour counts it still. A tracked place whose members are out of tokens is
-  not walked. A scan a member asks for is theirs alone to pay; the operator's jobs and
-  ad-hoc looks are no one's.
+- **Tokens are the conductor's.** A walk's allowance is its payers' mirrored balances less its
+  charges past the conductor's cursor, and its charge is a feed row of its end transaction
+  (`kick_back` when the run failed or met a failure; the conductor owes it back). It is
+  metered by `maps::cost` and stops at that allowance and the account's hour
+  (`tokens.per_hour`), which counts every walk. A tracked place whose members are out of
+  tokens is not walked. A scan a member asks for is theirs alone to pay; the operator's jobs
+  and ad-hoc looks are no one's. The archive never calls the conductor: the conductor reads
+  the feed and pushes the snapshot, under a Conductor assertion.
 - **Events are an outbox.** `review.new/changed/gone/reappeared` and `run.failed` are written
   to `webhook_deliveries` in the same transaction as what they report — a row per hook, and
   per Telegram channel of a member tracking the target — and delivered from there, retried
