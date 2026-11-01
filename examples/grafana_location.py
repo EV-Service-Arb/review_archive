@@ -2,7 +2,7 @@
 
 import json
 
-DS = {"type": "yesoreyeram-infinity-datasource", "uid": "ra-api"}
+DS = {"type": "yesoreyeram-infinity-datasource", "uid": "review_archive"}
 STATUS = [{"type": "value", "options": {"ok": {"color": "green", "index": 0}, "partial": {"color": "orange", "index": 1}, "failed": {"color": "red", "index": 2}}}]
 
 

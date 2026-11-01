@@ -9,7 +9,7 @@ import urllib.request
 
 q = {
 	"refId": "A",
-	"datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "ra-api"},
+	"datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "review_archive"},
 	"type": "json",
 	"source": "url",
 	"format": "table",
