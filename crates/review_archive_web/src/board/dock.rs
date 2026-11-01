@@ -53,7 +53,7 @@ const DOCK_THEME: [(&str, &str); 11] = [
 ];
 
 #[component]
-pub fn Lanes(gmail: i64, target: i64) -> Element {
+pub fn Lanes(gmb: i64, target: i64) -> Element {
 	let Api(api) = use_context();
 	let Refresh(refresh) = use_context();
 	// a layout saved without some tile would never show it
@@ -64,7 +64,7 @@ pub fn Lanes(gmail: i64, target: i64) -> Element {
 			let api = api.clone();
 			async move {
 				refresh();
-				api.board(gmail, target).await.map_err(shown)
+				api.board(gmb, target).await.map_err(shown)
 			}
 		}
 	});
@@ -87,7 +87,7 @@ pub fn Lanes(gmail: i64, target: i64) -> Element {
 			DockPanel {
 				id: PanelId(id.into()),
 				title: format!("{title} · {}", cards.len()),
-				content: rsx! { Lane { column, cards, gmail, dragging } },
+				content: rsx! { Lane { column, cards, gmb, dragging } },
 				min: MIN,
 			}
 		});
@@ -186,7 +186,7 @@ impl Drag {
 }
 
 #[component]
-fn Lane(column: Column, cards: Vec<BoardCard>, gmail: i64, dragging: Signal<Option<Drag>>) -> Element {
+fn Lane(column: Column, cards: Vec<BoardCard>, gmb: i64, dragging: Signal<Option<Drag>>) -> Element {
 	let accepts = dragging().is_some_and(|d| d.onto(column).is_some());
 	rsx! {
 		section {
@@ -201,8 +201,8 @@ fn Lane(column: Column, cards: Vec<BoardCard>, gmail: i64, dragging: Signal<Opti
 				let Some(d) = dragging.take() else { return };
 				let review = d.review;
 				match d.onto(column) {
-					Some(true) => act(move |c| async move { c.reinstate(gmail, review).await.map(drop) }),
-					Some(false) => act(move |c| async move { c.withdraw_reinstatement(gmail, review).await }),
+					Some(true) => act(move |c| async move { c.reinstate(gmb, review).await.map(drop) }),
+					Some(false) => act(move |c| async move { c.withdraw_reinstatement(gmb, review).await }),
 					None => {}
 				}
 			},

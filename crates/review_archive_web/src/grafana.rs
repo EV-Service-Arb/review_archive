@@ -48,12 +48,12 @@ struct Placed {
 
 /// What is done in a dashboard: a click in the overview's cards, a drop on the board's lanes.
 enum Up {
-	Open { gmail: i64, target: i64 },
-	Scan { gmail: i64, target: i64 },
-	Enable { gmail: i64, target: i64, on: bool },
-	Favorite { gmail: i64, target: i64, on: bool },
-	Relink { gmail: i64, target: i64 },
-	Untrack { gmail: i64, target: i64 },
+	Open { gmb: i64, target: i64 },
+	Scan { gmb: i64, target: i64 },
+	Enable { gmb: i64, target: i64, on: bool },
+	Favorite { gmb: i64, target: i64, on: bool },
+	Relink { gmb: i64, target: i64 },
+	Untrack { gmb: i64, target: i64 },
 	Reinstate { review: i64 },
 	Withdraw { review: i64 },
 }
@@ -173,29 +173,29 @@ pub fn Host(me: i64, children: Element) -> Element {
 				let id = |k| field(k).as_f64().unwrap_or_else(|| panic!("{kind:?}'s {k} is not an id: {:?}", field(k))) as i64;
 				let up = match kind.as_deref() {
 					Some("ra-open") => Up::Open {
-						gmail: id("gmail"),
+						gmb: id("gmb"),
 						target: id("target"),
 					},
 					Some("ra-scan") => Up::Scan {
-						gmail: id("gmail"),
+						gmb: id("gmb"),
 						target: id("target"),
 					},
 					Some("ra-enable") => Up::Enable {
-						gmail: id("gmail"),
+						gmb: id("gmb"),
 						target: id("target"),
 						on: field("on").as_bool().unwrap_or_else(|| panic!("ra-enable's on is not a bool: {:?}", field("on"))),
 					},
 					Some("ra-favorite") => Up::Favorite {
-						gmail: id("gmail"),
+						gmb: id("gmb"),
 						target: id("target"),
 						on: field("on").as_bool().unwrap_or_else(|| panic!("ra-favorite's on is not a bool: {:?}", field("on"))),
 					},
 					Some("ra-relink") => Up::Relink {
-						gmail: id("gmail"),
+						gmb: id("gmb"),
 						target: id("target"),
 					},
 					Some("ra-untrack") => Up::Untrack {
-						gmail: id("gmail"),
+						gmb: id("gmb"),
 						target: id("target"),
 					},
 					Some("ra-reinstate") => Up::Reinstate { review: id("review") },
@@ -271,7 +271,7 @@ fn Slot(class: String, path: String, on: Option<EventHandler<Up>>) -> Element {
 	}
 }
 
-/// `ra-overview` over the places the filter keeps: `keys`, the `gmail:target` pairs in the order shown.
+/// `ra-overview` over the places the filter keeps: `keys`, the `gmb:target` pairs in the order shown.
 #[component]
 pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 	let Frame { me, .. } = use_context();
@@ -281,15 +281,15 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 	let gmail = gmail.map(|g| g.to_string()).unwrap_or_default();
 	let path = format!("d/ra-overview/{KIOSK}&var-member={member}&var-gmail={gmail}&var-keys={keys}&var-rev={}", refresh());
 	let on = move |up: Up| match up {
-		Up::Open { gmail, target } => {
+		Up::Open { gmb, target } => {
 			reviews.set(Reviews::default());
-			navigator().push(Route::at(tab, View::Place { gmail, target }));
+			navigator().push(Route::at(tab, View::Gmb { gmb, target: Some(target) }));
 		}
-		Up::Scan { gmail, target } => act(move |c| async move { c.scan_tracked(gmail, target).await.map(drop) }),
-		Up::Enable { gmail, target, on } => act(move |c| async move { c.patch_track(gmail, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
-		Up::Favorite { gmail, target, on } => act(move |c| async move { c.patch_track(gmail, target, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
-		Up::Relink { gmail, target } => act(move |c| async move { c.relink(gmail, target).await.map(drop) }),
-		Up::Untrack { gmail, target } => act(move |c| async move { c.untrack(gmail, target).await }),
+		Up::Scan { gmb, target } => act(move |c| async move { c.scan_tracked(gmb, target).await.map(drop) }),
+		Up::Enable { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
+		Up::Favorite { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
+		Up::Relink { gmb, target } => act(move |c| async move { c.relink(gmb, target).await.map(drop) }),
+		Up::Untrack { gmb, target } => act(move |c| async move { c.untrack(gmb, target).await }),
 		Up::Reinstate { .. } | Up::Withdraw { .. } => unreachable!("the overview has no lanes"),
 	};
 	rsx! {
@@ -300,7 +300,7 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 /// `ra-location` for the place: its lanes and runs, narrowed by [`Reviews`] (`var-<Review:?>`: true, false, or empty for either).
 /// `api` is where its cards' captures are.
 #[component]
-pub fn Location(gmail: i64, target: i64, tab: Option<i64>) -> Element {
+pub fn Location(gmb: i64, target: i64, tab: Option<i64>) -> Element {
 	let Frame { me, .. } = use_context();
 	let Refresh(refresh) = use_context();
 	let reviews: Signal<Reviews> = use_context();
@@ -310,12 +310,12 @@ pub fn Location(gmail: i64, target: i64, tab: Option<i64>) -> Element {
 		.map(|r| format!("&var-{r:?}={}", reviews.read().0.get(&r).map(bool::to_string).unwrap_or_default()))
 		.collect();
 	let path = format!(
-		"a/evmain-tilers-app/d/ra-location{KIOSK}&_tilers.host&var-member={member}&var-gmail={gmail}&var-target={target}&var-api={api}{narrowed}&var-rev={}",
+		"a/evmain-tilers-app/d/ra-location{KIOSK}&_tilers.host&var-member={member}&var-gmb={gmb}&var-target={target}&var-api={api}{narrowed}&var-rev={}",
 		refresh()
 	);
 	let on = move |up: Up| match up {
-		Up::Reinstate { review } => act(move |c| async move { c.reinstate(gmail, review).await.map(drop) }),
-		Up::Withdraw { review } => act(move |c| async move { c.withdraw_reinstatement(gmail, review).await }),
+		Up::Reinstate { review } => act(move |c| async move { c.reinstate(gmb, review).await.map(drop) }),
+		Up::Withdraw { review } => act(move |c| async move { c.withdraw_reinstatement(gmb, review).await }),
 		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } | Up::Favorite { .. } | Up::Relink { .. } | Up::Untrack { .. } => unreachable!("a board has no location cards"),
 	};
 	rsx! {

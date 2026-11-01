@@ -28,7 +28,7 @@ def hidden(name):
 	return {"name": name, "type": "textbox", "hide": 2, "query": "", "current": {"text": "", "value": ""}, "options": []}
 
 
-BOARD = "/me/gmails/${gmail}/locations/${target}/board"
+BOARD = "/me/gmbs/${gmb}/tracks/${target}/board"
 RUNS = "/targets/${target}/runs"
 
 CARD = [
@@ -218,7 +218,7 @@ dashboard = {
 	"editable": True,
 	"time": {"from": "now-30d", "to": "now"},
 	"refresh": "1m",
-	"templating": {"list": [hidden("member"), hidden("gmail"), hidden("target"), hidden("rev"), hidden("api")] + [hidden(v) for v in NARROW] + [hidden(f"n_{lane}") for lane, _ in LANES]},
+	"templating": {"list": [hidden("member"), hidden("gmb"), hidden("target"), hidden("rev"), hidden("api")] + [hidden(v) for v in NARROW] + [hidden(f"n_{lane}") for lane, _ in LANES]},
 	"panels": [lane_panel(i, lane, title) for i, (lane, title) in enumerate(LANES)]
 	+ [
 		{

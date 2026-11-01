@@ -4,17 +4,17 @@ use dioxus::{prelude::*, web::WebEventExt};
 use ev_lib::uikit_dioxus::{
 	Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuItemVariant, DropdownMenuTrigger, Size, Spinner, Switch, button_classes,
 };
-use review_archive_client::dto::{GmailDto, LocationSummary, RunStatus, ScanState, TrackPatch};
+use review_archive_client::dto::{LocationSummary, RunStatus, ScanState, TrackPatch};
 use sa_ui::TokenCost;
 
 use crate::{
-	Badge, Route, Tone, act, ago,
+	Badge, Gmb, Route, Tone, act, ago,
 	filter::reviews::{Review, Reviews},
 };
 
 #[component]
 /// `all`: among every gmail's cards, so it names its gmail.
-pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route) -> Element {
+pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Element {
 	let (dot, status) = match loc.last_run_status {
 		Some(RunStatus::Ok) => ("bg-positive", "ok"),
 		Some(RunStatus::Partial) => ("bg-accent-warn", "partial"),
@@ -29,8 +29,7 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 		None => (dot, String::new()),
 	};
 	let target = loc.target.id;
-	let (gmail_on, gmail) = (gmail.enabled, gmail);
-	let id = gmail.id;
+	let id = gmb.id;
 	let favorite = loc.favorite;
 	let mut cut = use_signal(|| false);
 	let mut reviews: Signal<Reviews> = use_context();
@@ -47,7 +46,7 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 	rsx! {
 		div { class: "relative",
 		Link {
-			class: if loc.enabled && gmail_on { "block h-full text-left" } else { "block h-full text-left opacity-50" },
+			class: if loc.enabled { "block h-full text-left" } else { "block h-full text-left opacity-50" },
 			to: to.clone(),
 			onclick: move |_| reviews.set(Reviews::default()),
 			Card { class: if loc.favorite { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 border-accent-warn" } else { "h-full gap-3 rounded-lg px-4 pt-2 pb-4 hover:border-ink-soft" },
@@ -68,7 +67,7 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 					}
 					div { class: "truncate font-mono text-[11px] text-ink-soft", "{loc.target.place_id}" }
 					if all {
-						div { class: "truncate text-[11px] text-ink-soft", "{gmail.gmail}" }
+						div { class: "truncate text-[11px] text-ink-soft", "{gmb.gmail.gmail}" }
 					}
 				}
 				div { class: "flex items-end gap-6",
@@ -164,7 +163,6 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 			label { class: "inline-flex h-8 cursor-pointer items-center rounded-[var(--control-radius)] px-1.5 transition-all hover:bg-hover has-disabled:cursor-not-allowed has-disabled:hover:bg-transparent", // ↻'s hover, and a click on it toggles
 				Switch {
 					checked: loc.enabled,
-					disabled: !gmail_on,
 					on_checked_change: move |on: bool| act(move |c| async move { c.patch_track(id, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
 				}
 			}
@@ -196,7 +194,7 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 						variant: DropdownMenuItemVariant::Destructive,
 						onclick: move |_| act(move |c| async move { c.untrack(id, target).await }),
 						span { "🗑" }
-						span { title: "stop tracking under this gmail; the archive stays", "delete" }
+						span { title: "stop tracking under this GMB; the archive stays", "delete" }
 					}
 				}
 			}

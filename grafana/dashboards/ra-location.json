@@ -25,7 +25,7 @@
         "options": []
       },
       {
-        "name": "gmail",
+        "name": "gmb",
         "type": "textbox",
         "hide": 2,
         "query": "",
@@ -178,7 +178,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "/me/gmails/${gmail}/locations/${target}/board",
+          "url": "/me/gmbs/${gmb}/tracks/${target}/board",
           "url_options": {
             "method": "GET",
             "params": [
@@ -331,7 +331,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "/me/gmails/${gmail}/locations/${target}/board",
+          "url": "/me/gmbs/${gmb}/tracks/${target}/board",
           "url_options": {
             "method": "GET",
             "params": [
@@ -484,7 +484,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "/me/gmails/${gmail}/locations/${target}/board",
+          "url": "/me/gmbs/${gmb}/tracks/${target}/board",
           "url_options": {
             "method": "GET",
             "params": [
@@ -637,7 +637,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "/me/gmails/${gmail}/locations/${target}/board",
+          "url": "/me/gmbs/${gmb}/tracks/${target}/board",
           "url_options": {
             "method": "GET",
             "params": [

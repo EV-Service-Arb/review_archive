@@ -1,5 +1,5 @@
-//! The dashboard: a person's managing gmails, the places each tracks, and per place a board
-//! of its reviews — snapshotted, suspended, removed, reinstating. The Service-Arb panel mounts it and
+//! The dashboard: a person's GMBs (the conductor's, under their managing gmails), the places
+//! each tracks, and per place a board of its reviews — snapshotted, suspended, removed, reinstating. The Service-Arb panel mounts it and
 //! forwards its calls to the archive: the panel's session cookie and CSRF header sign them.
 //! One who may act as others gets tabs: their own dashboard, and any member's, acting as them.
 
@@ -12,7 +12,6 @@ mod filter;
 mod grafana;
 mod settings;
 mod telegram;
-mod tokens;
 
 use std::sync::OnceLock;
 
@@ -21,15 +20,15 @@ use ev_lib::{
 	i18n::{Locale, Messages, Translator},
 	t,
 	uikit_dioxus::{
-		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Select,
-		SelectContent, SelectItem, SelectTrigger, SelectValue, Size, Spinner, Switch, Tabs, TabsList, TabsTrigger,
+		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Size, Spinner, Tabs,
+		TabsList, TabsTrigger,
 	},
 };
 use review_archive_client::{
 	Client,
-	dto::{BalanceChange, GmailDto, GmailOverview, KickbackWhy, LocationSummary, Me, MemberDto, NewTrack, PlaceDto, TargetDto, TokensChange, TokensDto},
+	dto::{GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack},
 };
-use sa_auth::{Members, Permission, PermissionSet, Tokens};
+use sa_auth::{Members, Permission, PermissionSet};
 use wasm_bindgen::{JsCast, prelude::*};
 
 const TAG: &str = "mfe-review-archive-dashboard";
@@ -170,25 +169,35 @@ fn may(p: impl Permission) -> bool {
 	held.may(p)
 }
 
+/// A GMB, with the gmail it is under.
+#[derive(Clone, Debug, PartialEq)]
+struct Gmb {
+	id: i64,
+	gmail: GmailDto,
+}
+
 /// What a tab shows.
 #[derive(Clone, Debug, PartialEq)]
 enum View {
 	Home,
 	Gmail(i64),
-	Place { gmail: i64, target: i64 },
+	/// A GMB's board: of `target`, else of its first track; with none, a track to start.
+	Gmb {
+		gmb: i64,
+		target: Option<i64>,
+	},
 	Telegram,
-	Tokens,
 	Settings,
 }
 
 impl dioxus::router::ToRouteSegments for View {
 	fn display_route_segments(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Self::Home => write!(f, "/"), // an empty path would be no URL at all: a link to it goes nowhere
+			Self::Home => write!(f, "/gmbs"),
 			Self::Gmail(g) => write!(f, "/gmails/{g}"),
-			Self::Place { gmail, target } => write!(f, "/gmails/{gmail}/places/{target}"),
+			Self::Gmb { gmb, target: None } => write!(f, "/gmbs/{gmb}"),
+			Self::Gmb { gmb, target: Some(t) } => write!(f, "/gmbs/{gmb}/tracks/{t}"),
 			Self::Telegram => write!(f, "/telegram"),
-			Self::Tokens => write!(f, "/tokens"),
 			Self::Settings => write!(f, "/settings"),
 		}
 	}
@@ -200,11 +209,11 @@ impl dioxus::router::FromRouteSegments for View {
 	fn from_route_segments(segments: &[&str]) -> Result<Self, String> {
 		let id = |s: &str| s.parse::<i64>().map_err(|_| format!("{s:?} is not an id"));
 		match segments {
-			[] | [""] => Ok(Self::Home),
+			[] | [""] | ["gmbs"] => Ok(Self::Home),
 			["gmails", g] => Ok(Self::Gmail(id(g)?)),
-			["gmails", g, "places", t] => Ok(Self::Place { gmail: id(g)?, target: id(t)? }),
+			["gmbs", g] => Ok(Self::Gmb { gmb: id(g)?, target: None }),
+			["gmbs", g, "tracks", t] => Ok(Self::Gmb { gmb: id(g)?, target: Some(id(t)?) }),
 			["telegram"] => Ok(Self::Telegram),
-			["tokens"] => Ok(Self::Tokens),
 			["settings"] => Ok(Self::Settings),
 			_ => Err(format!("no view at /{}", segments.join("/"))),
 		}
@@ -493,7 +502,7 @@ fn Admin(me: i64) -> Element {
 	}
 }
 
-/// fzf over everyone who signed in here: name and email, and their balance.
+/// fzf over everyone who signed in here: name and email, and what they hold.
 #[component]
 fn Picker(on_pick: EventHandler<MemberDto>, on_close: EventHandler<()>) -> Element {
 	let tr: Translator = use_context();
@@ -523,7 +532,7 @@ fn Picker(on_pick: EventHandler<MemberDto>, on_close: EventHandler<()>) -> Eleme
 								}
 								span { "{m.name}" }
 								span { class: "flex-1 truncate text-ink-soft", "{m.email}" }
-								Balance { member: m.id, balance: m.balance }
+								span { class: "w-20 shrink-0 text-right font-mono text-ink-soft", "{m.balance} tokens" }
 							}
 						}
 						CommandEmpty { "No member matches." }
@@ -531,69 +540,6 @@ fn Picker(on_pick: EventHandler<MemberDto>, on_close: EventHandler<()>) -> Eleme
 					Some(Err(e)) => rsx! { div { class: "p-3 text-accent-error", "{e}" } },
 					None => rsx! { div { class: "p-3 text-ink-soft", "Loading…" } },
 				}
-			}
-		}
-	}
-}
-
-/// A member's balance in the picker, and a change of it.
-#[component]
-fn Balance(member: i64, balance: i64) -> Element {
-	let mut balance = use_signal(|| balance);
-	let mut amount = use_signal(String::new);
-	let mut note = use_signal(String::new);
-	let mut failure = use_signal(|| None::<String>);
-	let change = move |to: fn(i64) -> BalanceChange| {
-		let n = match amount().trim().parse::<i64>() {
-			Ok(n) => n,
-			Err(e) => return failure.set(Some(format!("{:?}: {e}", amount()))),
-		};
-		let said = Some(note().trim().to_owned()).filter(|n| !n.is_empty());
-		spawn(async move {
-			match api().change_tokens(member, &TokensChange { change: to(n), note: said }).await {
-				Ok(t) => {
-					balance.set(t.balance);
-					amount.set(String::new());
-					note.set(String::new());
-					failure.set(None);
-				}
-				Err(e) => failure.set(Some(shown(e))),
-			}
-		});
-	};
-	let (mut set, mut add, mut grant) = (change, change, change);
-	rsx! {
-		// the row's click picks the member: these are not that
-		div { class: "flex shrink-0 items-center gap-1", onclick: |e| e.stop_propagation(),
-			if let Some(e) = failure() {
-				span { class: "max-w-40 truncate text-[11px] text-accent-error", title: "{e}", "{e}" }
-			}
-			span { class: "w-20 text-right font-mono text-ink-soft", "{balance} tokens" }
-			if may(Tokens::Grant) {
-			Input {
-				class: "w-16",
-				size: Size::Xs,
-				value: amount(),
-				oninput: move |e: FormEvent| amount.set(e.value()),
-			}
-			Input {
-				class: "w-28",
-				size: Size::Xs,
-				placeholder: "note",
-				value: note(),
-				oninput: move |e: FormEvent| note.set(e.value()),
-			}
-			Button { variant: ButtonVariant::Outline, size: Size::Xs, r#type: "button", onclick: move |_| set(BalanceChange::Set), "set" }
-			Button { variant: ButtonVariant::Outline, size: Size::Xs, r#type: "button", onclick: move |_| add(BalanceChange::Add), "add" }
-			Button {
-				variant: ButtonVariant::Outline,
-				size: Size::Xs,
-				r#type: "button",
-				title: "owed as a kick-back, for them to claim; says what for in its note",
-				disabled: note().trim().is_empty(),
-				onclick: move |_| grant(BalanceChange::Grant),
-				"grant"
-			}
 			}
 		}
 	}
@@ -622,7 +568,7 @@ fn Workspace(view: Route) -> Element {
 			client.overview().await.map_err(shown)
 		}
 	});
-	// while a scan is queued or walking, its card and the balance it charges are read again
+	// while a scan is queued or walking, its card is read again
 	use_future(move || async move {
 		let Refresh(mut refresh) = refresh;
 		loop {
@@ -636,33 +582,26 @@ fn Workspace(view: Route) -> Element {
 			.await
 			.expect("a timer never rejects");
 			if let Some(Ok(gmails)) = &*overview.peek()
-				&& gmails.iter().flat_map(|g| &g.locations).any(|l| l.scan.is_some())
+				&& gmails.iter().flat_map(|g| &g.gmbs).flat_map(|b| &b.tracks).any(|l| l.scan.is_some())
 			{
 				refresh += 1;
 			}
 		}
 	});
-	// `/me` is the caller whoever they act as: who a member tab is, and their balance, are read
-	// off the members list
+	// `/me` is the caller whoever they act as: who a member tab is is read off the members list
 	let unknown = tr.clone();
-	let tokens = use_resource(move || {
+	let whom = use_resource(move || {
 		let unknown = unknown.clone();
 		async move {
-			refresh.0();
-			let mine = api().me().await.map_err(shown)?.tokens;
-			let whom = match tab {
-				Some(m) => Some(
-					api()
-						.members()
-						.await
-						.map_err(shown)?
-						.into_iter()
-						.find(|x| x.id == m)
-						.ok_or_else(|| t!(unknown, "workspace.no_member", "There is no member #{member}", member = m))?,
-				),
-				None => None,
-			};
-			Ok::<_, String>((mine, whom))
+			let Some(m) = tab else { return Ok(None) };
+			let found = api()
+				.members()
+				.await
+				.map_err(shown)?
+				.into_iter()
+				.find(|x| x.id == m)
+				.ok_or_else(|| t!(unknown, "workspace.no_member", "There is no member #{member}", member = m))?;
+			Ok::<_, String>(Some(found))
 		}
 	});
 
@@ -672,26 +611,17 @@ fn Workspace(view: Route) -> Element {
 		Some(Err(e)) => return rsx! { div { class: "{shell} p-6 text-accent-error", "{e}" } },
 		_ => return rsx! { div { class: "{shell} p-6 text-ink-soft", "Loading…" } },
 	};
-	let (tokens, whom) = match &*tokens.read() {
-		Some(Ok((mine, whom))) => (
-			Some(whom.as_ref().map_or_else(
-				|| mine.clone(),
-				|w| TokensDto {
-					balance: w.balance,
-					kickbacks: Vec::new(),
-					..mine.clone()
-				},
-			)),
-			whom.clone(),
-		),
+	let whom = match &*whom.read() {
+		Some(Ok(whom)) => whom.clone(),
 		Some(Err(e)) => return rsx! { div { class: "{shell} p-6 text-accent-error", "{e}" } },
-		None => (None, None),
+		None => None,
 	};
 	let at = view.view().clone();
-	let (picked, target) = match at {
-		View::Home | View::Telegram | View::Tokens | View::Settings => (None, None),
-		View::Gmail(gmail) => (Some(gmail), None),
-		View::Place { gmail, target } => (Some(gmail), Some(target)),
+	let gmb_of = |id: i64| gmails.iter().find_map(|g| g.gmbs.iter().find(|b| b.id == id).map(|b| (g.gmail.clone(), b.clone())));
+	let picked = match at {
+		View::Home | View::Telegram | View::Settings => None,
+		View::Gmail(gmail) => Some(gmail),
+		View::Gmb { gmb, .. } => gmb_of(gmb).map(|(g, _)| g.id),
 	};
 	// a removed gmail's URL shows them all, as home does
 	let current = picked.filter(|id| gmails.iter().any(|g| g.gmail.id == *id));
@@ -707,7 +637,7 @@ fn Workspace(view: Route) -> Element {
 
 	rsx! {
 		div { class: "{shell}",
-			Rail { gmails: gmails.clone(), current, at: at.clone(), tokens: tokens.clone(), tab }
+			Rail { gmails: gmails.clone(), current, at: at.clone(), tab }
 			div { class: "flex min-h-0 min-w-0 flex-1 flex-col",
 				if let Some(acting) = acting {
 					div { class: "border-b border-border bg-accent-warn/15 px-6 py-2 text-accent-warn", "{acting}" }
@@ -719,70 +649,76 @@ fn Workspace(view: Route) -> Element {
 					(View::Telegram, _) => rsx! {
 						telegram::Channels { gmails: gmails.iter().map(|g| g.gmail.clone()).collect::<Vec<_>>() }
 					},
-					(View::Tokens, _) => rsx! {
-						tokens::Ledger { gmails: gmails.clone(), tokens, tab }
-					},
 					(View::Settings, _) => rsx! {
 						settings::Page {}
 					},
+					(View::Gmb { gmb, target }, _) => match gmb_of(gmb) {
+						Some((gmail, b)) => rsx! { GmbPage { gmb: Gmb { id: b.id, gmail }, place_id: b.place_id, tracks: b.tracks, target, tab } },
+						None => rsx! { div { class: "p-6 text-ink-soft", "No GMB #{gmb} of yours: it may have been removed." } },
+					},
 					(_, None) if gmails.is_empty() => rsx! {
-						div { class: "p-6 text-ink-soft", "Add the gmail your places are managed from, on the left." }
+						div { class: "p-6 text-ink-soft",
+							"No GMBs yet. "
+							AddGmb {}
+						}
 					},
-					(_, None) => {
-						let mut cards: Vec<_> = gmails.iter().flat_map(|g| g.locations.iter().map(|l| (g.gmail.clone(), l.clone()))).collect();
+					(_, scope) => {
+						let shown = |g: &&GmailOverview| scope.as_ref().is_none_or(|s| s.gmail.id == g.gmail.id);
+						let mut cards = Vec::new();
+						let mut untracked = Vec::new();
+						for g in gmails.iter().filter(shown) {
+							for b in &g.gmbs {
+								let gmb = Gmb { id: b.id, gmail: g.gmail.clone() };
+								match b.tracks.is_empty() {
+									true => untracked.push((gmb, b.place_id.clone())),
+									false => cards.extend(b.tracks.iter().map(|l| (gmb.clone(), l.clone()))),
+								}
+							}
+						}
 						cards.sort_by_key(|(_, l)| (std::cmp::Reverse(l.snapshots_7d), l.target.id));
-						rsx! { Places { cards, under: gmails.iter().map(|g| g.gmail.clone()).collect::<Vec<_>>(), gmail: None, tab } }
+						rsx! { Places { cards, untracked, gmail: scope.map(|s| s.gmail), tab } }
 					}
-					(_, Some(g)) => match target.and_then(|t| g.locations.iter().find(|l| l.target.id == t)) {
-						Some(loc) => rsx! {
-							board::Board { gmail: g.gmail.clone(), location: loc.clone(), tab }
-						},
-						None => rsx! {
-							Places { cards: g.locations.iter().map(|l| (g.gmail.clone(), l.clone())).collect::<Vec<_>>(), under: vec![g.gmail.clone()], gmail: Some(g.gmail), tab }
-						},
-					},
 				}
 			}
 		}
 	}
 }
 
+/// A link to the conductor's GMBs page, where they are added: the shell routes it (`ev:navigate`),
+/// else the browser follows it.
 #[component]
-fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Option<TokensDto>, tab: Option<i64>) -> Element {
+fn AddGmb() -> Element {
+	const GMBS: &str = "/gmbs";
+	rsx! {
+		a {
+			class: "text-ink underline-offset-2 hover:underline",
+			href: GMBS,
+			onclick: move |e: MouseEvent| {
+				let init = web_sys::CustomEventInit::new();
+				init.set_cancelable(true);
+				let detail = js_sys::Object::new();
+				js_sys::Reflect::set(&detail, &"href".into(), &GMBS.into()).expect("setting a field");
+				init.set_detail(&detail);
+				let ev = web_sys::CustomEvent::new_with_event_init_dict("ev:navigate", &init).expect("a plain event");
+				// `false`: the shell took it
+				if !web_sys::window().expect("a browser").dispatch_event(&ev).expect("dispatching to a window") {
+					e.prevent_default();
+				}
+			},
+			"+ Add a GMB"
+		}
+	}
+}
+
+#[component]
+fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<i64>) -> Element {
 	let telegram = at == View::Telegram;
-	let aside = telegram || at == View::Tokens || at == View::Settings;
-	let mut adding = use_signal(String::new);
-	let all_on = !gmails.is_empty() && gmails.iter().all(|g| g.gmail.enabled);
-	let ids: Vec<i64> = gmails.iter().map(|g| g.gmail.id).collect();
+	let aside = telegram || at == View::Settings;
 	let row = "flex items-center gap-2 rounded-md px-3 py-2 text-left cursor-pointer hover:bg-hover";
 	rsx! {
 		nav { class: "flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-secondary",
 			div { class: "flex items-center gap-2 px-4 py-4",
 				span { class: "flex-1 text-[14px] font-semibold", "review_archive" }
-				if let Some(t) = tokens {
-					if !t.kickbacks.is_empty() {
-						button {
-							class: "rounded-md px-1.5 py-0.5 font-mono text-positive cursor-pointer hover:bg-hover",
-							title: t.kickbacks.iter().fold("added on click:".to_owned(), |mut s, k| {
-								s += &match &k.why {
-									KickbackWhy::Failed { target_label, error, .. } => {
-										let error: String = error.chars().take(120).collect();
-										format!("\n· +{}, {target_label} failed {}: {error}", k.amount, ago(&k.at))
-									}
-									KickbackWhy::Granted { note, .. } => format!("\n· +{}, {}: {note}", k.amount, ago(&k.at)),
-								};
-								s
-							}),
-							onclick: move |_| act(|c| async move { c.claim_kickbacks().await.map(drop) }),
-							"+{t.kickbacks.iter().map(|k| k.amount).sum::<i64>()}"
-						}
-					}
-					Link {
-						class: if at == View::Tokens { "rounded-md px-2 py-0.5 bg-hover text-ink" } else { "rounded-md px-2 py-0.5 text-ink-soft hover:bg-hover" },
-						to: Route::at(tab, View::Tokens),
-						span { title: "+{t.daily}/day up to {t.cap}", "{t.balance} tokens" }
-					}
-				}
 			}
 			div { class: "flex items-center gap-1.5 pl-2 pr-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-soft",
 				Link {
@@ -793,8 +729,7 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 				InfoTip {
 					InfoTipTrigger { label: "What a managing gmail is" }
 					InfoTipContent { class: "normal-case font-normal tracking-normal flex flex-col gap-2",
-						p { "Full gmail address or any alias for it. Used only to group places; it doesn't affect any actions taken." }
-						p { "If no managing account is connected, enter the email the place is on, or its shorthand." }
+						p { "The Google account a group of GMBs is managed from. Gmails and their GMBs are added on the GMBs page." }
 					}
 				}
 				Link {
@@ -815,59 +750,19 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 						circle { cx: "12", cy: "12", r: "3" }
 					}
 				}
-				div { class: "flex-1" }
-				Switch {
-					checked: all_on,
-					disabled: ids.is_empty(),
-					on_checked_change: move |on: bool| {
-						let ids = ids.clone();
-						act(move |c| async move {
-							for id in ids {
-								c.set_gmail_enabled(id, on).await?;
-							}
-							Ok(())
-						});
-					},
-				}
 			}
 			div { class: "flex flex-col gap-0.5 px-2",
 				for g in gmails {
-					div { key: "{g.gmail.id}", class: "flex items-center gap-1",
-						Link {
-							class: format!(
-								"{row} flex-1 min-w-0 {} {}",
-								if current == Some(g.gmail.id) && !aside { "bg-hover text-ink" } else { "text-ink-soft" },
-								if g.gmail.enabled { "" } else { "opacity-50" }
-							),
-							to: Route::at(tab, View::Gmail(g.gmail.id)),
-							span { class: "truncate flex-1", "{g.gmail.gmail}" }
-							uikit_dioxus::Badge { variant: BadgeVariant::Secondary, "{g.locations.len()}" }
-						}
-						Switch {
-							checked: g.gmail.enabled,
-							on_checked_change: move |on: bool| {
-								let id = g.gmail.id;
-								act(move |c| async move { c.set_gmail_enabled(id, on).await });
-							},
-						}
+					Link {
+						key: "{g.gmail.id}",
+						class: format!("{row} min-w-0 {}", if current == Some(g.gmail.id) && !aside { "bg-hover text-ink" } else { "text-ink-soft" }),
+						to: Route::at(tab, View::Gmail(g.gmail.id)),
+						span { class: "truncate flex-1", "{g.gmail.gmail}" }
+						uikit_dioxus::Badge { variant: BadgeVariant::Secondary, "{g.gmbs.len()}" }
 					}
 				}
 			}
-			form {
-				class: "mt-2 flex gap-1 px-3",
-				onsubmit: move |e| {
-					e.prevent_default();
-					let gmail = adding();
-					act(move |c| async move { c.add_gmail(&gmail).await.map(drop) });
-					adding.set(String::new());
-				},
-				Input {
-					size: Size::Sm,
-					placeholder: "+ Add gmail",
-					value: adding(),
-					oninput: move |e: FormEvent| adding.set(e.value()),
-				}
-			}
+			div { class: "mt-2 px-5", AddGmb {} }
 			div { class: "flex-1" }
 			Link {
 				class: if telegram { "{row} mx-2 mb-3 bg-hover text-ink" } else { "{row} mx-2 mb-3 text-ink-soft" },
@@ -878,21 +773,11 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tokens: Opti
 	}
 }
 
-/// Places as cards, as given: one gmail's (`gmail`), else every gmail's. A place tracked under
-/// two gmails is a card under each: its counts are that gmail's. `under`: the gmails a new place can be tracked under.
+/// Tracked places as cards, as given: one gmail's (`gmail`), else every gmail's. A place tracked
+/// under two GMBs is a card under each: its counts are that GMB's. `untracked`: GMBs with no
+/// track yet, and their place ids.
 #[component]
-fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: Option<GmailDto>, tab: Option<i64>) -> Element {
-	assert!(!under.is_empty(), "Workspace shows no Places without a gmail");
-	let mut place = use_signal(String::new);
-	let mut picked = use_signal(|| None::<String>);
-	let into = match under.as_slice() {
-		[only] => Some(only.id),
-		_ => picked().and_then(|gmail| under.iter().find(|g| g.gmail == gmail)).map(|g| g.id),
-	};
-	let mut choices = use_signal(|| None::<(i64, Vec<PlaceDto>)>);
-	let mut pending = use_signal(|| false);
-	let mut outcome = use_signal(|| None::<String>);
-	let held: Vec<(i64, i64)> = cards.iter().map(|(g, l)| (g.id, l.target.id)).collect();
+fn Places(cards: Vec<(Gmb, LocationSummary)>, untracked: Vec<(Gmb, String)>, gmail: Option<GmailDto>, tab: Option<i64>) -> Element {
 	let filter: Signal<filter::Filter> = use_context();
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
@@ -918,9 +803,9 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 					for (g, loc) in shown {
 						cards::LocationCard {
 							key: "{g.id}-{loc.target.id}",
-							to: Route::at(tab, View::Place { gmail: g.id, target: loc.target.id }),
-							gmail: g,
+							to: Route::at(tab, View::Gmb { gmb: g.id, target: Some(loc.target.id) }),
 							all: gmail.is_none(),
+							gmb: g,
 							loc,
 						}
 					}
@@ -934,96 +819,18 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 			span { class: "text-ink-soft", "/" }
 			span { class: "font-medium", "Locations" }
 			div { class: "flex-1" }
-			form {
-				class: "flex gap-2",
-				onsubmit: move |e: FormEvent| {
-					e.prevent_default();
-					let id = into.expect("the submit button is disabled until a gmail is picked");
-					let gmail = under.iter().find(|g| g.id == id).expect("into is one of under").gmail.clone();
-					let input = place();
-					let held = held.clone();
-					pending.set(true);
-					outcome.set(None);
-					choices.set(None);
-					act(move |c| async move {
-						let r = async {
-							match <[PlaceDto; 1]>::try_from(c.places(&input).await?) {
-								Ok([one]) => {
-									let t = c.track(id, &NewTrack { place: one.place_id, ..Default::default() }).await?;
-									outcome.set(Some(tracked(&held, id, &gmail, &t)));
-								}
-								Err(many) => choices.set(Some((id, many))),
-							}
-							Ok(())
-						}
-						.await;
-						pending.set(false);
-						r
-					});
-					place.set(String::new());
-				},
-				if under.len() > 1 {
-					Select { on_value_change: move |v: String| picked.set(Some(v)),
-						SelectTrigger { class: "w-56", SelectValue { placeholder: "under gmail…" } }
-						SelectContent {
-							for g in under.iter() {
-								SelectItem { key: "{g.id}", value: "{g.gmail}", text_value: "{g.gmail}", "{g.gmail}" }
-							}
-						}
-					}
-				}
-				Input {
-					class: "w-80",
-					placeholder: "Place id or Google Maps URL",
-					disabled: pending(),
-					value: place(),
-					oninput: move |e: FormEvent| place.set(e.value()),
-				}
-				Button { disabled: into.is_none() || pending(),
-					if pending() { Spinner {} " Tracking…" } else { "+ Track place" }
-				}
-			}
+			AddGmb {}
 		}
-		if let Some(o) = outcome() {
-			div { class: "flex items-center gap-2 border-b border-border px-6 py-2",
-				span { "{o}" }
-				div { class: "flex-1" }
-				Button { variant: ButtonVariant::Ghost, size: Size::Xs, r#type: "button", onclick: move |_| outcome.set(None), "dismiss" }
-			}
-		}
-		if let Some((id, many)) = choices() {
-			div { class: "flex flex-col gap-1 border-b border-border px-6 py-3",
-				div { class: "flex items-center gap-2",
-					span { class: "text-ink-soft", "{many.len()} places bear this name; which one?" }
-					div { class: "flex-1" }
-					Button { variant: ButtonVariant::Ghost, size: Size::Xs, r#type: "button", onclick: move |_| choices.set(None), "cancel" }
-				}
-				for p in many {
-					Button {
-						key: "{p.place_id}",
-						class: "justify-start text-left",
-						variant: ButtonVariant::Outline,
-						size: Size::Sm,
-						r#type: "button",
-						onclick: {
-							let place_id = p.place_id.clone();
-							let held = held.clone();
-							let gmail = under.iter().find(|g| g.id == id).expect("choices are offered under a gmail of under").gmail.clone();
-							move |_| {
-								let req = NewTrack { place: place_id.clone(), ..Default::default() };
-								let (held, gmail) = (held.clone(), gmail.clone());
-								pending.set(true);
-								act(move |c| async move {
-									let t = c.track(id, &req).await;
-									pending.set(false);
-									outcome.set(Some(tracked(&held, id, &gmail, &t?)));
-									Ok(())
-								});
-								choices.set(None);
-							}
-						},
-						span { class: "font-medium", {p.name.clone().unwrap_or(p.place_id.clone())} }
-						if let Some(a) = &p.address { span { class: "text-ink-soft", " · {a}" } }
+		if !untracked.is_empty() {
+			div { class: "flex flex-wrap items-center gap-2 border-b border-border px-6 py-2",
+				span { class: "text-ink-soft", "Not tracked:" }
+				for (g, place_id) in untracked {
+					Link {
+						key: "{g.id}",
+						class: "rounded-md border border-border px-2 py-0.5 font-mono text-[11px] hover:bg-hover",
+						to: Route::at(tab, View::Gmb { gmb: g.id, target: None }),
+						title: "{g.gmail.gmail}",
+						"{place_id}"
 					}
 				}
 			}
@@ -1033,11 +840,68 @@ fn Places(cards: Vec<(GmailDto, LocationSummary)>, under: Vec<GmailDto>, gmail: 
 	}
 }
 
-/// A track of a place its gmail had already is a no-op, which would otherwise look like nothing happened.
-fn tracked(held: &[(i64, i64)], gmail: i64, address: &str, t: &TargetDto) -> String {
-	match held.contains(&(gmail, t.id)) {
-		true => format!("{} is already tracked under {address}", t.label),
-		false => format!("Now tracking {} under {address}", t.label),
+/// A GMB's page: the board of one of its tracks, a switch between them when there are several,
+/// and with none, the language to start tracking it in.
+#[component]
+fn GmbPage(gmb: Gmb, place_id: String, tracks: Vec<LocationSummary>, target: Option<i64>, tab: Option<i64>) -> Element {
+	let mut lang = use_signal(String::new);
+	let mut gbp = use_signal(String::new);
+	let mut pending = use_signal(|| false);
+	let shown = match target {
+		Some(t) => tracks.iter().find(|l| l.target.id == t),
+		None => tracks.first(),
+	};
+	let Some(location) = shown.cloned() else {
+		let id = gmb.id;
+		return rsx! {
+			header { class: "flex h-14 shrink-0 items-center gap-3 border-b border-border px-6",
+				span { class: "text-ink-soft", "{gmb.gmail.gmail}" }
+				span { class: "text-ink-soft", "/" }
+				span { class: "font-mono", "{place_id}" }
+			}
+			form {
+				class: "flex items-center gap-2 p-6",
+				onsubmit: move |e: FormEvent| {
+					e.prevent_default();
+					let req = NewTrack {
+						label: None,
+						lang: Some(lang().trim().to_owned()).filter(|l| !l.is_empty()),
+						gbp: Some(gbp().trim().to_owned()).filter(|g| !g.is_empty()),
+					};
+					pending.set(true);
+					let nav = navigator();
+					act(move |c| async move {
+						let t = c.track(id, &req).await;
+						pending.set(false);
+						nav.push(Route::at(tab, View::Gmb { gmb: id, target: Some(t?.id) }));
+						Ok(())
+					});
+				},
+				span { "Track its reviews in" }
+				Input { class: "w-24", placeholder: "fr", value: lang(), oninput: move |e: FormEvent| lang.set(e.value()) }
+				Input { class: "w-56", placeholder: "GBP <account>/<location> (optional)", value: gbp(), oninput: move |e: FormEvent| gbp.set(e.value()) }
+				Button { disabled: pending(),
+					if pending() { Spinner {} " Tracking…" } else { "Track" }
+				}
+			}
+		};
+	};
+	let switch = (tracks.len() > 1).then(|| {
+		rsx! {
+			div { class: "flex gap-1",
+				for l in tracks.clone() {
+					Link {
+						key: "{l.target.id}",
+						class: if l.target.id == location.target.id { "rounded-md px-2 py-0.5 bg-hover text-ink" } else { "rounded-md px-2 py-0.5 text-ink-soft hover:bg-hover" },
+						to: Route::at(tab, View::Gmb { gmb: gmb.id, target: Some(l.target.id) }),
+						"{l.target.lang} · {l.target.kind.as_ref()}"
+					}
+				}
+			}
+		}
+	});
+	rsx! {
+		board::Board { gmb, location, tab, {switch} }
 	}
 }
 
