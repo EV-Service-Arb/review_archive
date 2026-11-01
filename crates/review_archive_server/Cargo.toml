@@ -26,10 +26,8 @@ ev_lib = { workspace = true, features = ["settings", "error_monitoring", "otel",
 eyre.workspace = true
 jiff.workspace = true
 rand.workspace = true
-reqwest = { workspace = true, features = ["stream"] } # `/grafana/`'s request bodies
 review_archive = { workspace = true, features = ["maps", "settings", "store"] }
 review_archive_core = { workspace = true, features = ["openapi"] }
-rustix.workspace = true # Grafana's process group
 sa_auth = { workspace = true, features = ["catalog"] }
 schemars.workspace = true
 serde.workspace = true
@@ -50,6 +48,7 @@ v_utils = { workspace = true, features = ["cli", "xdg"] }
 [dev-dependencies]
 browser_manipulation.workspace = true
 miette = { workspace = true, features = ["fancy"] }
+reqwest.workspace = true
 thiserror.workspace = true
 
 [lints]

@@ -147,68 +147,10 @@
           auditable = false;
         };
 
-        # lays out `ra-location` in the Stats tile like the board's own tiles
-        tilersPlugin = pkgs.fetchzip {
-          url = "https://github.com/EV-Main/tilers/releases/download/grafana-v0.6.0/evmain-tilers-app-0.6.0.zip";
-          hash = "sha256-NDxPRBj29ZmAb5ROp9SxPCSvrG0C+CVDWYPljcBeW4k=";
-        };
-
-        # Infinity's package for this platform alone: the catalog's default zip carries every platform's backend
-        infinityPlugin = pkgs.grafanaPlugins.grafanaPlugin {
-          pname = "yesoreyeram-infinity-datasource";
-          version = "4.1.0";
-          zipHash = {
-            x86_64-linux = "sha256-pzgHZ2abzFzyKvBIQOTzlirus+AUTE0/VfP2zYnL06I=";
-            aarch64-linux = "sha256-1fZ7v7mkleROOessTSbLB6wQH2HLMbhJdVGiqaaC/pg=";
-          };
-        };
-
-        # Grafana without what no browser here loads: its source maps and API explorer
-        grafanaPruned = pkgs.runCommand "grafana-pruned" { } ''
-          cp -r --no-preserve=mode ${pkgs.grafana} $out
-          chmod +x $out/bin/grafana
-          find $out/share/grafana/public -name '*.map' -delete
-          rm -r $out/share/grafana/public/build-swagger
-        '';
-
-        # `serve`'s `grafana.server`: `serve` gives it its socket, data dir, root URL, `RA_API` and its
-        # sign-in settings; the rest is fixed here, cut to what the dashboards use (ARCHITECTURE.md § Memory).
-        # `logFile`: dev's, appended to; otherwise warnings and up on serve's stderr.
-        grafanaServer = { logFile }: pkgs.writeShellScript "grafana-server" ''
-          export RA_GRAFANA=${./grafana}
-          export GF_PATHS_LOGS="$GF_PATHS_DATA/log"
-          export GF_PATHS_PLUGINS="${pkgs.linkFarm "grafana-plugins" [
-            { name = "yesoreyeram-infinity-datasource"; path = infinityPlugin; }
-            { name = "marcusolsson-dynamictext-panel"; path = pkgs.grafanaPlugins.marcusolsson-dynamictext-panel; }
-            { name = "evmain-tilers-app"; path = tilersPlugin; }
-          ]}"
-          export GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=evmain-tilers-app
-          # with the sections it reads and nothing is provisioned in: missing, each is logged as an error
-          export GF_PATHS_PROVISIONING="${pkgs.runCommand "grafana-provisioning" { } "cp -r ${./grafana/provisioning} $out; chmod u+w $out; mkdir $out/alerting $out/plugins"}"
-          export GF_SECURITY_ALLOW_EMBEDDING=true
-          export GF_PLUGINS_PREINSTALL_DISABLED=true # its plugin dir is the store's
-          export GF_LIVE_MAX_CONNECTIONS=0
-          export GF_ANALYTICS_REPORTING_ENABLED=false GF_ANALYTICS_CHECK_FOR_UPDATES=false GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
-          export GF_UNIFIED_ALERTING_ENABLED=false GF_NEWS_NEWS_FEED_ENABLED=false GF_PUBLIC_DASHBOARDS_ENABLED=false GF_SNAPSHOTS_ENABLED=false
-          export GF_QUERY_HISTORY_ENABLED=false GF_EXPLORE_ENABLED=false GF_CLOUD_MIGRATION_ENABLED=false GF_RECORDED_QUERIES_ENABLED=false
-          export GF_PROFILE_ENABLED=false GF_HELP_ENABLED=false
-          # its own, not the pod's, sized to the whole container (ARCHITECTURE.md § Memory); Infinity inherits both.
-          # The heap is kept by GOGC: a limit near the live heap (~70 MiB idle, ~105 after a while of loads) spins the GC
-          export GOGC=50 GOMEMLIMIT=200MiB
-          ${if logFile then ''
-            log="''${XDG_STATE_HOME:-$HOME/.local/state}/review_archive/grafana.log"
-            mkdir -p "$(dirname "$log")"
-            exec ${grafanaPruned}/bin/grafana server --homepath ${grafanaPruned}/share/grafana >>"$log" 2>&1
-          '' else ''
-            export GF_LOG_MODE=console GF_LOG_LEVEL=warn
-            exec ${grafanaPruned}/bin/grafana server --homepath ${grafanaPruned}/share/grafana
-          ''}
-        '';
-
         # `nix run .#<name> [-- <held>]`: the dashboard built (debug) into tmp/<name> and served by a
         # local `serve` at `/`, on the repo's `data/`, signed in holding `<held>` (`--dev-member`: an
         # alias, permissions comma-separated, or `none`; no panel needed). Scans run in a Chromium
-        # window: a headless one gets Maps' limited view (#9). With `?grafana=true`, Grafana draws the overview and boards.
+        # window: a headless one gets Maps' limited view (#9).
         devMfe = { name }: pkgs.writeShellApplication {
           inherit name;
           runtimeInputs = [ pkgs.git ];
@@ -224,9 +166,6 @@
             cat >"$out/config.toml" <<EOF
             data_dir = "$repo/data"
             mfe_dir = "$out"
-            [grafana]
-            server = "${grafanaServer { logFile = true; }}"
-            root_url = "http://127.0.0.1:59110/grafana/"
             [browser]
             executable = "${pkgs.chromium}/bin/chromium"
             headful = true
@@ -258,7 +197,6 @@
           inherit port;
           chromium = headlessShell;
           mfe = "${mfe}";
-          grafana = "${grafanaServer { logFile = false; }}";
         });
 
         imageEnv = playwrightEnv // {
@@ -286,8 +224,8 @@
             inherit port;
             mounts = [ "/data" ];
             sqlite = [ "/data/review_archive.db" ];
-            # Chromium's own, a lost sign-in being the `signed_out` halt; Grafana's, provisioned on every start
-            unreplicated = [ "/data/chromium-profile" "/data/chromium-profile-2" "/data/.local/share/pki" "/data/grafana" ];
+            # Chromium's own, a lost sign-in being the `signed_out` halt
+            unreplicated = [ "/data/chromium-profile" "/data/chromium-profile-2" "/data/.local/share/pki" ];
             healthPath = "/health";
             # an archive that misses a scan catches up on the next one
             criticality = "normal";
@@ -313,7 +251,6 @@
             nix build .#${pname}-container    OCI image with chromium-headless-shell (Linux only), its binary checked to start it
             nix build .#mfe                   the dashboard bundle (served under /mfe/)
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
-                                              (/?grafana=true: drawn by Grafana)
             nix run .#publish -- major|minor|patch [note]
                                               live tests, then tag the next vX.Y.Z and push it: CI ships the image
             nix run .#help                    this

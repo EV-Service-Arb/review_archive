@@ -314,8 +314,7 @@ scanned pay.
 ### Auth
 
 Served behind the Service-Arb panel at `sa.evinvest.ltd`: its `/api/review_archive/*` reaches
-the API (the prefix stripped), its `/review_archive/mfe/*` the bundle, and its
-`/api/review_archive/grafana/*` this service's `/grafana/*`, Grafana's `root_url`. Nothing else reaches
+the API (the prefix stripped), and its `/review_archive/mfe/*` the bundle. Nothing else reaches
 the service.
 
 - Every authenticated request carries the panel's assertion in `x-sa-assertion` (`sa_auth`):
@@ -332,9 +331,10 @@ the service.
   their GMBs track. With `sa:review_archive:members:act_as`, `X-Member: <person id>` acts as
   that member: their GMBs, boards and channels, their writes; anyone else sending it gets 403.
 - `POST /me/tg-channels/{id}/test` posts at most once a minute per person (429).
-- CSRF is the panel's: it checks its own header on every write before forwarding. Its Grafana route
-  does not: a Grafana query is a POST that only reads, its fetches GETs as the viewer
-  (ARCHITECTURE.md § Invariants).
+- CSRF is the panel's: it checks its own header on every write before forwarding.
+- `GET /dashboards` is the conductor's (an assertion naming `Principal::Conductor`), and no one
+  else's: a JSON array of the dashboards in `grafana/` (written by `examples/grafana_*.py`), each with its
+  `uid`, for its Grafana; strong `ETag`, `304` on `If-None-Match`.
 - `serve --dev-member <alias | permissions | none>` (loopback, outside production): every
   request is one person holding that, without the panel, for a local dashboard
   (`nix run .#dev-mfe`): the owner of a mirrored GMB, so it shows what the worker scans; with
@@ -373,8 +373,9 @@ in), `/gmails/{id}`, `/telegram`, `/settings`, under `/members/{id}` for a membe
 every page, lists the person's gmails and GMBs, switches them and links to those views; a member's tab
 draws its own list of that member's gmails. Adding a GMB is the conductor's home. A card under a GMB
 switched off at the conductor is dimmed, as one whose track is off. Standalone (`--dev-member`), the binary serves the same page at `/`.
-`?grafana=true` on its URL has Grafana draw the overview and a place's board, for that browser tab
-(`?grafana=false` undoes it); otherwise the legacy UI does.
+`?grafana=true` on its URL has the host's Grafana (the element's `grafana` attribute: its base) draw
+the overview and a place's board, for that browser tab (`?grafana=false` undoes it); otherwise the
+legacy UI does. A host without the attribute has no Grafana, and the element says so.
 
 ## Library
 
