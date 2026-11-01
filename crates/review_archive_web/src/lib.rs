@@ -292,7 +292,13 @@ fn session() -> web_sys::Storage {
 /// The API's base URL: `api` resolved against the page.
 fn base() -> reqwest::Url {
 	let page = web_sys::window().expect("a browser").location().href().expect("a page has a URL");
-	reqwest::Url::parse(&page).and_then(|p| p.join(&host().api)).expect("`api` resolves against the page")
+	let mut base = reqwest::Url::parse(&page).and_then(|p| p.join(&host().api)).expect("`api` resolves against the page");
+	// the panel's `/api/review_archive` names a directory, or `join` replaces its last segment
+	if !base.path().ends_with('/') {
+		let path = format!("{}/", base.path());
+		base.set_path(&path);
+	}
+	base
 }
 
 fn api() -> Client {
