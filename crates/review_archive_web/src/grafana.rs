@@ -1,6 +1,6 @@
 //! The locations overview drawn by Grafana (`grafana/dashboards/ra-overview.json`) in place of the
 //! cards, and a place's board (`ra-location`: its lanes and runs, tiled by the tilers plugin,
-//! `evmain-tilers-app`). One frame from `/grafana/` starts with the page
+//! `evmain-tilers-app`). One frame from the host's Grafana (the element's `grafana`) starts with the page
 //! and lives as long: its boot takes seconds, moving it to another dashboard or vars does not. A
 //! [`Slot`] says where it shows and what; the frame is laid over the slot on screen and steered
 //! there, never reloaded. Both post up what is done in them: the overview's clicks (`ra-open`,
@@ -24,7 +24,7 @@ use crate::{
 const KIOSK: &str = "?kiosk&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks";
 
 fn grafana() -> reqwest::Url {
-	crate::base().join("grafana/").expect("a relative path joins")
+	crate::directory(crate::host().grafana.as_deref().expect("required at mount under Ui::Grafana"))
 }
 
 fn window() -> web_sys::Window {
@@ -41,7 +41,7 @@ struct Frame {
 struct Placed {
 	id: ScopeId,
 	el: web_sys::Element,
-	/// under `/grafana/`
+	/// under [`grafana`]
 	path: String,
 	on: Option<EventHandler<Up>>,
 }
@@ -253,7 +253,7 @@ fn tell(frame: Signal<Option<web_sys::HtmlIFrameElement>>, kind: &str, fields: &
 		.expect("posting to a same-origin frame");
 }
 
-/// Where the frame shows, and the dashboard (`path`, under `/grafana/`) it shows there.
+/// Where the frame shows, and the dashboard (`path`, under [`grafana`]) it shows there.
 #[component]
 fn Slot(class: String, path: String, on: Option<EventHandler<Up>>) -> Element {
 	let Frame { mut slots, .. } = use_context();
