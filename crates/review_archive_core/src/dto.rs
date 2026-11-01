@@ -673,6 +673,8 @@ pub struct LocationSummary {
 	pub corrupted: i64,
 	/// How many reviews Google says the place has, as of the last scan that read it.
 	pub listed: Option<i64>,
+	/// Its star average, as Google gave it on the last scan that read it.
+	pub rating: Option<f64>,
 	/// Gone with 5 stars, with no open appeal from this gmail.
 	pub suspended: i64,
 	/// Gone with fewer stars, or none, with no open appeal from this gmail.

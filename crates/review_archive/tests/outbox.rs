@@ -69,6 +69,8 @@ fn complete(reviews: Vec<Observed>) -> Result<Scan, String> {
 		warnings: vec![],
 		cut_after: None,
 		listed: None,
+		rating: None,
+		deepest: false,
 		post: None,
 		name: None,
 		address: None,

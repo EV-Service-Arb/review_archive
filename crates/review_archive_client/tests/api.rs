@@ -205,6 +205,8 @@ impl ReviewSource for Listed {
 			warnings: vec![],
 			cut_after: None,
 			listed: Some(u64::try_from(self.0.len()).unwrap()),
+			rating: Some(4.5),
+			deepest: false,
 			post: None,
 			name: None,
 			address: None,
@@ -232,6 +234,8 @@ impl ReviewSource for Posted {
 			warnings: vec![],
 			cut_after: None,
 			listed: None,
+			rating: None,
+			deepest: false,
 			post: Some(self.0.clone()),
 			name: None,
 			address: None,
@@ -1464,6 +1468,7 @@ async fn members_share_places_but_see_only_their_own() {
 		(t.id, 1, 2, 1, 3, 1, 1, 0, 0, 0)
 	);
 	assert_eq!(loc.listed, Some(3), "what the source says the place has");
+	assert_eq!(loc.rating, Some(4.5));
 	assert_eq!((loc.posts_7d, loc.latest_post.clone()), (0, None));
 
 	let target = e.archive.target(review_archive::core::TargetId(t.id)).await.unwrap();

@@ -54,6 +54,7 @@ struct LocationRow {
 	captured: i64,
 	corrupted: i64,
 	listed: Option<i64>,
+	rating: Option<f64>,
 	gone: i64,
 	suspended: i64,
 	reinstating: i64,
@@ -259,7 +260,7 @@ impl Store {
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND EXISTS (SELECT 1 FROM captures c WHERE c.review_id = r.id)) AS captured,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND EXISTS (SELECT 1 FROM captures c WHERE c.review_id = r.id)
 			          AND NOT EXISTS (SELECT 1 FROM captures c WHERE c.review_id = r.id AND c.corrupted IS NOT 1)) AS corrupted,
-			        t.listed,
+			        t.listed, t.rating,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.gone_at IS NOT NULL) AS gone,
 			        (SELECT COUNT(*) FROM reviews r WHERE r.target_id = t.id AND r.gone_at IS NOT NULL AND r.rating = 5
 			          AND NOT EXISTS (SELECT 1 FROM reinstatements x WHERE x.review_id = r.id AND x.managing_gmail_id = k.managing_gmail_id
@@ -323,6 +324,7 @@ impl Store {
 				captured: r.captured,
 				corrupted: r.corrupted,
 				listed: r.listed,
+				rating: r.rating,
 				suspended: r.suspended,
 				removed: r.gone - r.suspended - r.reinstating,
 				reinstating: r.reinstating,

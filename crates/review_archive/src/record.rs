@@ -112,6 +112,8 @@ impl Recorder<'_> {
 					captures: &captures,
 					cut_after: scan.cut_after.as_deref(),
 					listed: scan.listed,
+					rating: scan.rating,
+					deepest: scan.deepest,
 					post: scan.post.as_ref(),
 					name: scan.name.as_deref(),
 					address: scan.address.as_deref(),

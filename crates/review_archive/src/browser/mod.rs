@@ -273,7 +273,7 @@ struct Counted<'p> {
 }
 
 impl WalkPolicy for Counted<'_> {
-	fn wants_list(&self, total: Option<u64>) -> bool {
+	fn wants_list(&mut self, total: Option<u64>) -> bool {
 		self.policy.wants_list(total)
 	}
 

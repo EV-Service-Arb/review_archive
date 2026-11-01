@@ -80,47 +80,53 @@ pub fn LocationCard(gmail: GmailDto, all: bool, loc: LocationSummary, to: Route)
 						span { class: "text-[18px] font-semibold leading-none", "{loc.snapshots_30d}" }
 						span { class: "text-[11px]", "snapshots 30d" }
 					}
+					if let Some(rating) = loc.rating {
+						div { class: "ml-auto flex flex-col items-end gap-1", title: "the star average Google gives the place",
+							span { class: "text-[28px] font-semibold leading-none", "{rating:.2}" }
+							span { class: "text-[11px] text-ink-soft", "★ average" }
+						}
+					}
 				}
 				div { class: "flex flex-wrap gap-1.5",
 					Badge { tone: Tone::Ok,
 						match loc.listed {
-							Some(listed) => rsx! { span { title: "archived and still listed / listed on Google", "live {loc.live}/{listed}" } },
-							None => rsx! { "live {loc.live}" },
+							Some(listed) => rsx! { span { title: "archived and still listed / listed on Google", "live: {loc.live}/{listed}" } },
+							None => rsx! { "live: {loc.live}" },
 						}
 					}
 					Badge { tone: Tone::Ok,
-						span { title: "posted over the last 7 days, removed ones included", "new 7d +{loc.new_7d}" }
+						span { title: "posted over the last 7 days, removed ones included", "new 7d: +{loc.new_7d}" }
 					}
 					if let Some(post) = &loc.latest_post {
 						Badge { tone: Tone::Ok,
-							span { title: "owner's latest post, {ago(post.published_est.as_deref().unwrap_or(&post.first_seen))}:\n{post.text}", "posts 7d {loc.posts_7d}" }
+							span { title: "owner's latest post, {ago(post.published_est.as_deref().unwrap_or(&post.first_seen))}:\n{post.text}", "posts 7d: {loc.posts_7d}" }
 						}
 					}
 					span { onclick: narrowed(Review::Responded),
 						Badge { tone: if loc.responded < loc.live { Tone::Warn } else { Tone::Ok },
-							span { title: "replied to by the owner / live", "responded {loc.responded}/{loc.live}" }
+							span { title: "replied to by the owner / live", "responded: {loc.responded}/{loc.live}" }
 						}
 					}
 					span { onclick: narrowed(Review::FiveStar),
 						Badge { tone: Tone::Neutral,
-							span { title: "listed reviews under 5 stars, or unrated", "non-5-star {loc.non_five_star}" }
+							span { title: "listed reviews under 5 stars, or unrated", "non-5-star: {loc.non_five_star}" }
 						}
 					}
 					if loc.corrupted > 0 {
 						Badge { tone: Tone::Warn,
-							span { title: "reviews whose every screenshot is cut off / reviews with one; the next scan retakes them", "corrupted {loc.corrupted}/{loc.captured}" }
+							span { title: "reviews whose every screenshot is cut off / reviews with one; the next scan retakes them", "corrupted: {loc.corrupted}/{loc.captured}" }
 						}
 					}
 					if loc.suspended > 0 {
 						Badge { tone: Tone::Bad,
-							span { title: "5-star reviews gone from the listing", "suspended {loc.suspended}" }
+							span { title: "5-star reviews gone from the listing", "suspended: {loc.suspended}" }
 						}
 					}
 					if loc.removed > 0 {
-						Badge { tone: Tone::Bad, "removed {loc.removed}" }
+						Badge { tone: Tone::Bad, "removed: {loc.removed}" }
 					}
 					if loc.reinstating > 0 {
-						Badge { tone: Tone::Warn, "reinstating {loc.reinstating}" }
+						Badge { tone: Tone::Warn, "reinstating: {loc.reinstating}" }
 					}
 					if loc.held {
 						Badge { tone: Tone::Warn,

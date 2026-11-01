@@ -119,6 +119,8 @@ fn scan(reviews: Vec<Observed>, coverage: Coverage) -> Result<Scan, String> {
 		warnings: vec![],
 		cut_after: None,
 		listed: None,
+		rating: None,
+		deepest: false,
 		post: None,
 		name: None,
 		address: None,
@@ -281,6 +283,8 @@ async fn failures_are_runs_and_back_off() {
 		warnings: vec![Warning::Failure("screenshot of a failed".into())],
 		cut_after: None,
 		listed: None,
+		rating: None,
+		deepest: false,
 		post: None,
 		name: None,
 		address: None,
@@ -398,6 +402,8 @@ fn cut(reviews: Vec<Observed>, cut_after: Option<&str>) -> Result<Scan, String> 
 		warnings: vec![],
 		cut_after: cut_after.map(str::to_owned),
 		listed: None,
+		rating: None,
+		deepest: false,
 		post: None,
 		name: None,
 		address: None,
@@ -440,6 +446,28 @@ async fn the_count_to_compare_is_the_last_scans() {
 
 	e.archive().run(&src, &e.target).await.unwrap();
 	assert_eq!(listed().await, Some(4));
+}
+
+/// What the count holds beyond the archive is only taken as out of reach from a walk that
+/// read as deep as scans go.
+#[tokio::test]
+async fn only_the_deepest_walk_sets_what_is_out_of_reach() {
+	let e = env().await;
+	let known = || async { e.store.known(e.target.id).await.unwrap() };
+	let walk = |deepest| {
+		Ok(Scan {
+			listed: Some(3),
+			deepest,
+			..cut(vec![review("a", 5, "x", None, false)], None).unwrap()
+		})
+	};
+	let src = Scripted(Mutex::new(walk(false)));
+	e.archive().run(&src, &e.target).await.unwrap();
+	assert_eq!(known().await.unreachable, 0, "the rest may still be found");
+
+	src.set(walk(true));
+	e.archive().run(&src, &e.target).await.unwrap();
+	assert_eq!(known().await.unreachable, 2);
 }
 
 /// A review the owner has not replied to is not finished: the same count as the last scan

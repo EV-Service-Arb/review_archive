@@ -124,22 +124,22 @@ fn card(el: ElementRef<'_>) -> Option<Card> {
 	})
 }
 
-/// How many reviews the list holds, from the `aria-label`s of its histogram rows
-/// ([`sel::HISTOGRAM_ROW`]): one row per star, each `"<stars> <word>, <count> <word>"`.
-/// `None` unless there are exactly five rows and every one reads.
-pub fn review_total(row_labels: &[String]) -> Option<u64> {
-	if row_labels.len() != 5 {
-		return None;
+/// How many reviews the list holds per star (`[1★, …, 5★]`), from the `aria-label`s of its
+/// histogram rows ([`sel::HISTOGRAM_ROW`]): one row per star, each `"<stars> <word>, <count> <word>"`.
+/// `None` unless there are five rows, one per star, and every one reads.
+pub fn histogram(row_labels: &[String]) -> Option<[u64; 5]> {
+	let mut out = [None; 5];
+	for l in row_labels {
+		// the count follows the first comma and may be grouped with ",", ".", " " or a nbsp
+		let (stars, count) = l.split_once(',')?;
+		let digits: String = count.chars().filter(char::is_ascii_digit).collect();
+		let slot = &mut out[usize::from(leading_rating(stars)? - 1)];
+		if slot.replace(digits.parse::<u64>().ok()?).is_some() {
+			return None;
+		}
 	}
-	row_labels
-		.iter()
-		.map(|l| {
-			// the count follows the first comma and may be grouped with ",", ".", " " or a nbsp
-			let (_, count) = l.split_once(',')?;
-			let digits: String = count.chars().filter(char::is_ascii_digit).collect();
-			digits.parse::<u64>().ok()
-		})
-		.sum()
+	let [s1, s2, s3, s4, s5] = out;
+	Some([s1?, s2?, s3?, s4?, s5?])
 }
 
 fn selector(s: &str) -> Selector {
@@ -237,7 +237,7 @@ mod tests {
 	}
 
 	#[test]
-	fn totals_from_histogram_labels() {
+	fn histograms_from_their_labels() {
 		let en: Vec<String> = [
 			"5 stars, 4,377 reviews",
 			"4 stars, 1,892 reviews",
@@ -247,7 +247,7 @@ mod tests {
 		]
 		.map(String::from)
 		.into();
-		assert_eq!(review_total(&en), Some(4377 + 1892 + 976 + 443 + 12));
+		assert_eq!(histogram(&en), Some([12, 443, 976, 1892, 4377]));
 		let fr: Vec<String> = [
 			"5\u{a0}étoiles, 396 164\u{a0}avis",
 			"4\u{a0}étoiles, 63 370\u{a0}avis",
@@ -257,9 +257,10 @@ mod tests {
 		]
 		.map(String::from)
 		.into();
-		assert_eq!(review_total(&fr), Some(396_164 + 63_370 + 1 + 9_880));
-		assert_eq!(review_total(&en[..4]), None, "a row short is not a total");
-		assert_eq!(review_total(&["5 stars"; 5].map(String::from)), None);
+		assert_eq!(histogram(&fr), Some([9_880, 1, 0, 63_370, 396_164]));
+		assert_eq!(histogram(&en[..4]), None, "a row short is not a histogram");
+		assert_eq!(histogram(&[&en[..4], &en[..1]].concat()), None, "nor is a star twice");
+		assert_eq!(histogram(&["5 stars"; 5].map(String::from)), None);
 	}
 
 	#[test]

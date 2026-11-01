@@ -74,13 +74,18 @@ impl Client {
 	/// Every review of the location, all pages.
 	pub async fn reviews(&self, loc: &GbpLocation) -> Result<ReviewList, GbpError> {
 		let url = format!("{}/v4/accounts/{}/locations/{}/reviews", self.api_base, loc.account, loc.location);
-		let mut out = ReviewList { reviews: Vec::new(), total: None };
+		let mut out = ReviewList {
+			reviews: Vec::new(),
+			total: None,
+			rating: None,
+		};
 		let mut page_token: Option<String> = None;
 		let mut tokens = HashSet::new();
 		for _ in 0..MAX_PAGES {
 			let page: ReviewsPage = self.get(&url, page_token.as_deref()).await?;
 			out.reviews.extend(page.reviews);
 			out.total = out.total.or(page.total_review_count);
+			out.rating = out.rating.or(page.average_rating);
 			match page.next_page_token.filter(|t| !t.is_empty()) {
 				Some(t) if !tokens.insert(t.clone()) => return Err(eyre::eyre!("GET {url}: the API returned page token {t:?} twice").into()),
 				Some(t) => page_token = Some(t),
@@ -206,6 +211,8 @@ impl ReviewSource for GbpSource<'_> {
 			warnings,
 			cut_after: None,
 			listed: list.total,
+			rating: list.rating,
+			deepest: false,
 			post: None,
 			name,
 			address,

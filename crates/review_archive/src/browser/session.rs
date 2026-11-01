@@ -62,6 +62,7 @@ pub(crate) struct Opened {
 	pub page_url: String,
 	pub sorted: bool,
 	pub total: Option<u64>,
+	pub rating: Option<f64>,
 	pub name: String,
 	pub address: Option<String>,
 	pub post: Option<parse::Post>,
@@ -274,16 +275,21 @@ impl Page<'_> {
 			return Err(markup_changed("clicking the reviews tab", sel::REVIEWS_TAB));
 		}
 		if !self.wait_for_any(&[sel::CARD]).await? {
-			if self.review_total().await? == Some(0) {
+			if self.histogram().await?.is_some_and(|h| h.iter().sum::<u64>() == 0) {
 				tracing::info!(place_id, "the review list is empty");
 				return Ok(Err(Walked::empty(url, name, address, post)));
 			}
 			return Err(markup_changed("waiting for the review list", &[sel::CARD]));
 		}
-		let total = self.review_total().await?;
+		let histogram = self.histogram().await?;
+		let total = histogram.map(|h| h.iter().sum::<u64>());
+		let rating = histogram.zip(total).filter(|&(_, t)| t > 0).map(|(h, t)| {
+			let stars: u64 = h.iter().zip(1..).map(|(n, s)| n * s).sum();
+			stars as f64 / t as f64
+		});
 		if !policy.wants_list(total) {
-			tracing::info!(place_id, ?total, "the review count is the last scan's; the list is not read");
-			return Ok(Err(Walked::unchanged(self.tab.url(), name, address, total, post)));
+			tracing::info!(place_id, ?total, "the review count is the last scan's, and accounted for; the list is not read");
+			return Ok(Err(Walked::unchanged(self.tab.url(), name, address, total, rating, post)));
 		}
 
 		if !self.wait_for_any(sel::SORT_BUTTON).await? {
@@ -301,6 +307,7 @@ impl Page<'_> {
 			page_url: self.tab.url(),
 			sorted,
 			total,
+			rating,
 			name,
 			address,
 			post,
@@ -368,10 +375,9 @@ impl Page<'_> {
 		self.tab.capture(hint).await
 	}
 
-	/// The review count the list's histogram adds up to.
-	async fn review_total(&mut self) -> Result<Option<u64>, SessionError> {
+	async fn histogram(&mut self) -> Result<Option<[u64; 5]>, SessionError> {
 		let labels: Vec<String> = self.eval(js::LABELS, sel::HISTOGRAM_ROW).await?;
-		Ok(parse::review_total(&labels))
+		Ok(parse::histogram(&labels))
 	}
 
 	/// Walks the open review list, capturing the cards the policy asks for. A page that
@@ -470,6 +476,7 @@ impl Page<'_> {
 			warnings,
 			sorted: opened.sorted,
 			total: opened.total,
+			rating: opened.rating,
 			name: opened.name,
 			address: opened.address,
 			post: opened.post,

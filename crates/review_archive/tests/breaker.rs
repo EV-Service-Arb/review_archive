@@ -30,6 +30,8 @@ impl ReviewSource for Served {
 			warnings: vec![],
 			cut_after: None,
 			listed: None,
+			rating: None,
+			deepest: false,
 			post: None,
 			name: None,
 			address: None,

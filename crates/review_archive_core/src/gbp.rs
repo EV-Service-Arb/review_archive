@@ -24,6 +24,8 @@ pub struct ReviewsPage {
 	pub reviews: Vec<ApiReview>,
 	/// How many reviews the location has.
 	pub total_review_count: Option<u64>,
+	/// Their star average.
+	pub average_rating: Option<f64>,
 	/// Set while there are more pages.
 	pub next_page_token: Option<String>,
 }
@@ -35,6 +37,8 @@ pub struct ReviewList {
 	pub reviews: Vec<ApiReview>,
 	/// `totalReviewCount`, when the API gave it.
 	pub total: Option<u64>,
+	/// `averageRating`, when the API gave it.
+	pub rating: Option<f64>,
 }
 
 /// A review as the Business Profile API returns it.
@@ -167,7 +171,7 @@ impl FindCards {
 }
 
 impl WalkPolicy for FindCards {
-	fn wants_list(&self, _: Option<u64>) -> bool {
+	fn wants_list(&mut self, _: Option<u64>) -> bool {
 		true
 	}
 

@@ -134,6 +134,10 @@ pub struct ScanWrite<'a> {
 	pub cut_after: Option<&'a str>,
 	/// See [`review_archive_core::Scan::listed`].
 	pub listed: Option<u64>,
+	/// See [`review_archive_core::Scan::rating`].
+	pub rating: Option<f64>,
+	/// See [`review_archive_core::Scan::deepest`].
+	pub deepest: bool,
 	/// See [`review_archive_core::Scan::post`].
 	pub post: Option<&'a OwnerPost>,
 	/// See [`review_archive_core::Scan::name`].
@@ -598,8 +602,8 @@ impl Store {
 
 	/// What the archive holds for a target, for reconciling and for where to walk.
 	pub async fn known(&self, target: TargetId) -> eyre::Result<Known> {
-		let (cut_after, listed, initial): (Option<String>, Option<i64>, bool) = sqlx::query_as(
-			"SELECT cut_after, listed, NOT EXISTS (SELECT 1 FROM runs WHERE target_id = ?1 AND ad_hoc = 0 AND status IN ('ok', 'partial'))
+		let (cut_after, listed, unreachable, initial): (Option<String>, Option<i64>, i64, bool) = sqlx::query_as(
+			"SELECT cut_after, listed, unreachable, NOT EXISTS (SELECT 1 FROM runs WHERE target_id = ?1 AND ad_hoc = 0 AND status IN ('ok', 'partial'))
 			 FROM targets WHERE id = ?1",
 		)
 		.bind(target.0)
@@ -636,6 +640,7 @@ impl Store {
 			initial,
 			cut_after,
 			listed: listed.map(|n| u64::try_from(n).expect("written from a u64")),
+			unreachable: u64::try_from(unreachable).expect("written as MAX(…, 0)"),
 		})
 	}
 
@@ -850,6 +855,24 @@ impl Store {
 				.execute(&mut *tx)
 				.await
 				.wrap_err("recording how many reviews the source lists")?;
+		}
+		if scan.deepest && !scan.ad_hoc {
+			sqlx::query(
+				"UPDATE targets SET unreachable = MAX(COALESCE(listed, 0) - (SELECT COUNT(*) FROM reviews WHERE target_id = ?1 AND gone_at IS NULL), 0)
+				 WHERE id = ?1",
+			)
+			.bind(target.0)
+			.execute(&mut *tx)
+			.await
+			.wrap_err("recording what the count holds beyond the archive")?;
+		}
+		if let Some(rating) = scan.rating {
+			sqlx::query("UPDATE targets SET rating = ? WHERE id = ?")
+				.bind(rating)
+				.bind(target.0)
+				.execute(&mut *tx)
+				.await
+				.wrap_err("recording the place's star average")?;
 		}
 		if let Some(post) = scan.post {
 			// the first sighting's estimate is kept: "6 hours ago" says more than a later "3 days ago"

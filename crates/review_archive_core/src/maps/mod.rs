@@ -39,7 +39,7 @@ pub mod cost {
 /// What a walk needs to know about each card, and when it has seen enough.
 pub trait WalkPolicy: Send {
 	/// Whether to read the list at all, given how many reviews the page says it holds.
-	fn wants_list(&self, total: Option<u64>) -> bool;
+	fn wants_list(&mut self, total: Option<u64>) -> bool;
 	/// Whether to screenshot this card.
 	fn wants_capture(&self, card: &Card) -> bool;
 	/// Each card the walk reads, once, in list order.
@@ -92,6 +92,8 @@ pub struct Walked {
 	pub sorted: bool,
 	/// How many reviews the page says the list holds, when it says.
 	pub total: Option<u64>,
+	/// The star average over `total`, when the page says.
+	pub rating: Option<f64>,
 	/// The place's name, from its overview.
 	pub name: String,
 	/// The place's address, from its overview; a service-area business hides it.
@@ -110,6 +112,7 @@ impl Walked {
 			warnings: Vec::new(),
 			sorted: true,
 			total: Some(0),
+			rating: None,
 			name,
 			address,
 			post,
@@ -117,7 +120,7 @@ impl Walked {
 	}
 
 	/// The walk of a list the policy did not want read: nothing read, nothing judged.
-	pub fn unchanged(page_url: String, name: String, address: Option<String>, total: Option<u64>, post: Option<parse::Post>) -> Self {
+	pub fn unchanged(page_url: String, name: String, address: Option<String>, total: Option<u64>, rating: Option<f64>, post: Option<parse::Post>) -> Self {
 		Self {
 			cards: Vec::new(),
 			end: WalkEnd::Unread,
@@ -125,6 +128,7 @@ impl Walked {
 			warnings: Vec::new(),
 			sorted: false,
 			total,
+			rating,
 			name,
 			address,
 			post,
@@ -139,7 +143,8 @@ impl Walked {
 /// The scan of a target: capture what is new or pending, and stop after a full screen of
 /// archived cards in a row (everything older is archived too) — but only once past where
 /// the last walk was cut short, with every review not [completed](crate::KnownReview::completed)
-/// found or passed, and never on a target's first scan, which reads the whole list.
+/// found or passed, with the list's count accounted for, and never on a target's first scan,
+/// which reads the whole list.
 #[derive(Debug)]
 pub struct NewestFirst<'a> {
 	known: &'a Known,
@@ -154,6 +159,12 @@ pub struct NewestFirst<'a> {
 	unfinished: HashMap<&'a str, Timestamp>,
 	/// The latest the last dated card read can have been posted.
 	last_card_at: Option<Timestamp>,
+	/// Archived and not gone.
+	live: u64,
+	/// The count the page gave ([`WalkPolicy::wants_list`]).
+	total: Option<u64>,
+	/// Cards read that the archive does not hold as live.
+	found: u64,
 }
 
 impl<'a> NewestFirst<'a> {
@@ -165,6 +176,7 @@ impl<'a> NewestFirst<'a> {
 			.filter(|(_, k)| !k.completed() && !k.gone)
 			.filter_map(|(id, k)| Some((id.as_str(), k.earliest()?)))
 			.collect();
+		let live = known.reviews.values().filter(|k| !k.gone).count();
 		Self {
 			known,
 			now,
@@ -173,7 +185,15 @@ impl<'a> NewestFirst<'a> {
 			past_cut: known.cut_after.is_none(),
 			unfinished,
 			last_card_at: None,
+			live: u64::try_from(live).expect("fewer than 2^64 reviews"),
+			total: None,
+			found: 0,
 		}
+	}
+
+	/// Of what the page counts, how many neither the archive nor this walk accounts for.
+	fn unaccounted(&self) -> u64 {
+		self.total.map_or(0, |t| t.saturating_sub(self.live + self.found + self.known.unreachable))
 	}
 
 	/// Unfinished reviews the walk has neither read nor gone past.
@@ -192,6 +212,7 @@ impl<'a> NewestFirst<'a> {
 		let end = walked.end;
 		let last = walked.last_id();
 		let unreached = self.unreached();
+		let unaccounted = self.unaccounted();
 		let mut scan = scan_of(walked, now);
 		let filling_gap = self.known.cut_after.is_some();
 		let cut_after = if scan.coverage == Coverage::Complete {
@@ -207,9 +228,9 @@ impl<'a> NewestFirst<'a> {
 		} else if !self.caught_up || (end == WalkEnd::Budget && self.known.initial) {
 			// a first scan reads the whole list, whatever ad-hoc captures archived of it
 			last
-		} else if unreached > 0 && !filling_gap {
-			// caught up, but unfinished reviews lie deeper than this scan may read: the next
-			// one reads deeper, once
+		} else if (unreached > 0 || unaccounted > 0) && !filling_gap {
+			// caught up, but unfinished or uncounted reviews lie deeper than this scan may read:
+			// the next one reads deeper, once
 			last
 		} else {
 			if unreached > 0 {
@@ -223,6 +244,11 @@ impl<'a> NewestFirst<'a> {
 			scan.warnings
 				.push(Warning::Limit(format!("stopped after {max} reviews without reaching archived ones or the end of the list")));
 		}
+		if end == WalkEnd::Cap && self.caught_up && unaccounted > 0 && cut_after.is_some() {
+			scan.warnings.push(Warning::Limit(format!(
+				"stopped after {max} reviews with {unaccounted} the list counts not reached; the next scan goes on from its last card"
+			)));
+		}
 		if end == WalkEnd::Budget && cut_after.is_some() {
 			scan.warnings
 				.push(Warning::Limit("out of tokens before the end of the list; the next scan goes on from its last card".to_owned()));
@@ -231,16 +257,18 @@ impl<'a> NewestFirst<'a> {
 			scan.warnings
 				.push(Warning::Limit(format!("{unreached} reviews still without a screenshot or an owner's reply were not reached")));
 		}
+		scan.deepest = cut_after.is_none() && (end == WalkEnd::ReachedEnd || (end == WalkEnd::Cap && (self.known.initial || filling_gap)));
 		scan.cut_after = cut_after;
 		scan
 	}
 }
 
 impl WalkPolicy for NewestFirst<'_> {
-	/// Not when the count is the last scan's and every review is completed.
-	fn wants_list(&self, total: Option<u64>) -> bool {
+	/// Not when the count is the last scan's, is accounted for, and every review is completed.
+	fn wants_list(&mut self, total: Option<u64>) -> bool {
+		self.total = total;
 		let owed = self.known.initial || self.known.cut_after.is_some() || self.known.reviews.values().any(|k| !k.completed() && !k.gone);
-		owed || total.is_none() || total != self.known.listed
+		owed || total.is_none() || total != self.known.listed || self.unaccounted() > 0
 	}
 
 	fn wants_capture(&self, card: &Card) -> bool {
@@ -248,6 +276,9 @@ impl WalkPolicy for NewestFirst<'_> {
 	}
 
 	fn observe(&mut self, card: &Card) {
+		if self.known.reviews.get(&card.id).is_none_or(|k| k.gone) {
+			self.found += 1;
+		}
 		let at = card.date_raw.as_deref().and_then(|d| relative_date::estimate(d, self.now));
 		self.last_card_at = at.or(self.last_card_at);
 		self.unfinished.remove(card.id.as_str());
@@ -264,7 +295,7 @@ impl WalkPolicy for NewestFirst<'_> {
 	}
 
 	fn satisfied(&self) -> bool {
-		!self.known.initial && self.caught_up && self.unreached() == 0
+		!self.known.initial && self.caught_up && self.unreached() == 0 && self.unaccounted() == 0
 	}
 }
 
@@ -298,7 +329,7 @@ impl<'a> Requested<'a> {
 }
 
 impl WalkPolicy for Requested<'_> {
-	fn wants_list(&self, _: Option<u64>) -> bool {
+	fn wants_list(&mut self, _: Option<u64>) -> bool {
 		true
 	}
 
@@ -343,6 +374,7 @@ pub fn scan_of(walked: Walked, now: Timestamp) -> Scan {
 		mut warnings,
 		sorted,
 		total,
+		rating,
 		name,
 		address,
 		post,
@@ -356,6 +388,8 @@ pub fn scan_of(walked: Walked, now: Timestamp) -> Scan {
 		warnings,
 		cut_after: None,
 		listed: total,
+		rating,
+		deepest: false,
 		post: post.map(|p| OwnerPost {
 			published_est: p.date_raw.as_deref().and_then(|d| relative_date::estimate(d, now)),
 			published_raw: p.date_raw,
@@ -414,6 +448,7 @@ mod tests {
 			warnings: vec![],
 			sorted,
 			total,
+			rating: None,
 			name: String::new(),
 			address: None,
 			post: None,
@@ -645,10 +680,10 @@ mod tests {
 			listed: Some(1),
 			..known(["a".to_owned()], &[])
 		};
-		let p = NewestFirst::new(&settled, now());
-		assert!(!p.wants_list(Some(1)));
+		let mut p = NewestFirst::new(&settled, now());
 		assert!(p.wants_list(Some(2)) && p.wants_list(Some(0)) && p.wants_list(None));
-		let s = p.conclude(Walked::unchanged(String::new(), String::new(), None, Some(1), None), 200, now());
+		assert!(!p.wants_list(Some(1)));
+		let s = p.conclude(Walked::unchanged(String::new(), String::new(), None, Some(1), None, None), 200, now());
 		assert_eq!((s.reviews.len(), s.coverage, s.cut_after, s.listed), (0, Coverage::DownTo(None), None, Some(1)));
 		assert!(s.warnings.is_empty());
 
@@ -667,6 +702,34 @@ mod tests {
 			assert!(NewestFirst::new(k, now()).wants_list(Some(1)), "{k:?}");
 		}
 		assert!(Requested::new(&settled, None::<Vec<String>>).wants_list(Some(1)));
+	}
+
+	/// Reviews Google releases late keep their posting time, so they land below archived
+	/// cards: a screen of those ends no walk while the count says the archive is short.
+	#[test]
+	fn a_count_beyond_the_archive_walks_past_archived_cards() {
+		let short = Known {
+			listed: Some(SCREEN as u64 + 3),
+			..known((0..SCREEN).map(|i| format!("k{i}")), &[])
+		};
+		let total = Some(SCREEN as u64 + 3);
+		let mut p = NewestFirst::new(&short, now());
+		assert!(p.wants_list(total), "the count is the last scan's, but 3 of it are not archived");
+		p.observe(&card("late0", "a week ago").0);
+		(0..SCREEN).for_each(|i| p.observe(&card(&format!("k{i}"), "a week ago").0));
+		assert!(!p.satisfied(), "2 still unaccounted for");
+		let capped = p.conclude(walked(vec![card("k9", "a week ago")], WalkEnd::Cap, true, total), 200, now());
+		assert_eq!(capped.cut_after.as_deref(), Some("k9"), "the next scan reads on from there");
+		p.observe(&card("late1", "a week ago").0);
+		p.observe(&card("late2", "a week ago").0);
+		assert!(p.satisfied());
+
+		// what a walk to the end found Google counts but does not list is not looked for again
+		let settled = Known { unreachable: 3, ..short.clone() };
+		let mut p = NewestFirst::new(&settled, now());
+		assert!(!p.wants_list(total));
+		(0..SCREEN).for_each(|i| p.observe(&card(&format!("k{i}"), "a week ago").0));
+		assert!(p.satisfied());
 	}
 
 	#[test]

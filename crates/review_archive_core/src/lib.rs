@@ -23,7 +23,7 @@
 //!   <div class="MyEned"><span class="wiI7pd">Lovely</span></div></div>"#;
 //! let now = "2026-09-26T12:00:00Z".parse().unwrap();
 //! let reviews = maps::parse::cards(html).into_iter().map(|c| maps::observed(c, now)).collect();
-//! let scan = Scan { reviews, coverage: Coverage::DownTo(None), warnings: vec![], cut_after: None, listed: None, post: None, name: None, address: None };
+//! let scan = Scan { reviews, coverage: Coverage::DownTo(None), warnings: vec![], cut_after: None, listed: None, rating: None, deepest: false, post: None, name: None, address: None };
 //! let plan = reconcile::plan(&Known::default(), &scan);
 //! assert_eq!(plan.new.len(), 1);
 //! assert_eq!(plan.new[0].rating, Some(5));
@@ -252,6 +252,11 @@ pub struct Scan {
 	/// How many reviews the source says the place has: Maps' own count, the API's
 	/// `totalReviewCount`. `None` when it did not say.
 	pub listed: Option<u64>,
+	/// The place's star average over `listed`, when the source says.
+	pub rating: Option<f64>,
+	/// The walk read as deep as scans go: the list's end, or the limit of a first or a
+	/// gap-filling scan. What `listed` counts beyond the archive then is [`Known::unreachable`].
+	pub deepest: bool,
 	/// The owner's latest post, when the source shows one.
 	pub post: Option<OwnerPost>,
 	/// The place's name, when the source showed it.
@@ -341,6 +346,9 @@ pub struct Known {
 	/// How many reviews the source said the place has on the last scan (ad-hoc captures do
 	/// not count).
 	pub listed: Option<u64>,
+	/// Of `listed`, how many the last [deepest](Scan::deepest) scan left beyond the archive:
+	/// counted but not in the list, or deeper than the archive goes. Not looked for again.
+	pub unreachable: u64,
 }
 
 impl Known {

@@ -18,7 +18,7 @@ ROOT = """(
       "gmail": $g.id, "gmail_name": $g.gmail, "gmail_on": $g.enabled,
       "target": target.id, "label": target.label, "address": target.address, "place_id": target.place_id,
       "enabled": enabled, "favorite": favorite, "snapshots_7d": snapshots_7d, "snapshots_30d": snapshots_30d,
-      "live": live, "listed": listed, "new_7d": new_7d, "posts_7d": posts_7d,
+      "live": live, "listed": listed, "rating": rating, "new_7d": new_7d, "posts_7d": posts_7d,
       "post": latest_post.text, "post_at": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,
       "responded": responded, "corrupted": corrupted, "captured": captured, "non_five_star": non_five_star, "suspended": suspended, "removed": removed, "reinstating": reinstating, "held": held,
       "last_run_at": last_run_at, "last_run_status": last_run_status, "last_run_error": last_run_error,
@@ -66,6 +66,7 @@ CARD_COLUMNS = [
 	("snapshots_30d", "snapshots_30d", "number"),
 	("live", "live", "number"),
 	("listed", "listed", "number"),
+	("rating", "rating", "number"),
 	("new_7d", "new_7d", "number"),
 	("posts_7d", "posts_7d", "number"),
 	("post", "post", "string"),
@@ -95,6 +96,7 @@ TABLE = {
 	"snapshots_30d": "snapshots 30d",
 	"live": "live",
 	"listed": "listed",
+	"rating": "★ average",
 	"new_7d": "new 7d",
 	"posts_7d": "posts 7d",
 	"responded": "responded",
@@ -117,17 +119,18 @@ CONTENT = """<div class="ra-grid">
   <div class="ra-stats">
     <div><b>{{snapshots_7d}}</b><small>snapshots 7d</small></div>
     <div class="ra-soft"><b class="ra-sub">{{snapshots_30d}}</b><small>snapshots 30d</small></div>
+    {{#if rating}}<div class="ra-avg" title="the star average Google gives the place"><b>{{fixed rating 2}}</b><small>★ average</small></div>{{/if}}
   </div>
   <div class="ra-badges">
-    <span class="ok" title="archived and still listed / listed on Google">live {{live}}{{#if listed}}/{{listed}}{{/if}}</span>
-    <span class="ok" title="posted over the last 7 days, removed ones included">new 7d +{{new_7d}}</span>
-    {{#if post}}<span class="ok" title="owner's latest post, {{ago post_at}}:&#10;{{post}}">posts 7d {{posts_7d}}</span>{{/if}}
-    <span class="{{#if (lt responded live)}}warn{{else}}ok{{/if}}" title="replied to by the owner / live">responded {{responded}}/{{live}}</span>
-    <span class="soft" title="listed reviews under 5 stars, or unrated">non-5-star {{non_five_star}}</span>
-    {{#if corrupted}}<span class="warn" title="reviews whose every screenshot is cut off / reviews with one; the next scan retakes them">corrupted {{corrupted}}/{{captured}}</span>{{/if}}
-    {{#if suspended}}<span class="bad" title="5-star reviews gone from the listing">suspended {{suspended}}</span>{{/if}}
-    {{#if removed}}<span class="bad">removed {{removed}}</span>{{/if}}
-    {{#if reinstating}}<span class="warn">reinstating {{reinstating}}</span>{{/if}}
+    <span class="ok" title="archived and still listed / listed on Google">live: {{live}}{{#if listed}}/{{listed}}{{/if}}</span>
+    <span class="ok" title="posted over the last 7 days, removed ones included">new 7d: +{{new_7d}}</span>
+    {{#if post}}<span class="ok" title="owner's latest post, {{ago post_at}}:&#10;{{post}}">posts 7d: {{posts_7d}}</span>{{/if}}
+    <span class="{{#if (lt responded live)}}warn{{else}}ok{{/if}}" title="replied to by the owner / live">responded: {{responded}}/{{live}}</span>
+    <span class="soft" title="listed reviews under 5 stars, or unrated">non-5-star: {{non_five_star}}</span>
+    {{#if corrupted}}<span class="warn" title="reviews whose every screenshot is cut off / reviews with one; the next scan retakes them">corrupted: {{corrupted}}/{{captured}}</span>{{/if}}
+    {{#if suspended}}<span class="bad" title="5-star reviews gone from the listing">suspended: {{suspended}}</span>{{/if}}
+    {{#if removed}}<span class="bad">removed: {{removed}}</span>{{/if}}
+    {{#if reinstating}}<span class="warn">reinstating: {{reinstating}}</span>{{/if}}
     {{#if held}}<span class="warn" title="not scanned: every member tracking it is out of tokens">out of tokens</span>{{/if}}
   </div>
   <div class="ra-run">
@@ -160,6 +163,7 @@ const ago = (ts) => {
 };
 h.registerHelper('ago', ago);
 h.registerHelper('lt', (a, b) => a < b);
+h.registerHelper('fixed', (n, digits) => n.toFixed(digits));
 h.registerHelper('allGmails', () => context.grafana.replaceVariables('${gmail}') === '');
 h.registerHelper('on', (r) => r.enabled && r.gmail_on);
 h.registerHelper('dot', (r) => r.scan === 'queued' ? 'warn' : r.scan === 'running' ? 'run' : (r.last_run_status || 'never'));
@@ -209,6 +213,7 @@ STYLES = """.ra-grid { display: grid; grid-template-columns: repeat(auto-fill, m
 .ra-stats b.ra-sub { font-size: 18px; }
 .ra-stats small { font-size: 11px; opacity: .65; }
 .ra-stats .ra-soft small { opacity: 1; }
+.ra-stats .ra-avg { margin-left: auto; align-items: flex-end; }
 .ra-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .ra-badges span { font-size: 11px; padding: 1px 8px; border-radius: 999px; }
 .ok { background: rgba(115,191,105,.15); color: #73bf69; }
