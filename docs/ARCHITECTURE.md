@@ -197,13 +197,14 @@ with its own platform implements `sources::ReviewSource` and records through
   scanned once. Who manages which GMB is the conductor's, mirrored here. What is a member's —
   tracks and reinstatements of their GMBs, Telegram channels — points at those facts and
   never alters them (tracking may put a disabled target back on
-  the schedule; a target whose every track is switched off is left off it); every member query is scoped by the member's person id in SQL.
+  the schedule; a target whose every track is switched off, by its member or at the conductor for
+  its GMB, is left off it); every member query is scoped by the member's person id in SQL.
 - **Tokens are the conductor's.** A walk's allowance is its payers' mirrored balances less its
   charges past the conductor's cursor, and its charge is a feed row of its end transaction
   (`kick_back` when the run failed or met a failure; the conductor owes it back). It is
   metered by `maps::cost` and stops at that allowance and the account's hour
   (`tokens.per_hour`), which counts every walk. A tracked place whose members are out of
-  tokens is not walked. A scan a member asks for is theirs alone to pay; the operator's jobs
+  tokens is not walked; a GMB the conductor switched off pays for nothing. A scan a member asks for is theirs alone to pay; the operator's jobs
   and ad-hoc looks are no one's. The archive never calls the conductor: the conductor reads
   the feed and pushes the snapshot, under a Conductor assertion.
 - **Events are an outbox.** `review.new/changed/gone/reappeared` and `run.failed` are written

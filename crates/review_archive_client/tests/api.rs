@@ -214,6 +214,7 @@ impl Env {
 				gmail: gmail.into(),
 				owner: owner.into(),
 				removed: false,
+				enabled: true,
 				place_id: place.into(),
 			});
 			m.balances.entry(owner.into()).or_insert(1000);
@@ -1021,6 +1022,7 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 			gmail: "ops@gmail.com".into(),
 			owner: "test".into(),
 			removed: false,
+			enabled: true,
 			place_id: PLACE.into(),
 		}],
 		balances: Default::default(),

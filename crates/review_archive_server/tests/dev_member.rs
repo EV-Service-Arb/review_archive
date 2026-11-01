@@ -36,6 +36,7 @@ async fn the_dev_member_is_whoever_manages_the_archive() {
 			gmail: "ops@gmail.com".into(),
 			owner: "owner".into(),
 			removed: false,
+			enabled: true,
 			place_id: "ChIJdevmembertest0000000".into(),
 		}],
 		balances: Default::default(),

@@ -410,6 +410,7 @@ async fn telegram_channels_get_their_members_places_only() {
 				gmail: format!("{owner}{id}@gmail.com"),
 				owner: owner.into(),
 				removed: false,
+				enabled: true,
 				place_id: place.into(),
 			})
 			.collect(),

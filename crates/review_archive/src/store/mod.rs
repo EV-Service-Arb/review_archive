@@ -392,7 +392,7 @@ fn target_columns(default_interval: Timeframe) -> String {
 		"t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang,
 		 COALESCE((SELECT MIN(COALESCE(pe.interval_secs, {default})) FROM tracks tr
 		           JOIN gmb_mirror mg ON mg.id = tr.gmb_id LEFT JOIN people pe ON pe.sub = mg.owner
-		           WHERE tr.target_id = t.id AND tr.enabled), t.interval_secs) AS interval_secs,
+		           WHERE tr.target_id = t.id AND tr.enabled AND mg.enabled), t.interval_secs) AS interval_secs,
 		 t.enabled, t.created_at"
 	)
 }
@@ -511,14 +511,14 @@ impl Store {
 		Ok(orphans)
 	}
 
-	/// Enabled targets, by id, but for those every member tracking has switched off.
+	/// Enabled targets, by id, but for those whose every track is switched off, by its member or the conductor.
 	pub(crate) async fn scheduled_targets(&self) -> eyre::Result<Vec<Target>> {
 		let columns = &self.target_columns;
 		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
 			"SELECT {columns} FROM targets t
 			 WHERE t.enabled
 			   AND (NOT EXISTS (SELECT 1 FROM tracks k WHERE k.target_id = t.id)
-			        OR EXISTS (SELECT 1 FROM tracks k WHERE k.target_id = t.id AND k.enabled))
+			        OR EXISTS (SELECT 1 FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id WHERE k.target_id = t.id AND k.enabled AND m.enabled))
 			 ORDER BY t.id"
 		)))
 		.fetch_all(&self.pool)

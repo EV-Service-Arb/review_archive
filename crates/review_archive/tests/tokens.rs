@@ -169,6 +169,7 @@ impl Conductor {
 				gmail: format!("{sub}.ops"),
 				owner: sub.into(),
 				removed: false,
+				enabled: true,
 				place_id: t.place_id.clone(),
 			});
 			id
@@ -176,6 +177,12 @@ impl Conductor {
 		self.push(archive).await;
 		archive.assign(id, t.id).await.unwrap();
 		id
+	}
+
+	/// The conductor's switch of `gmb`.
+	async fn switch(&self, archive: &Archive, gmb: i64, on: bool) {
+		self.0.borrow_mut().gmbs.iter_mut().find(|g| g.id == gmb).unwrap().enabled = on;
+		self.push(archive).await;
 	}
 
 	/// `sub` holds `n`: the conductor has charged everything the feed holds so far.
@@ -254,6 +261,37 @@ async fn a_place_whose_trackers_are_out_of_tokens_waits() {
 	conductor.tracks(&archive, "flush", &t).await;
 	conductor.set(&archive, "flush", 100).await;
 	assert_eq!(archive.due(now).await.unwrap().iter().map(|t| t.id).collect::<Vec<_>>(), [t.id]);
+}
+
+#[tokio::test]
+async fn a_gmb_the_conductor_switched_off_neither_walks_nor_pays() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
+	let t = target(&archive, "ChIJtokenstest0000switch").await;
+	let off = person(archive.store().unwrap(), "off").await;
+	person(archive.store().unwrap(), "on").await;
+	let off_gmb = conductor.tracks(&archive, "off", &t).await;
+	let on_gmb = conductor.tracks(&archive, "on", &t).await;
+	conductor.set(&archive, "off", 100).await;
+	conductor.set(&archive, "on", 100).await;
+	conductor.switch(&archive, off_gmb, false).await;
+	conductor.switch(&archive, on_gmb, false).await;
+	let now = Timestamp::now();
+	assert!(archive.due(now).await.unwrap().is_empty());
+	assert_eq!(archive.next_due(now).await.unwrap(), None);
+	let refused = archive.scan_tracked(off, off_gmb, t.id).await.unwrap_err();
+	assert!(matches!(refused.downcast_ref::<Rejected>(), Some(Rejected::Busy(_))), "{refused:#}");
+	let gmb = archive.overview(off).await.unwrap().into_iter().flat_map(|g| g.gmbs).find(|b| b.id == off_gmb).unwrap();
+	assert!(!gmb.enabled);
+	assert!(gmb.tracks[0].enabled, "the track's own switch stays the member's");
+	assert_eq!(archive.my_gmbs(off).await.unwrap().places_tracked, 0);
+
+	conductor.switch(&archive, on_gmb, true).await;
+	assert_eq!(archive.due(now).await.unwrap().iter().map(|t| t.id).collect::<Vec<_>>(), [t.id]);
+	archive.record(&Spends(20), &t).await.unwrap();
+	assert_eq!(feed(&archive).await[0].payers, ["on"]);
+	assert_eq!(holds(&archive, "off").await, 100);
 }
 
 #[tokio::test]

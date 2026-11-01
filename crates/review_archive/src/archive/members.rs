@@ -126,6 +126,9 @@ impl Archive {
 	pub async fn scan_tracked(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<i64> {
 		let store = self.store()?;
 		store.check_track(member, gmb, target).await?;
+		if !store.gmb_enabled(gmb).await? {
+			return Err(Rejected::Busy(format!("GMB {gmb} is switched off")).into());
+		}
 		let now = Timestamp::now();
 		#[cfg(feature = "maps")]
 		if let Some(why) = self.closed(store.target(target).await?.kind, true, now).await? {

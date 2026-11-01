@@ -738,6 +738,7 @@ async fn an_untracked_place_is_purged_after_a_week() {
 			gmail: "ops".into(),
 			owner: "m".into(),
 			removed,
+			enabled: true,
 			place_id: e.target.place_id.clone(),
 		}],
 		balances: Default::default(),

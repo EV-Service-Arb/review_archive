@@ -166,8 +166,8 @@ impl Store {
 		let days_ago = |d: i64| fmt_ts(now - SignedDuration::from_hours(24 * d));
 		// one snapshot: every location row's GMB is among the GMBs read
 		let mut tx = self.pool.begin().await.wrap_err("starting a read")?;
-		let gmbs: Vec<(i64, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-			"SELECT m.id, m.gmail_id, m.gmail, m.place_id FROM gmb_mirror m WHERE m.id IN ({MEMBERS_GMBS}) ORDER BY m.gmail, m.gmail_id, m.id"
+		let gmbs: Vec<(i64, i64, String, String, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+			"SELECT m.id, m.gmail_id, m.gmail, m.place_id, m.enabled FROM gmb_mirror m WHERE m.id IN ({MEMBERS_GMBS}) ORDER BY m.gmail, m.gmail_id, m.id"
 		)))
 		.bind(member.0)
 		.fetch_all(&mut *tx)
@@ -219,7 +219,7 @@ impl Store {
 		.wrap_err("loading the overview")?;
 		tx.commit().await.wrap_err("ending a read")?;
 		let mut out: Vec<GmailOverview> = Vec::new();
-		for (id, gmail_id, gmail, place_id) in gmbs {
+		for (id, gmail_id, gmail, place_id, enabled) in gmbs {
 			if out.last().is_none_or(|g| g.gmail.id != gmail_id) {
 				out.push(GmailOverview {
 					gmail: GmailDto { id: gmail_id, gmail },
@@ -227,7 +227,12 @@ impl Store {
 				});
 			}
 			let g = out.last_mut().expect("pushed above");
-			g.gmbs.push(GmbSummary { id, place_id, tracks: vec![] });
+			g.gmbs.push(GmbSummary {
+				id,
+				place_id,
+				enabled,
+				tracks: vec![],
+			});
 		}
 		for r in rows {
 			let status = r
@@ -441,7 +446,7 @@ impl Store {
 	pub async fn my_gmbs(&self, member: PersonId) -> eyre::Result<MyGmbs> {
 		let rows: Vec<(i64, bool, Option<f64>, Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
 			"SELECT m.id,
-			        EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled),
+			        m.enabled AND EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled),
 			        w.rating, w.listed
 			 FROM gmb_mirror m
 			 LEFT JOIN targets w ON w.id = (
@@ -455,7 +460,8 @@ impl Store {
 		.await
 		.wrap_err("tagging a member's GMBs")?;
 		let places_tracked: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-			"SELECT COUNT(DISTINCT k.target_id) FROM tracks k WHERE k.enabled AND k.gmb_id IN ({MEMBERS_GMBS})"
+			"SELECT COUNT(DISTINCT k.target_id) FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id
+			 WHERE k.enabled AND m.enabled AND k.gmb_id IN ({MEMBERS_GMBS})"
 		)))
 		.bind(member.0)
 		.fetch_one(&self.pool)

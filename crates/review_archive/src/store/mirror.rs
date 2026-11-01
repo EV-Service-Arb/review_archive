@@ -71,14 +71,15 @@ impl Store {
 		}
 		for g in &snap.gmbs {
 			sqlx::query(
-				"INSERT INTO gmb_mirror (id, gmail_id, gmail, owner, removed, place_id) VALUES (?, ?, ?, ?, ?, ?)
-				 ON CONFLICT (id) DO UPDATE SET gmail = excluded.gmail, removed = excluded.removed",
+				"INSERT INTO gmb_mirror (id, gmail_id, gmail, owner, removed, enabled, place_id) VALUES (?, ?, ?, ?, ?, ?, ?)
+				 ON CONFLICT (id) DO UPDATE SET gmail = excluded.gmail, removed = excluded.removed, enabled = excluded.enabled",
 			)
 			.bind(g.id)
 			.bind(g.gmail_id)
 			.bind(&g.gmail)
 			.bind(&g.owner)
 			.bind(g.removed)
+			.bind(g.enabled)
 			.bind(&g.place_id)
 			.execute(&mut *tx)
 			.await
@@ -118,6 +119,16 @@ impl Store {
 			.fetch_optional(&self.pool)
 			.await
 			.wrap_err("loading a GMB's place")?
+			.ok_or_else(|| Rejected::not_found(format!("no GMB {gmb}")).into())
+	}
+
+	/// The conductor's switch of a GMB.
+	pub(crate) async fn gmb_enabled(&self, gmb: i64) -> eyre::Result<bool> {
+		sqlx::query_scalar("SELECT enabled FROM gmb_mirror WHERE id = ?")
+			.bind(gmb)
+			.fetch_optional(&self.pool)
+			.await
+			.wrap_err("loading a GMB's switch")?
 			.ok_or_else(|| Rejected::not_found(format!("no GMB {gmb}")).into())
 	}
 
