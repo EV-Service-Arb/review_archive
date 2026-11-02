@@ -262,10 +262,10 @@ fn serve_without_the_login_check_outlives_every_account_signed_out() {
 			archive.close().await;
 			runs
 		});
-		if let Some(run) = runs.into_iter().next() {
+		if let Some(run) = runs.into_iter().find(|r| r.finished_at.is_some()) {
 			break run;
 		}
-		assert!(std::time::Instant::now() < deadline, "no walk was tried");
+		assert!(std::time::Instant::now() < deadline, "no walk finished");
 		std::thread::sleep(Duration::from_millis(200));
 	};
 	assert!(run.error.as_deref().is_some_and(|e| e.contains("signed out of Google")), "{run:?}");

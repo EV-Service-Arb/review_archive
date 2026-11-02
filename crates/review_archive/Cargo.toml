@@ -9,7 +9,7 @@ repository.workspace = true
 readme.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["tracing-error"]
+ignored = ["clap", "kamadak-exif", "tracing-error"] # clap: v_utils' settings derive emits it; kamadak-exif: its lib is `exif`
 
 [features]
 default = ["maps", "store"]

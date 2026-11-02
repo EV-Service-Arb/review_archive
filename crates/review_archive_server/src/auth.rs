@@ -42,14 +42,14 @@ pub enum Auth {
 	Dev { person: PersonId, email: String, permissions: PermissionSet },
 }
 
-/// Test-posts to Telegram, one per person per [`TEST_GAP`].
+/// Test-posts to Telegram, rate-limited per person.
 #[derive(Default)]
 pub struct TestPosts(Mutex<HashMap<PersonId, Instant>>);
 
 const TEST_GAP: Duration = Duration::from_secs(60);
 
 impl TestPosts {
-	/// Whether `person` may test-post now; if so, the next waits [`TEST_GAP`].
+	/// Whether `person` may test-post now; if so, starts their wait for the next.
 	pub fn take(&self, person: PersonId) -> bool {
 		let mut last = self.0.lock().expect("held for a lookup only, never across a panic");
 		let now = Instant::now();

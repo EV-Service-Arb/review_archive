@@ -365,6 +365,7 @@ impl Archive {
 	}
 
 	/// `resolved`: when a Places search already found the place; else, with a key, Places is asked by id.
+	#[expect(clippy::too_many_arguments)]
 	async fn insert_target(
 		&self,
 		place_id: String,

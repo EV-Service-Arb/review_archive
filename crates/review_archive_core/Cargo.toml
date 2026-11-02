@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 readme.workspace = true
 
+[package.metadata.cargo-machete]
+ignored = ["clap"] # v_utils' settings derive emits it
+
 [features]
 # `utoipa::ToSchema` on the DTOs, for the server's OpenAPI document.
 openapi = ["dep:utoipa"]
