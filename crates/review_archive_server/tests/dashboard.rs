@@ -20,7 +20,7 @@ mod busy;
 
 const SHORT: &str = "Shiny Maids";
 const TWO_LINES: &str = "Long Island Premier Christmas & Holiday Lighting Decorators";
-const LONGER: &str = "Long Island Premier Christmas & Holiday Lighting Decorators of Nassau and Suffolk Counties, New York";
+const LONGER: &str = "Long Island Premier Christmas & Holiday Lighting Decorators of Nassau and Suffolk Counties, New York, Serving Long Beach, Garden City, Hempstead and Huntington";
 
 #[derive(Debug, Deserialize, PartialEq)]
 struct Name {
