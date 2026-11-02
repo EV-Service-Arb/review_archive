@@ -38,7 +38,7 @@ fn catalogue(_: Locale) -> Messages {
 	Messages::new()
 }
 
-/// The element's attributes, all required.
+/// The element's attributes.
 struct Host {
 	/// The API's base URL, resolved against the page.
 	api: String,
@@ -48,6 +48,8 @@ struct Host {
 	csrf_cookie: String,
 	/// The path the page is served at; the element's views are paths under it.
 	base: String,
+	/// The host's Grafana base, resolved against the page; required by [`Ui::Grafana`] only.
+	grafana: Option<String>,
 }
 
 /// The entry module's URL: every file of the bundle sits next to it.
@@ -81,11 +83,6 @@ pub fn define(bundle: String) {
 }
 
 fn mount(el: web_sys::Element) {
-	let attr = |name| el.get_attribute(name);
-	let host = match (attr("api"), attr("sign-in"), attr("csrf-cookie"), attr("base")) {
-		(Some(api), Some(sign_in), Some(csrf_cookie), Some(base)) => Ok(Host { api, sign_in, csrf_cookie, base }),
-		_ => Err(["api", "sign-in", "csrf-cookie", "base"].into_iter().filter(|a| !el.has_attribute(a)).collect()),
-	};
 	let page = web_sys::window().expect("a browser").location().href().expect("a page has a URL");
 	let asked: Vec<String> = reqwest::Url::parse(&page)
 		.expect("a page's URL is a URL")
@@ -109,6 +106,21 @@ fn mount(el: web_sys::Element) {
 			ui
 		}
 		many => panic!("?grafana given {} times: {many:?}", many.len()),
+	};
+	let attr = |name| el.get_attribute(name);
+	let required = match ui {
+		Ui::Legacy => &["api", "sign-in", "csrf-cookie", "base"][..],
+		Ui::Grafana => &["api", "sign-in", "csrf-cookie", "base", "grafana"],
+	};
+	let host = match (attr("api"), attr("sign-in"), attr("csrf-cookie"), attr("base"), attr("grafana")) {
+		(Some(api), Some(sign_in), Some(csrf_cookie), Some(base), grafana) if grafana.is_some() || ui == Ui::Legacy => Ok(Host {
+			api,
+			sign_in,
+			csrf_cookie,
+			base,
+			grafana,
+		}),
+		_ => Err(required.iter().copied().filter(|a| !el.has_attribute(a)).collect()),
 	};
 	let mut cfg = dioxus::web::Config::new().rootelement(el.clone());
 	if let Ok(host) = &host {
@@ -302,14 +314,19 @@ fn session() -> web_sys::Storage {
 
 /// The API's base URL: `api` resolved against the page.
 fn base() -> reqwest::Url {
+	directory(&host().api)
+}
+
+/// An attribute's URL resolved against the page, as a directory: the panel's `/api/review_archive`
+/// names one, and `join` would replace its last segment.
+fn directory(attr: &str) -> reqwest::Url {
 	let page = web_sys::window().expect("a browser").location().href().expect("a page has a URL");
-	let mut base = reqwest::Url::parse(&page).and_then(|p| p.join(&host().api)).expect("`api` resolves against the page");
-	// the panel's `/api/review_archive` names a directory, or `join` replaces its last segment
-	if !base.path().ends_with('/') {
-		let path = format!("{}/", base.path());
-		base.set_path(&path);
+	let mut dir = reqwest::Url::parse(&page).and_then(|p| p.join(attr)).expect("the attribute resolves against the page");
+	if !dir.path().ends_with('/') {
+		let path = format!("{}/", dir.path());
+		dir.set_path(&path);
 	}
-	base
+	dir
 }
 
 fn api() -> Client {

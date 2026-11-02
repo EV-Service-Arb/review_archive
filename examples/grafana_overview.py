@@ -2,7 +2,7 @@
 
 import json
 
-DS = {"type": "yesoreyeram-infinity-datasource", "uid": "ra-api"}
+DS = {"type": "yesoreyeram-infinity-datasource", "uid": "review_archive"}
 # another panel's query results, so its URL is fetched once
 SHARED = {"type": "datasource", "uid": "-- Dashboard --"}
 

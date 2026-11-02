@@ -165,14 +165,14 @@
       "transparent": true,
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
-        "uid": "ra-api"
+        "uid": "review_archive"
       },
       "targets": [
         {
           "refId": "A",
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
-            "uid": "ra-api"
+            "uid": "review_archive"
           },
           "type": "json",
           "source": "url",
@@ -318,14 +318,14 @@
       "transparent": true,
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
-        "uid": "ra-api"
+        "uid": "review_archive"
       },
       "targets": [
         {
           "refId": "A",
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
-            "uid": "ra-api"
+            "uid": "review_archive"
           },
           "type": "json",
           "source": "url",
@@ -471,14 +471,14 @@
       "transparent": true,
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
-        "uid": "ra-api"
+        "uid": "review_archive"
       },
       "targets": [
         {
           "refId": "A",
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
-            "uid": "ra-api"
+            "uid": "review_archive"
           },
           "type": "json",
           "source": "url",
@@ -624,14 +624,14 @@
       "transparent": true,
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
-        "uid": "ra-api"
+        "uid": "review_archive"
       },
       "targets": [
         {
           "refId": "A",
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
-            "uid": "ra-api"
+            "uid": "review_archive"
           },
           "type": "json",
           "source": "url",
@@ -776,14 +776,14 @@
       "transparent": true,
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
-        "uid": "ra-api"
+        "uid": "review_archive"
       },
       "targets": [
         {
           "refId": "A",
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
-            "uid": "ra-api"
+            "uid": "review_archive"
           },
           "type": "json",
           "source": "url",
@@ -887,14 +887,14 @@
       "transparent": true,
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
-        "uid": "ra-api"
+        "uid": "review_archive"
       },
       "targets": [
         {
           "refId": "A",
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
-            "uid": "ra-api"
+            "uid": "review_archive"
           },
           "type": "json",
           "source": "url",
@@ -1050,14 +1050,14 @@
       "transparent": true,
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
-        "uid": "ra-api"
+        "uid": "review_archive"
       },
       "targets": [
         {
           "refId": "A",
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
-            "uid": "ra-api"
+            "uid": "review_archive"
           },
           "type": "json",
           "source": "url",

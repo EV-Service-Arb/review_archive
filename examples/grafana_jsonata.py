@@ -1,15 +1,21 @@
-"""Evaluates a JSONata root over /me/overview with Infinity's own engine, under `nix run .#dev-mfe`:
+"""Evaluates a JSONata root over /me/overview with Infinity's own engine, in the conductor's Grafana
+of its local stack (site_conductor's `nix run .#local-stack`, signed in as an admin acting as `<member>`):
 `python3 examples/grafana_jsonata.py <member> '<root>'`. The root yields rows with a string `o`
 (`$[0].locations.{"o": $string(...)}`); one that never reads its input comes back null.
 """
 
+import http.cookiejar
 import json
 import sys
 import urllib.request
 
+BASE = "http://127.0.0.1:59120"
+session = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+session.open(f"{BASE}/auth/login?return_to=/")  # the stack's dev sign-in: a session at once
+
 q = {
 	"refId": "A",
-	"datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "ra-api"},
+	"datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "review_archive"},
 	"type": "json",
 	"source": "url",
 	"format": "table",
@@ -20,9 +26,9 @@ q = {
 	"columns": [{"selector": "o", "text": "o", "type": "string"}],
 }
 body = json.dumps({"queries": [q], "from": "now-1h", "to": "now"}).encode()
-req = urllib.request.Request("http://127.0.0.1:59110/grafana/api/ds/query", body, {"content-type": "application/json"})
+req = urllib.request.Request(f"{BASE}/grafana/api/ds/query", body, {"content-type": "application/json"})
 try:
-	r = json.load(urllib.request.urlopen(req))
+	r = json.load(session.open(req))
 except urllib.error.HTTPError as e:
 	print(e.code, e.read().decode()[:600])
 	sys.exit(1)

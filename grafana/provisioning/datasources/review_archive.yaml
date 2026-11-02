@@ -1,9 +1,0 @@
-apiVersion: 1
-datasources:
-  # the server's JSON API, never the database: members are scoped there (ARCHITECTURE.md § Invariants)
-  - name: review_archive
-    uid: ra-api
-    type: yesoreyeram-infinity-datasource
-    url: $RA_API
-    jsonData:
-      allowedHosts: [$RA_API]
