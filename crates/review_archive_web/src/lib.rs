@@ -11,7 +11,6 @@ mod cards;
 mod filter;
 mod grafana;
 mod settings;
-mod telegram;
 
 use std::sync::OnceLock;
 
@@ -200,7 +199,6 @@ enum View {
 		gmb: i64,
 		target: Option<i64>,
 	},
-	Telegram,
 	Settings,
 }
 
@@ -211,7 +209,6 @@ impl dioxus::router::ToRouteSegments for View {
 			Self::Gmail(g) => write!(f, "/gmails/{g}"),
 			Self::Gmb { gmb, target: None } => write!(f, "/gmbs/{gmb}"),
 			Self::Gmb { gmb, target: Some(t) } => write!(f, "/gmbs/{gmb}/tracks/{t}"),
-			Self::Telegram => write!(f, "/telegram"),
 			Self::Settings => write!(f, "/settings"),
 		}
 	}
@@ -227,7 +224,6 @@ impl dioxus::router::FromRouteSegments for View {
 			["gmails", g] => Ok(Self::Gmail(id(g)?)),
 			["gmbs", g] => Ok(Self::Gmb { gmb: id(g)?, target: None }),
 			["gmbs", g, "tracks", t] => Ok(Self::Gmb { gmb: id(g)?, target: Some(id(t)?) }),
-			["telegram"] => Ok(Self::Telegram),
 			["settings"] => Ok(Self::Settings),
 			_ => Err(format!("no view at /{}", segments.join("/"))),
 		}
@@ -638,7 +634,7 @@ fn Workspace(view: Route) -> Element {
 	let at = view.view().clone();
 	let gmb_of = |id: i64| gmails.iter().find_map(|g| g.gmbs.iter().find(|b| b.id == id).map(|b| (g.gmail.clone(), b.clone())));
 	let picked = match at {
-		View::Home | View::Telegram | View::Settings => None,
+		View::Home | View::Settings => None,
 		View::Gmail(gmail) => Some(gmail),
 		View::Gmb { gmb, .. } => gmb_of(gmb).map(|(g, _)| g.id),
 	};
@@ -668,9 +664,6 @@ fn Workspace(view: Route) -> Element {
 					div { class: "border-b border-border bg-accent-error/15 px-6 py-2 text-accent-error", "{e}" }
 				}
 				match (at, scope) {
-					(View::Telegram, _) => rsx! {
-						telegram::Channels { gmails: gmails.iter().map(|g| g.gmail.clone()).collect::<Vec<_>>() }
-					},
 					(View::Settings, _) => rsx! {
 						settings::Page {}
 					},
@@ -738,8 +731,7 @@ fn AddGmb() -> Element {
 
 #[component]
 fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<i64>) -> Element {
-	let telegram = at == View::Telegram;
-	let aside = telegram || at == View::Settings;
+	let aside = at == View::Settings;
 	let row = "flex items-center gap-2 rounded-md px-3 py-2 text-left cursor-pointer hover:bg-hover";
 	rsx! {
 		nav { class: "flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-secondary",
@@ -789,12 +781,6 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<
 				}
 			}
 			div { class: "mt-2 px-5", AddGmb {} }
-			div { class: "flex-1" }
-			Link {
-				class: if telegram { "{row} mx-2 mb-3 bg-hover text-ink" } else { "{row} mx-2 mb-3 text-ink-soft" },
-				to: Route::at(tab, View::Telegram),
-				"Telegram alerts"
-			}
 		}
 	}
 }

@@ -28,6 +28,7 @@ jiff.workspace = true
 rand.workspace = true
 review_archive = { workspace = true, features = ["maps", "settings", "store"] }
 review_archive_core = { workspace = true, features = ["openapi"] }
+sa_alerts.workspace = true
 sa_auth = { workspace = true, features = ["catalog"] }
 schemars.workspace = true
 serde.workspace = true

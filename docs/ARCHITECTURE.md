@@ -24,15 +24,15 @@ crates/review_archive/          the engine (features: maps, store)
   src/sources/                  the `ReviewSource` port; the maps and gbp adapters
   src/store/                    SQLite (runtime sqlx queries, embedded migrations/), WebP blobs, export
   src/store/jobs.rs             the job queue (on-demand scans and ad-hoc captures)
-  src/store/events.rs           events into the outbox (hooks, members' Telegram channels), in the scan's own transaction
-  src/store/members.rs          per-member state: tracks, reinstatements, Telegram channels
+  src/store/events.rs           events into the outbox (hooks) and the conductor's Alerts feed, in the scan's own transaction
+  src/store/members.rs          per-member state: tracks, reinstatements
   src/store/mirror.rs           the conductor's GMBs and balances as last told, and the charge feed
   src/store/people.rs           people by concierge `sub`; claiming an address's rows from before
   src/store/tokens.rs           what a member holds, who pays for a scan, the account's hourly limit
   src/store/layouts.rs          the board dock's published layouts, per dock and band, what fresh browsers start from
   src/record.rs                 one scan of one target into the store: run row, source, blobs, reconcile, write
   src/failure.rs                the typed errors (miette codes and help), `describe`, and who a failure waits for
-    src/webhooks.rs               where a hook may point; delivering the outbox: signature, retries, the Telegram bot
+    src/webhooks.rs               where a hook may point; delivering the outbox: signature, retries
 crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, background loops; thin over `Archive`
   src/http.rs                   the API and its OpenAPI document (utoipa, `GET /openapi.json`), `/mfe/`, the page at `/`,
                                 `GET /dashboards`: `grafana/dashboards/`, compiled in, for the conductor's Grafana
@@ -195,7 +195,7 @@ with its own platform implements `sources::ReviewSource` and records through
 - **Public facts are shared; per-member state only annotates.** Targets, reviews, versions,
   captures and blobs belong to no one: a place tracked by several members is one target,
   scanned once. Who manages which GMB is the conductor's, mirrored here. What is a member's —
-  tracks and reinstatements of their GMBs, Telegram channels — points at those facts and
+  tracks and reinstatements of their GMBs — points at those facts and
   never alters them (tracking may put a disabled target back on
   the schedule; a target whose every track is switched off, by its member or at the conductor for
   its GMB, is left off it); every member query is scoped by the member's person id in SQL.
@@ -206,18 +206,25 @@ with its own platform implements `sources::ReviewSource` and records through
   (`tokens.per_hour`), which counts every walk. A tracked place whose members are out of
   tokens is not walked; a GMB the conductor switched off pays for nothing. A scan a member asks for is theirs alone to pay; the operator's jobs
   and ad-hoc looks are no one's. The archive never calls the conductor: the conductor reads
-  the feed and pushes the snapshot, under a Conductor assertion.
+  the feeds and pushes the snapshot, under a Conductor assertion.
 - **Events are an outbox.** `review.new/changed/gone/reappeared` and `run.failed` are written
-  to `webhook_deliveries` in the same transaction as what they report — a row per hook, and
-  per Telegram channel of a member tracking the target — and delivered from there, retried
+  to `webhook_deliveries` in the same transaction as what they report, a row per hook, and
+  delivered from there, retried
   with backoff (`webhooks.first_retry` doubling, cap `webhooks.retry_cap`, `webhooks.max_attempts` tries), recipients in parallel, at least once. To
   hooks: signed (`X-Signature: sha256=<HMAC-SHA256 of the body>`); `X-Delivery-Id` lets a
   receiver drop repeats. Where a hook may go: with `webhooks.allowed_hosts` empty, public
   addresses only — its URL is checked when added and every address its host resolves to when
   sent; with it set, only the hosts it lists (private addresses allowed), nowhere else.
   Redirects are not followed.
+- **Alerts are the conductor's; the archive publishes.** The same transaction writes a note to
+  `alert_notes` per event on a target a live track names, with those tracks' GMBs (the
+  conductor's ids): rendered here (Telegram text and entities; reviews are public, so no
+  private-chat variant), a `review_gone` with its capture as `/api/conductor/captures/<sha>.png`.
+  A target's first scan publishes no `review_new` — it is the archive's start, not news; hooks
+  still get it. The conductor pulls `GET /api/conductor/notifications` as it pulls charges;
+  notes are kept a day (`serve`'s idle purge). The archive holds no bot, chat or Telegram secret.
 - **Secrets come from the environment only**, through `ev_lib::settings` in the server
-  (`PANEL_ASSERTION_KEYS`, `GOOGLE_MAPS_KEY`, `GBP_*`, `TELEGRAM_BOT_TOKEN`, `SENTRY_DSN`,
+  (`PANEL_ASSERTION_KEYS`, `GOOGLE_MAPS_KEY`, `GBP_*`, `SENTRY_DSN`,
   `ALERT_WEBHOOK_*`); the
   library takes them as `config::Secrets` and never reads the environment. Each is required
   only by what uses it and a missing one fails that with its name — except

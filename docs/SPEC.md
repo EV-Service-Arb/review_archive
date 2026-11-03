@@ -329,8 +329,7 @@ the service.
   Source assertion is a 401. Not served under `--dev-member`.
 - `/me` routes are every signed-in person's own, and `GET /captures/{sha}.webp` of the places
   their GMBs track. With `sa:review_archive:members:act_as`, `X-Member: <person id>` acts as
-  that member: their GMBs, boards and channels, their writes; anyone else sending it gets 403.
-- `POST /me/tg-channels/{id}/test` posts at most once a minute per person (429).
+  that member: their GMBs, boards and settings, their writes; anyone else sending it gets 403.
 - CSRF is the panel's: it checks its own header on every write before forwarding.
 - `GET /dashboards` is the conductor's (an assertion naming `Principal::Conductor`), and no one
   else's: a JSON array of the dashboards in `grafana/` (written by `examples/grafana_*.py`), each with its
@@ -343,19 +342,25 @@ the service.
   `--no-login-check` (outside production; `nix run .#dev-mfe` passes it): no boot check of the
   Google accounts, and every one signed out fails walks without ending `serve`.
 
-### Telegram
+### Alerts
 
-- `tg_channels(person_id, gmail_id NULL = all, destination, events)`, `gmail_id` the
-  conductor's, as the mirror knows it;
-  `destination` is what the member pasted (`@channel`, `-100…`, `<group>/<topic>`),
-  parsed as `tg_types::TelegramDestination`.
-- Events go through the outbox (`webhook_deliveries`, a row names exactly one hook or
-  channel), fanned out in the scan's transaction to the channels whose member tracks the
-  target (under the channel's gmail, if it names one). Same retries as hooks.
-- One service bot (`TELEGRAM_BOT_TOKEN`) sends through the Bot API (`webhooks.telegram_api`):
-  `review.gone` as `sendPhoto` with the review's first capture (as PNG, which `sendPhoto` is documented for), the rest as text. The
-  member adds the bot to the chat; `POST /me/tg-channels/{id}/test` answers with
-  Telegram's refusal, if any. Ops alerts stay on Discord.
+The conductor's Alerts own rules, audiences, chats and Telegram delivery; the archive only
+publishes. Ops alerts stay on Discord.
+
+- `alert_notes(seq, id, rule, text, photo, gmbs, created_at)`: written in the transaction of
+  what they report, one per event on a target a live track names. `rule` is `review_new`,
+  `review_changed`, `review_gone`, `review_reappeared` (the `review.*` events) or
+  `scan_failed` (`run.failed`); `gmbs` the conductor's ids of the live tracks' GMBs; `id` the
+  event's UUID. A target's first scan (`Known::initial`) publishes no `review_new`.
+- The note is rendered here (`sa_alerts::Note`): "<what> · <place>", the stars, author and
+  text, or the run's error; the headline bold. Reviews are public, so there is no `text_pii`;
+  no buttons. A `review_gone` whose review has a capture carries it as `photo`
+  (`/api/conductor/captures/<sha>.png`) and a caption cut to 1024 UTF-16 units, any other text
+  to 4096, an ellipsis marking the cut.
+- `GET /api/conductor/notifications?after=&limit=` (1–500) is the feed, ascending by `seq`,
+  `next` the page's last; `GET /api/conductor/captures/{sha}.png` a recorded capture as PNG
+  (which `sendPhoto` is documented for). Both take a Conductor assertion only. Notes are kept
+  24 h, pruned by `serve` when idle.
 
 ### Dashboard
 
@@ -369,7 +374,7 @@ in. Design: Figma "review_archive / dashboard", on ev_lib's `uikit`. One holding
 `GET /members` at `/act-as` (the panel's account menu links there), acting as them through
 `X-Member`; the open tabs outlive a full load of the page, per browser tab. Where it is is its URL — `/gmbs` (the
 overview), `/gmbs/{id}` (a GMB's board, a switch between its tracks, or a language to track it
-in), `/gmails/{id}`, `/telegram`, `/settings`, under `/members/{id}` for a member's tab. The conductor's sidebar, beside it on
+in), `/gmails/{id}`, `/settings`, under `/members/{id}` for a member's tab. The conductor's sidebar, beside it on
 every page, lists the person's gmails and GMBs, switches them and links to those views; a member's tab
 draws its own list of that member's gmails. Adding a GMB is the conductor's home. A card under a GMB
 switched off at the conductor is dimmed, as one whose track is off. Standalone (`--dev-member`), the binary serves the same page at `/`.

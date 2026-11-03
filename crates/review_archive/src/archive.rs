@@ -211,10 +211,12 @@ impl Archive {
 		stored.store.check_unchecked_captures(&stored.blobs).await
 	}
 
-	/// Purges what no GMB has tracked for `defaults.untracked_retention`: its reviews, captures and their blobs.
+	/// Purges what is past keeping: the Alerts notes of over a day ago, and what no GMB has
+	/// tracked for `defaults.untracked_retention` — its reviews, captures and their blobs, counted.
 	#[cfg(feature = "store")]
-	pub async fn purge_untracked(&self, now: Timestamp) -> eyre::Result<usize> {
+	pub async fn purge(&self, now: Timestamp) -> eyre::Result<usize> {
 		let stored = self.stored()?;
+		stored.store.prune_notes(now).await?;
 		let before = now - self.inner.defaults.untracked_retention.duration();
 		let orphans = stored.store.purge_untracked(before).await?;
 		for sha in &orphans {
@@ -238,19 +240,6 @@ impl Archive {
 			}
 			_ => None,
 		};
-		#[cfg(feature = "store")]
-		let telegram = match (&config.secrets.telegram_bot_token, &store) {
-			(Some(token), Some(stored)) => Some(crate::webhooks::Telegram {
-				api: config
-					.webhooks
-					.telegram_api
-					.parse()
-					.map_err(|e| eyre::eyre!("webhooks.telegram_api {:?}: {e}", config.webhooks.telegram_api))?,
-				token: token.clone(),
-				blobs: stored.blobs.clone(),
-			}),
-			_ => None,
-		};
 		// a restart does not bring back an account a person has not signed in again
 		#[cfg(all(feature = "store", feature = "maps"))]
 		if let Some(stored) = &store {
@@ -270,7 +259,7 @@ impl Archive {
 				#[cfg(feature = "store")]
 				http,
 				#[cfg(feature = "store")]
-				webhooks: Deliverer::new(&config.webhooks, telegram)?,
+				webhooks: Deliverer::new(&config.webhooks)?,
 				#[cfg(feature = "maps")]
 				browser,
 				#[cfg(all(feature = "store", feature = "maps"))]
@@ -895,6 +884,12 @@ impl Archive {
 			Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(not_found().into()),
 			Err(e) => Err(eyre::Report::new(e).wrap_err(format!("reading {}", path.display()))),
 		}
+	}
+
+	/// A capture as PNG, for the conductor's Telegram `sendPhoto`, which is documented for JPEG/PNG.
+	pub async fn capture_png(&self, sha256: &str) -> eyre::Result<Vec<u8>> {
+		let webp = self.capture_webp(sha256).await?;
+		tokio::task::spawn_blocking(move || crate::webp::to_png(&webp)).await?
 	}
 
 	/// Per target and UTC day over `[from, to]`: new, changed, gone, mean rating, histogram.

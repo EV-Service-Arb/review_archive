@@ -118,6 +118,7 @@ impl Recorder<'_> {
 					name: scan.name.as_deref(),
 					address: scan.address.as_deref(),
 					ad_hoc: source.ad_hoc(),
+					baseline: known.initial,
 					scanner_version: SCANNER_VERSION,
 				};
 				let end = RunEnd {

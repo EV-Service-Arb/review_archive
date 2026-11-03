@@ -1,4 +1,4 @@
-//! Webhooks and the outbox, which also carries members' Telegram channels' events.
+//! Webhooks and their outbox.
 
 use eyre::WrapErr;
 use jiff::Timestamp;
@@ -11,69 +11,22 @@ use sqlx::FromRow;
 use super::Store;
 
 /// A delivery that is due.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, FromRow)]
 pub struct Delivery {
 	/// Its id.
 	pub id: i64,
-	/// Where it goes.
-	pub to: Recipient,
+	/// The hook.
+	pub webhook_id: i64,
+	/// Where to POST.
+	pub url: String,
+	/// The HMAC key.
+	pub secret: String,
 	/// `review.new`, …
 	pub event: String,
 	/// The JSON body, exactly as signed.
 	pub payload: String,
 	/// Tries so far.
 	pub attempts: i64,
-}
-
-/// Where a delivery goes.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Recipient {
-	/// A hook: POSTed, signed.
-	Webhook {
-		/// The hook.
-		id: i64,
-		/// Where to POST.
-		url: String,
-		/// The HMAC key.
-		secret: String,
-	},
-	/// A member's Telegram channel, through the archive's bot.
-	Telegram {
-		/// The channel.
-		id: i64,
-		/// As the member pasted it.
-		destination: String,
-	},
-}
-
-#[derive(FromRow)]
-struct DeliveryRow {
-	id: i64,
-	webhook_id: Option<i64>,
-	url: Option<String>,
-	secret: Option<String>,
-	tg_channel_id: Option<i64>,
-	destination: Option<String>,
-	event: String,
-	payload: String,
-	attempts: i64,
-}
-
-impl From<DeliveryRow> for Delivery {
-	fn from(r: DeliveryRow) -> Self {
-		let to = match (r.webhook_id, r.url, r.secret, r.tg_channel_id, r.destination) {
-			(Some(id), Some(url), Some(secret), None, None) => Recipient::Webhook { id, url, secret },
-			(None, None, None, Some(id), Some(destination)) => Recipient::Telegram { id, destination },
-			_ => unreachable!("a CHECK makes a delivery name exactly one hook or channel, and each cascades away with its row"),
-		};
-		Self {
-			id: r.id,
-			to,
-			event: r.event,
-			payload: r.payload,
-			attempts: r.attempts,
-		}
-	}
 }
 
 #[derive(FromRow)]
@@ -137,11 +90,9 @@ impl Store {
 
 	/// Deliveries due at `now`, oldest first.
 	pub async fn due_deliveries(&self, now: Timestamp, limit: u32) -> eyre::Result<Vec<Delivery>> {
-		let rows: Vec<DeliveryRow> = sqlx::query_as(
-			"SELECT d.id, d.webhook_id, w.url, w.secret, d.tg_channel_id, c.destination, d.event, d.payload, d.attempts
-			 FROM webhook_deliveries d
-			 LEFT JOIN webhooks w ON w.id = d.webhook_id
-			 LEFT JOIN tg_channels c ON c.id = d.tg_channel_id
+		sqlx::query_as(
+			"SELECT d.id, d.webhook_id, w.url, w.secret, d.event, d.payload, d.attempts
+			 FROM webhook_deliveries d JOIN webhooks w ON w.id = d.webhook_id
 			 WHERE d.delivered_at IS NULL AND d.failed_at IS NULL AND d.next_attempt_at <= ?
 			 ORDER BY d.id LIMIT ?",
 		)
@@ -149,8 +100,7 @@ impl Store {
 		.bind(limit)
 		.fetch_all(&self.pool)
 		.await
-		.wrap_err("loading due deliveries")?;
-		Ok(rows.into_iter().map(Delivery::from).collect())
+		.wrap_err("loading due deliveries")
 	}
 
 	/// A delivery the receiver acknowledged.

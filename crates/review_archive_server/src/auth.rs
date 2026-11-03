@@ -4,12 +4,6 @@
 //! they are here is a person found or made by its `sub`. The conductor's assertion names no one,
 //! and opens only its own reads.
 
-use std::{
-	collections::HashMap,
-	sync::Mutex,
-	time::{Duration, Instant},
-};
-
 use axum::{
 	Json,
 	extract::{FromRequestParts, Request, State},
@@ -40,28 +34,6 @@ pub enum Auth {
 	Panel(sa_auth::Keys),
 	/// `serve --dev-member`: every request is this one person, for a local dashboard.
 	Dev { person: PersonId, email: String, permissions: PermissionSet },
-}
-
-/// Test-posts to Telegram, rate-limited per person.
-#[derive(Default)]
-pub struct TestPosts(Mutex<HashMap<PersonId, Instant>>);
-
-const TEST_GAP: Duration = Duration::from_secs(60);
-
-impl TestPosts {
-	/// Whether `person` may test-post now; if so, starts their wait for the next.
-	pub fn take(&self, person: PersonId) -> bool {
-		let mut last = self.0.lock().expect("held for a lookup only, never across a panic");
-		let now = Instant::now();
-		last.retain(|_, at| now.duration_since(*at) < TEST_GAP);
-		match last.contains_key(&person) {
-			true => false,
-			false => {
-				last.insert(person, now);
-				true
-			}
-		}
-	}
 }
 
 fn refuse(status: StatusCode, why: &str) -> Response {
