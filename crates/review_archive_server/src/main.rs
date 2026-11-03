@@ -237,6 +237,9 @@ async fn run(cli: Cli, config: AppConfig, settings: Settings) -> eyre::Result<()
 		let profile = tempfile::tempdir().wrap_err("creating a throwaway profile")?;
 		return Browser::new(config.browser.clone(), vec![profile.path().to_owned()]).check().await;
 	}
+	if let Cmd::Serve(_) = cli.cmd {
+		eyre::ensure!(config.bind.is_some(), "serve needs a `bind`: the config's, or REVIEW_ARCHIVE_SERVER_BIND (the dev shell sets it)");
+	}
 	let archive = Archive::open(config.archive(settings.secrets())).await?;
 
 	match cli.cmd {
@@ -357,7 +360,7 @@ async fn scan(archive: &Archive, schedule: &Schedule, args: ScanArgs) -> eyre::R
 }
 
 async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: ServeArgs) -> eyre::Result<()> {
-	let bind = config.bind;
+	let bind = config.bind.expect("checked before the archive opened");
 	if args.dev_member.is_some() {
 		eyre::ensure!(bind.ip().is_loopback(), "--dev-member signs everyone in: it serves on a loopback address only, not {bind}");
 		eyre::ensure!(settings.app_env != "production", "--dev-member is for development, and APP_ENV is production");

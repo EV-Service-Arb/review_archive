@@ -2,15 +2,15 @@
 // its GMBs' tracks in /me/overview, a facet narrows them, a card opens its board, whose lanes are the board's and whose
 // gone cards appeal and withdraw by drag, back returns, and a card's switch writes and redraws — all in one page
 // load and one Grafana frame.
-// `node examples/with_grafana.cjs <member> <gmail> <facet> [<base>]` inside `nix develop`, `<base>` the
-// conductor's (`http://127.0.0.1:59120`: site_conductor's `nix run .#local-stack`, signed in as an admin,
-// who acts as `<member>`). The switch and the drags write: run the stack on a copy of the data dir
+// `SA_CONDUCTOR_ORIGIN=<origin> node examples/with_grafana.cjs <member> <gmail> <facet>` inside `nix develop`, the
+// origin the conductor's (site_conductor's `nix run .#local-stack`, signed in as an admin, who acts as `<member>`). The switch and the drags write: run the stack on a copy of the data dir
 // (`REVIEW_ARCHIVE_DATA_DIR`).
 const path = require('path');
 const { chromium } = require(path.dirname(process.env.PLAYWRIGHT_CLI_JS));
 const assert = require('assert');
 
-const BASE = process.argv[5] ?? 'http://127.0.0.1:59120';
+const BASE = process.env.SA_CONDUCTOR_ORIGIN;
+if (!BASE) throw new Error("SA_CONDUCTOR_ORIGIN: the local stack's conductor, as its banner prints it");
 const API = `${BASE}/api/review_archive`;
 const [member, gmail] = process.argv.slice(2, 4).map(Number);
 const facet = process.argv[4];

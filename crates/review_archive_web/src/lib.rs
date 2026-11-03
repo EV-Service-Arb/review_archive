@@ -123,11 +123,88 @@ fn mount(el: web_sys::Element) {
 	};
 	let mut cfg = dioxus::web::Config::new().rootelement(el.clone());
 	if let Ok(host) = &host {
-		cfg = cfg.history(std::rc::Rc::new(dioxus::web::WebHistory::new(Some(host.base.clone()), true)));
+		cfg = cfg.history(std::rc::Rc::new(Based::new(&host.base)));
 	}
 	let locale = ev_lib::mfe::host_locale(&el);
 	assert!(MOUNT.set(Mount { locale, ui, host }).is_ok(), "one dashboard per page");
 	dioxus::LaunchBuilder::new().with_cfg(cfg).launch(root);
+}
+
+/// The page's history under `base`. The host keeps the element running on its other pages too,
+/// where the location is none of its routes: the router stays at the last route under `base`.
+struct Based {
+	web: dioxus::web::WebHistory,
+	base: String,
+	last: std::cell::RefCell<String>,
+}
+
+impl Based {
+	fn new(base: &str) -> Self {
+		let web = dioxus::web::WebHistory::new(Some(base.to_owned()), true);
+		let base = format!("/{}", base.trim_matches('/'));
+		let based = Self {
+			last: std::cell::RefCell::new(String::new()),
+			web,
+			base,
+		};
+		assert!(based.here(), "the element mounts on its own page, under {}", based.base);
+		based.last.replace(dioxus::history::History::current_route(&based.web));
+		based
+	}
+
+	fn here(&self) -> bool {
+		let path = web_sys::window().expect("a browser").location().pathname().expect("a page has a path");
+		path.strip_prefix(&self.base).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+	}
+}
+
+impl dioxus::history::History for Based {
+	fn current_route(&self) -> String {
+		if self.here() {
+			self.last.replace(self.web.current_route());
+		}
+		self.last.borrow().clone()
+	}
+
+	fn current_prefix(&self) -> Option<String> {
+		self.web.current_prefix()
+	}
+
+	fn can_go_back(&self) -> bool {
+		self.web.can_go_back()
+	}
+
+	fn go_back(&self) {
+		self.web.go_back()
+	}
+
+	fn can_go_forward(&self) -> bool {
+		self.web.can_go_forward()
+	}
+
+	fn go_forward(&self) {
+		self.web.go_forward()
+	}
+
+	fn push(&self, route: String) {
+		self.web.push(route)
+	}
+
+	fn replace(&self, path: String) {
+		self.web.replace(path)
+	}
+
+	fn external(&self, url: String) -> bool {
+		self.web.external(url)
+	}
+
+	fn updater(&self, callback: std::sync::Arc<dyn Fn() + Send + Sync>) {
+		self.web.updater(callback)
+	}
+
+	fn include_prevent_default(&self) -> bool {
+		self.web.include_prevent_default()
+	}
 }
 
 fn root() -> Element {

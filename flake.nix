@@ -14,6 +14,8 @@
 
   outputs = { self, v_flakes, browser_manipulation }:
     let
+      # the first of this repository's ten in SA_PORT_RANGE: site_conductor's docs/port_range.md
+      SA_PORTS = 52810;
       inherit (v_flakes) flake-utils pre-commit-hooks;
       manifest = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package;
       # The binary (crates/review_archive_server, `[[bin]] name`), the image and the
@@ -30,9 +32,7 @@
         # would break every target on a mac, not just the ones that link.
         stdenv = if pkgs.stdenv.isDarwin then pkgs.stdenv else pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv;
 
-        # Single source for the container's exposed port and the prod config's
-        # bind. The binary's own default (`config::DEFAULT_BIND`) is the same
-        # port on 127.0.0.1.
+        # Single source for the container's exposed port and the prod config's bind.
         port = 59110;
 
         # nixpkgs builds Chromium for Linux only. On a mac the scanner is pointed
@@ -147,6 +147,21 @@
           auditable = false;
         };
 
+        # `nix run .#build-mfe -- <dir>`: the dashboard's bundle, debug, from this checkout into <dir>
+        buildMfe = pkgs.writeShellApplication {
+          name = "build-mfe";
+          runtimeInputs = [ pkgs.git ];
+          text = ''
+            out="$(realpath -m "''${1:?the directory the bundle goes to}")"
+            repo="$(git rev-parse --show-toplevel)"
+            cd "$repo"
+            RUSTFLAGS='${wasmFlags}' nix develop "$repo" --command bash -euc "
+              cargo build -p review_archive_web --target wasm32-unknown-unknown
+              bash crates/review_archive_web/package.sh target/wasm32-unknown-unknown/debug/review_archive_web.wasm '$out'
+            "
+          '';
+        };
+
         # `nix run .#<name> [-- <held>]`: the dashboard built (debug) into tmp/<name> and served by a
         # local `serve` at `/`, on the repo's `data/`, signed in holding `<held>` (`--dev-member`: an
         # alias, permissions comma-separated, or `none`; no panel needed). Scans run in a Chromium
@@ -159,10 +174,7 @@
             repo="$(git rev-parse --show-toplevel)"
             cd "$repo"
             out="$repo/tmp/${name}"
-            RUSTFLAGS='${wasmFlags}' nix develop "$repo" --command bash -euc "
-              cargo build -p review_archive_web --target wasm32-unknown-unknown
-              bash crates/review_archive_web/package.sh target/wasm32-unknown-unknown/debug/review_archive_web.wasm '$out'
-            "
+            ${lib.getExe buildMfe} "$out"
             cat >"$out/config.toml" <<EOF
             data_dir = "$repo/data"
             mfe_dir = "$out"
@@ -251,6 +263,7 @@
             nix build .#${pname}-container    OCI image with chromium-headless-shell (Linux only), its binary checked to start it
             nix build .#mfe                   the dashboard bundle (served under /mfe/)
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
+            nix run .#build-mfe -- <dir>      the dashboard's bundle, debug, into <dir>
             nix run .#publish -- major|minor|patch [note]
                                               live tests, then tag the next vX.Y.Z and push it: CI ships the image
             nix run .#help                    this
@@ -301,6 +314,7 @@
         apps = {
           help = { type = "app"; program = lib.getExe help; };
           dev-mfe = { type = "app"; program = lib.getExe (devMfe { name = "dev-mfe"; }); };
+          build-mfe = { type = "app"; program = lib.getExe buildMfe; };
           publish = { type = "app"; program = lib.getExe publish; };
         };
 
@@ -336,6 +350,7 @@
             ] ++ chromium ++ pre-commit-check.enabledPackages ++ combined.enabledPackages;
 
             env = {
+              REVIEW_ARCHIVE_SERVER_BIND = "127.0.0.1:${toString SA_PORTS}"; # the config's `bind`
               RUST_BACKTRACE = 1;
               RUST_LIB_BACKTRACE = 0;
             } // playwrightEnv // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

@@ -1,15 +1,16 @@
 """Evaluates a JSONata root over /me/overview with Infinity's own engine, in the conductor's Grafana
 of its local stack (site_conductor's `nix run .#local-stack`, signed in as an admin acting as `<member>`):
-`python3 examples/grafana_jsonata.py <member> '<root>'`. The root yields rows with a string `o`
+`SA_CONDUCTOR_ORIGIN=<its origin> python3 examples/grafana_jsonata.py <member> '<root>'`. The root yields rows with a string `o`
 (`$[0].locations.{"o": $string(...)}`); one that never reads its input comes back null.
 """
 
 import http.cookiejar
 import json
+import os
 import sys
 import urllib.request
 
-BASE = "http://127.0.0.1:59120"
+BASE = os.environ.get("SA_CONDUCTOR_ORIGIN") or sys.exit("SA_CONDUCTOR_ORIGIN: the local stack's conductor, as its banner prints it")
 session = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 session.open(f"{BASE}/auth/login?return_to=/")  # the stack's dev sign-in: a session at once
 

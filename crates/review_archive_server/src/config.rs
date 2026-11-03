@@ -14,8 +14,8 @@ use v_utils::macros::{ConfigJsonSchema, MyConfigPrimitives, Settings};
 pub struct AppConfig {
 	#[default(PathBuf::from("data"))]
 	pub data_dir: PathBuf,
-	#[default(SocketAddr::from(([127, 0, 0, 1], 59110)))]
-	pub bind: SocketAddr,
+	/// Where `serve` listens; the dev shell sets it (REVIEW_ARCHIVE_SERVER_BIND) to this machine's port.
+	pub bind: Option<SocketAddr>,
 	/// The dashboard's built bundle, served under `/mfe/`; not served when unset.
 	pub mfe_dir: Option<PathBuf>,
 	#[serde(default)]
@@ -104,7 +104,7 @@ mod tests {
 		assert!(toml::from_str::<AppConfig>("[defaults]\nlang = \"fr&q=x\"").is_err(), "a lang goes into a URL");
 
 		let empty: AppConfig = toml::from_str("").unwrap();
-		assert_eq!(empty.bind.to_string(), "127.0.0.1:59110");
+		assert_eq!(empty.bind, None);
 		assert!(toml::from_str::<AppConfig>("[schedule]\ntypo = 1").is_err());
 	}
 }
