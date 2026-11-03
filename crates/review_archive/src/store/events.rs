@@ -173,16 +173,17 @@ fn truncate(s: String, max: usize) -> String {
 	format!("{}…", &s[..end])
 }
 
+type NoteRow = (i64, Vec<u8>, String, String, Option<String>, String, String);
+
 impl Store {
 	/// The Alerts feed past `after`, `limit` notes at most.
 	pub async fn notes(&self, after: i64, limit: u32) -> eyre::Result<NotePage> {
-		let rows: Vec<(i64, Vec<u8>, String, String, Option<String>, String, String)> =
-			sqlx::query_as("SELECT seq, id, rule, text, photo, gmbs, created_at FROM alert_notes WHERE seq > ? ORDER BY seq LIMIT ?")
-				.bind(after)
-				.bind(limit)
-				.fetch_all(&self.pool)
-				.await
-				.wrap_err("loading alert notes")?;
+		let rows: Vec<NoteRow> = sqlx::query_as("SELECT seq, id, rule, text, photo, gmbs, created_at FROM alert_notes WHERE seq > ? ORDER BY seq LIMIT ?")
+			.bind(after)
+			.bind(limit)
+			.fetch_all(&self.pool)
+			.await
+			.wrap_err("loading alert notes")?;
 		let notes = rows
 			.into_iter()
 			.map(|(seq, id, rule, text, photo, gmbs, created_at)| {
