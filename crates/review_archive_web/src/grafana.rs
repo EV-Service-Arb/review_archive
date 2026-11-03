@@ -21,7 +21,7 @@ use crate::{
 	may,
 };
 
-const KIOSK: &str = "?kiosk&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks";
+const KIOSK: &str = "?kiosk&hideLogo&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks";
 
 fn grafana() -> reqwest::Url {
 	crate::directory(crate::host().grafana.as_deref().expect("required at mount under Ui::Grafana"))
