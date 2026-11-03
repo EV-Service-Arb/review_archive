@@ -428,7 +428,7 @@ async fn a_purged_places_charges_stay_in_the_feed() {
 	archive.record(&Spends(20), &t).await.unwrap();
 	archive.untrack(a, gmb, t.id).await.unwrap();
 
-	archive.purge_untracked(Timestamp::now() + SignedDuration::from_hours(24 * 7)).await.unwrap();
+	archive.purge(Timestamp::now() + SignedDuration::from_hours(24 * 7)).await.unwrap();
 	assert!(archive.store().unwrap().targets().await.unwrap().is_empty());
 	assert_eq!(feed(&archive).await.iter().map(|c| c.spent).collect::<Vec<_>>(), [20]);
 	assert_eq!(holds(&archive, "a").await, 80);

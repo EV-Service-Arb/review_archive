@@ -40,7 +40,7 @@ use sqlx::{
 };
 pub use tokens::{Bill, Rail};
 use v_utils::Timeframe;
-pub use webhooks::{Delivery, Recipient};
+pub use webhooks::Delivery;
 
 fn parse_ts(s: &str) -> eyre::Result<Timestamp> {
 	s.parse().wrap_err_with(|| format!("stored timestamp {s:?}"))
@@ -147,6 +147,8 @@ pub struct ScanWrite<'a> {
 	pub address: Option<&'a str>,
 	/// An ad-hoc capture: it may record a gap but never closes one.
 	pub ad_hoc: bool,
+	/// See [`Known::initial`]: its new reviews go to hooks, not to the owners' Alerts.
+	pub baseline: bool,
 	/// Recorded with each capture.
 	pub scanner_version: &'a str,
 }
@@ -658,7 +660,7 @@ impl Store {
 	pub async fn fail_run(&self, end: RunEnd<'_>, now: Timestamp) -> eyre::Result<()> {
 		let mut tx = self.write().await?;
 		finish(&mut tx, end, Counts::default(), &[], now).await?;
-		events::Emitter::load(&mut tx, now).await?.run_failed(&mut tx, end.run).await?;
+		events::Emitter::load(&mut tx, now, false).await?.run_failed(&mut tx, end.run).await?;
 		tx.commit().await.wrap_err("committing a failed run")
 	}
 
@@ -784,8 +786,18 @@ impl Store {
 		let plan = scan.plan;
 		let now_s = fmt_ts(now);
 		let mut tx = self.write().await?;
-		let mut emitter = events::Emitter::load(&mut tx, now).await?;
+		let mut emitter = events::Emitter::load(&mut tx, now, scan.baseline).await?;
 		let mut seen: Vec<(usize, ReviewId)> = Vec::with_capacity(plan.seen());
+		// a name means the overview was read, and an address missing from it is gone; first, so the alerts name the place as it is now
+		if let Some(name) = scan.name {
+			sqlx::query("UPDATE targets SET name = ?, address = ? WHERE id = ?")
+				.bind(name)
+				.bind(scan.address)
+				.bind(target.0)
+				.execute(&mut *tx)
+				.await
+				.wrap_err("recording the place's name and address")?;
+		}
 
 		for obs in &plan.new {
 			let id = insert_review(&mut tx, target, obs, &now_s).await?;
@@ -835,16 +847,6 @@ impl Store {
 			.execute(&mut *tx)
 			.await
 			.wrap_err("recording where the walk stopped")?;
-		// a name means the overview was read, and an address missing from it is gone
-		if let Some(name) = scan.name {
-			sqlx::query("UPDATE targets SET name = ?, address = ? WHERE id = ?")
-				.bind(name)
-				.bind(scan.address)
-				.bind(target.0)
-				.execute(&mut *tx)
-				.await
-				.wrap_err("recording the place's name and address")?;
-		}
 		// what the next scan compares its count against, so only a scan's own
 		if let Some(listed) = scan.listed.filter(|_| !scan.ad_hoc) {
 			sqlx::query("UPDATE targets SET listed = ? WHERE id = ?")

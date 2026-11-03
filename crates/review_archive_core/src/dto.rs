@@ -819,34 +819,6 @@ pub struct NewTrack {
 	pub gbp: Option<String>,
 }
 
-/// A member's Telegram channel for events.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct TgChannelDto {
-	/// Its id.
-	pub id: i64,
-	/// As pasted: `@channel`, `-100…`, or `<group>/<topic>`.
-	pub destination: String,
-	/// Only this gmail's places; every place the member tracks when unset.
-	pub gmail_id: Option<i64>,
-	/// What it gets.
-	pub events: Vec<Event>,
-	/// When it was added.
-	pub created_at: String,
-}
-
-/// `POST /me/tg-channels`. The archive's bot has to be in the chat and allowed to post.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct NewTgChannel {
-	/// `@channel`, a `-100…` chat id, or `<group>/<topic>` for a forum topic.
-	pub destination: String,
-	/// Only this gmail's places; every place the member tracks when unset.
-	pub gmail_id: Option<i64>,
-	/// What to send.
-	pub events: Vec<Event>,
-}
-
 /// `GET /me`: who is signed in.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -964,18 +936,18 @@ pub struct Charges {
 	pub next: i64,
 }
 
-/// `GET /api/conductor/charges`.
+/// A page of one of the conductor's feeds: `GET /api/conductor/charges`, `GET /api/conductor/notifications`.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
-pub struct ChargesQuery {
-	/// Charges past this id.
+pub struct FeedQuery {
+	/// Rows past this id.
 	pub after: i64,
-	/// At most this many, 1 to [`MAX_CHARGES`].
+	/// At most this many, 1 to [`MAX_PAGE`].
 	pub limit: u32,
 }
 
-/// The largest page of the charge feed.
-pub const MAX_CHARGES: u32 = 500;
+/// The largest page of a feed.
+pub const MAX_PAGE: u32 = 500;
 
 /// On `/me` routes: the person id of the member an admin acts as.
 pub const MEMBER_HEADER: &str = "x-member";

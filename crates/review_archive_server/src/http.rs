@@ -23,9 +23,9 @@ use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
 	ReviewId, TargetId,
 	dto::{
-		Board, CaptureRequest, Charges, ChargesQuery, DayStats, ErrorBody, EventPayload, ExportQuery, GmailOverview, GmbSnapshot, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs,
-		NewLayout, NewTarget, NewTgChannel, NewTrack, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery,
-		TargetDetail, TargetDto, TargetPatch, TgChannelDto, TrackPatch, WaitQuery, WebhookDto, stats_csv,
+		Board, CaptureRequest, Charges, DayStats, ErrorBody, EventPayload, ExportQuery, FeedQuery, GmailOverview, GmbSnapshot, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs,
+		NewLayout, NewTarget, NewTrack, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto,
+		TargetPatch, TrackPatch, WaitQuery, WebhookDto, stats_csv,
 	},
 };
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ use utoipa::{
 use v_utils::{Timeframe, macros::SettingsNested};
 
 use crate::{
-	auth::{Auth, Caller, Member, TestPosts, acts_as, authenticate, conductor, operates_archive},
+	auth::{Auth, Caller, Member, acts_as, authenticate, conductor, operates_archive},
 	worker::Signals,
 };
 
@@ -63,7 +63,6 @@ pub struct HttpConfig {
 pub struct AppState {
 	pub archive: Archive,
 	pub auth: Arc<Auth>,
-	pub test_posts: Arc<TestPosts>,
 	pub signals: Arc<Signals>,
 	pub cfg: Arc<HttpConfig>,
 }
@@ -73,7 +72,6 @@ impl AppState {
 		Self {
 			archive,
 			auth: Arc::new(auth),
-			test_posts: Arc::default(),
 			signals,
 			cfg: Arc::new(cfg),
 		}
@@ -108,10 +106,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		.route("/me/gmbs/{gmb}/tracks/{target}/relink", post(relink))
 		.route("/me/gmbs/{gmb}/tracks/{target}/scan", post(scan_tracked))
 		.route("/me/gmbs/{gmb}/tracks/{target}/board", get(board))
-		.route("/me/gmbs/{gmb}/reinstatements/{review}", axum::routing::put(reinstate).delete(withdraw))
-		.route("/me/tg-channels", get(tg_channels).post(add_tg_channel))
-		.route("/me/tg-channels/{id}", axum::routing::delete(delete_tg_channel))
-		.route("/me/tg-channels/{id}/test", post(test_tg_channel));
+		.route("/me/gmbs/{gmb}/reinstatements/{review}", axum::routing::put(reinstate).delete(withdraw));
 	let timed = admin
 		.merge(members)
 		.merge(me)
@@ -138,6 +133,8 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 			Router::new()
 				.route("/api/conductor/gmbs", axum::routing::put(apply_snapshot))
 				.route("/api/conductor/charges", get(charges))
+				.route("/api/conductor/notifications", get(notifications))
+				.route("/api/conductor/captures/{file}", get(capture_png))
 				.layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, state.cfg.request_timeout.duration()))
 				.route_layer(middleware::from_fn_with_state(state.clone(), conductor)),
 		);
@@ -155,7 +152,6 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 			// the dashboard's own paths: a link to one of its views loads the page, which routes there
 			app = app
 				.route("/", get(page.clone()))
-				.route("/telegram", get(page.clone()))
 				.route("/settings", get(page.clone()))
 				.route("/act-as", get(page.clone()))
 				.route("/gmbs", get(page.clone()))
@@ -580,40 +576,29 @@ async fn apply_snapshot(State(s): State<AppState>, JsonBody(snap): JsonBody<GmbS
 }
 
 /// What walks cost, for the conductor to charge: the feed past `after`.
-#[utoipa::path(get, path = "/api/conductor/charges", tag = "conductor", params(ChargesQuery),
+#[utoipa::path(get, path = "/api/conductor/charges", tag = "conductor", params(FeedQuery),
 	responses((status = 200, body = Charges), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody)))]
-async fn charges(State(s): State<AppState>, Query(q): Query<ChargesQuery>) -> ApiResult<Json<Charges>> {
+async fn charges(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<Charges>> {
 	Ok(Json(s.archive.charges(q.after, q.limit).await?))
 }
 
-#[utoipa::path(get, path = "/me/tg-channels", tag = "me", responses((status = 200, body = [TgChannelDto])))]
-async fn tg_channels(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Vec<TgChannelDto>>> {
-	Ok(Json(s.archive.tg_channels(m).await?))
+/// The Alerts feed past `after`: notes on the places live tracks name, each with their GMBs.
+#[utoipa::path(get, path = "/api/conductor/notifications", tag = "conductor", params(FeedQuery),
+	responses((status = 200, content_type = "application/json", description = "`sa_alerts::NotePage`"), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody)))]
+async fn notifications(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<sa_alerts::NotePage>> {
+	Ok(Json(s.archive.notifications(q.after, q.limit).await?))
 }
 
-/// Sends the events of the member's places to a Telegram chat, through the archive's bot —
-/// which has to be in the chat, allowed to post. A removed review comes with its screenshot.
-#[utoipa::path(post, path = "/me/tg-channels", tag = "me", request_body = NewTgChannel, responses((status = 201, body = TgChannelDto), (status = 400, body = ErrorBody)))]
-async fn add_tg_channel(State(s): State<AppState>, Member(m): Member, JsonBody(req): JsonBody<NewTgChannel>) -> ApiResult<(StatusCode, Json<TgChannelDto>)> {
-	Ok((StatusCode::CREATED, Json(s.archive.add_tg_channel(m, &req).await?)))
-}
-
-/// Removes a channel and what it was still owed.
-#[utoipa::path(delete, path = "/me/tg-channels/{id}", tag = "me", params(("id" = i64, Path)), responses((status = 204), (status = 404, body = ErrorBody)))]
-async fn delete_tg_channel(State(s): State<AppState>, Member(m): Member, Path(id): Path<i64>) -> ApiResult<StatusCode> {
-	s.archive.delete_tg_channel(m, id).await?;
-	Ok(StatusCode::NO_CONTENT)
-}
-
-/// Posts a line to the channel now. 400 with Telegram's reason when it refuses.
-#[utoipa::path(post, path = "/me/tg-channels/{id}/test", tag = "me", params(("id" = i64, Path)),
-	responses((status = 204), (status = 400, body = ErrorBody), (status = 404, body = ErrorBody), (status = 429, body = ErrorBody)))]
-async fn test_tg_channel(State(s): State<AppState>, Member(m): Member, Path(id): Path<i64>) -> ApiResult<StatusCode> {
-	if !s.test_posts.take(m) {
-		return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "one test post a minute".into()));
-	}
-	s.archive.test_tg_channel(m, id).await?;
-	Ok(StatusCode::NO_CONTENT)
+/// A capture as PNG, the photo of a `review_gone` note.
+#[utoipa::path(get, path = "/api/conductor/captures/{sha256}.png", tag = "conductor", params(("sha256" = String, Path)),
+	responses((status = 200, content_type = "image/png"), (status = 401, body = ErrorBody), (status = 404, body = ErrorBody)))]
+async fn capture_png(State(s): State<AppState>, Path(file): Path<String>) -> ApiResult<Response> {
+	let sha = file.strip_suffix(".png").ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "no such capture".into()))?;
+	Ok((
+		[(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "private, max-age=31536000, immutable")],
+		s.archive.capture_png(sha).await?,
+	)
+		.into_response())
 }
 
 #[derive(OpenApi)]

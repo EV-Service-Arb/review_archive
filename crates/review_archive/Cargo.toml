@@ -22,10 +22,11 @@ settings = ["dep:clap", "dep:schemars", "v_utils/cli", "review_archive_core/sett
 store = [
     "dep:futures",
     "dep:hmac",
+    "dep:sa_alerts",
     "dep:sa_places",
     "dep:sqlx",
     "dep:tempfile",
-    "dep:tg_types",
+    "dep:uuid",
     "dep:zip",
 ]
 
@@ -41,8 +42,9 @@ kamadak-exif.workspace = true
 libwebp.workspace = true
 miette.workspace = true
 playwright-rs = { workspace = true, optional = true }
-reqwest = { workspace = true, features = ["multipart"] }
+reqwest.workspace = true
 review_archive_core.workspace = true
+sa_alerts = { workspace = true, optional = true }
 sa_places = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
 serde.workspace = true
@@ -51,11 +53,11 @@ sha2.workspace = true
 smart-default.workspace = true
 sqlx = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
-tg_types = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "sync", "time", "rt", "macros", "net"] }
 tracing.workspace = true
 tracing-error.workspace = true
+uuid = { workspace = true, optional = true }
 v_utils = { workspace = true, features = ["memory_lease"] } # tokio/net, which the wasm crates cannot build
 zip = { workspace = true, optional = true }
 

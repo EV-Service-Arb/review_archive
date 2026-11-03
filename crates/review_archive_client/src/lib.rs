@@ -30,9 +30,8 @@ use std::fmt;
 use reqwest::{Method, RequestBuilder, StatusCode, Url};
 pub use review_archive_core::dto;
 use review_archive_core::dto::{
-	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, MEMBER_HEADER, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewTgChannel,
-	NewTrack, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto, TargetPatch,
-	TgChannelDto, TrackPatch, WaitQuery, WebhookDto,
+	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, MEMBER_HEADER, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewTrack, NewWebhook,
+	ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch, WaitQuery, WebhookDto,
 };
 use serde::de::DeserializeOwned;
 
@@ -330,28 +329,6 @@ impl Client {
 	/// `DELETE /me/gmbs/{gmb}/reinstatements/{review}`: withdrawn, kept on record.
 	pub async fn withdraw_reinstatement(&self, gmb: i64, review: i64) -> Result<(), Error> {
 		Self::send(self.request(Method::DELETE, &format!("me/gmbs/{gmb}/reinstatements/{review}"))?).await?;
-		Ok(())
-	}
-
-	/// `GET /me/tg-channels`.
-	pub async fn tg_channels(&self) -> Result<Vec<TgChannelDto>, Error> {
-		Self::json(self.request(Method::GET, "me/tg-channels")?).await
-	}
-
-	/// `POST /me/tg-channels`.
-	pub async fn add_tg_channel(&self, ch: &NewTgChannel) -> Result<TgChannelDto, Error> {
-		Self::json(self.request(Method::POST, "me/tg-channels")?.json(ch)).await
-	}
-
-	/// `DELETE /me/tg-channels/{id}`.
-	pub async fn delete_tg_channel(&self, id: i64) -> Result<(), Error> {
-		Self::send(self.request(Method::DELETE, &format!("me/tg-channels/{id}"))?).await?;
-		Ok(())
-	}
-
-	/// `POST /me/tg-channels/{id}/test`: a line posted now; Telegram's refusal as a 400.
-	pub async fn test_tg_channel(&self, id: i64) -> Result<(), Error> {
-		Self::send(self.request(Method::POST, &format!("me/tg-channels/{id}/test"))?).await?;
 		Ok(())
 	}
 }

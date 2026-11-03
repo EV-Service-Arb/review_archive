@@ -1,20 +1,18 @@
-//! What is a member's own: what their GMBs (the conductor's, mirrored) track, their appeals
-//! and their Telegram channels. Every query here is scoped by the member; the archive under it
+//! What is a member's own: what their GMBs (the conductor's, mirrored) track, and their
+//! appeals. Every query here is scoped by the member; the archive under it
 //! (targets, reviews, captures) stays shared.
 
 use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, Target, TargetId,
-	dto::{
-		Board, BoardCard, GmailDto, GmailOverview, GmbReviews, GmbSummary, LocationSummary, MyGmbs, NewTgChannel, PostDto, ReinstatementDto, ReviewDto, ScanState, TgChannelDto, TrackPatch,
-	},
+	dto::{Board, BoardCard, GmailDto, GmailOverview, GmbReviews, GmbSummary, LocationSummary, MyGmbs, PostDto, ReinstatementDto, ReviewDto, ScanState, TrackPatch},
 	fmt_ts,
 	maps::cost,
 };
 use sqlx::{FromRow, SqliteConnection};
 
-use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow, no_target, webhooks::parse_events};
+use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow, no_target};
 
 #[derive(FromRow)]
 struct LocationRow {
@@ -55,29 +53,6 @@ struct CardRow {
 	review: ReviewRow,
 	requested_at: Option<String>,
 	reinstated_at: Option<String>,
-}
-
-#[derive(FromRow)]
-struct TgChannelRow {
-	id: i64,
-	destination: String,
-	gmail_id: Option<i64>,
-	events: String,
-	created_at: String,
-}
-
-impl TryFrom<TgChannelRow> for TgChannelDto {
-	type Error = eyre::Report;
-
-	fn try_from(r: TgChannelRow) -> eyre::Result<Self> {
-		Ok(Self {
-			events: parse_events(r.id, &r.events)?,
-			id: r.id,
-			destination: r.destination,
-			gmail_id: r.gmail_id,
-			created_at: r.created_at,
-		})
-	}
 }
 
 fn no_gmb(id: i64) -> Rejected {
@@ -389,57 +364,6 @@ impl Store {
 		.fetch_one(&self.pool)
 		.await
 		.wrap_err("checking a capture's owner")
-	}
-
-	/// Adds a Telegram channel; `destination` already parsed by the caller.
-	pub async fn add_tg_channel(&self, member: PersonId, ch: &NewTgChannel, now: Timestamp) -> eyre::Result<TgChannelDto> {
-		if let Some(g) = ch.gmail_id {
-			let known: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-				"SELECT EXISTS (SELECT 1 FROM gmb_mirror WHERE gmail_id = ?2 AND id IN ({MEMBERS_GMBS}))"
-			)))
-			.bind(member.0)
-			.bind(g)
-			.fetch_one(&self.pool)
-			.await
-			.wrap_err("looking up a gmail")?;
-			if !known {
-				return Err(Rejected::not_found(format!("no gmail {g} with a GMB of yours")).into());
-			}
-		}
-		let row: TgChannelRow = sqlx::query_as(
-			"INSERT INTO tg_channels (person_id, gmail_id, destination, events, created_at) VALUES (?, ?, ?, ?, ?)
-			 RETURNING id, destination, gmail_id, events, created_at",
-		)
-		.bind(member.0)
-		.bind(ch.gmail_id)
-		.bind(ch.destination.trim())
-		.bind(serde_json::to_string(&ch.events)?)
-		.bind(fmt_ts(now))
-		.fetch_one(&self.pool)
-		.await
-		.wrap_err("adding a Telegram channel")?;
-		row.try_into()
-	}
-
-	/// A member's Telegram channels.
-	pub async fn tg_channels(&self, member: PersonId) -> eyre::Result<Vec<TgChannelDto>> {
-		let rows: Vec<TgChannelRow> = sqlx::query_as("SELECT id, destination, gmail_id, events, created_at FROM tg_channels WHERE person_id = ? ORDER BY id")
-			.bind(member.0)
-			.fetch_all(&self.pool)
-			.await
-			.wrap_err("listing Telegram channels")?;
-		rows.into_iter().map(TgChannelDto::try_from).collect()
-	}
-
-	/// Removes a channel and what it was still owed. `false` when the member has none by that id.
-	pub async fn delete_tg_channel(&self, member: PersonId, id: i64) -> eyre::Result<bool> {
-		let done = sqlx::query("DELETE FROM tg_channels WHERE id = ? AND person_id = ?")
-			.bind(id)
-			.bind(member.0)
-			.execute(&self.pool)
-			.await
-			.wrap_err("deleting a Telegram channel")?;
-		Ok(done.rows_affected() == 1)
 	}
 
 	/// The member's GMBs' tags for the conductor's page.

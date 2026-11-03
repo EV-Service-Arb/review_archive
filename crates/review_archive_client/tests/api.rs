@@ -12,8 +12,8 @@ use review_archive::{
 	core::{
 		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
 		dto::{
-			CaptureRequest, Event, GmbSnapshot, JobStatus, LocationSummary, Me, MemberDto, MirroredGmb, NewTarget, NewTgChannel, NewTrack, NewWebhook, Setting, Settings, SettingsPatch,
-			TargetPatch, TrackPatch,
+			CaptureRequest, Event, GmbSnapshot, JobStatus, LocationSummary, Me, MemberDto, MirroredGmb, NewTarget, NewTrack, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch,
+			TrackPatch,
 		},
 		tokens::Meter,
 	},
@@ -175,22 +175,16 @@ impl Env {
 		self.caller(&admin())
 	}
 
-	/// Pre-existing rows under `email`: a person nobody signed in as yet, and a Telegram channel of theirs.
-	async fn unclaimed(&self, email: &str, destination: &str) {
+	/// A person from before people had ids, nobody signed in as yet: their id.
+	async fn unclaimed(&self, email: &str) -> i64 {
 		let db = sqlx::SqlitePool::connect(&format!("sqlite://{}", self.dir.path().join("review_archive.db").display()))
 			.await
 			.unwrap();
-		let id: i64 = sqlx::query_scalar("INSERT INTO people (email, name, first_seen) VALUES (?, '', '2026-01-01T00:00:00Z') RETURNING id")
+		sqlx::query_scalar("INSERT INTO people (email, name, first_seen) VALUES (?, '', '2026-01-01T00:00:00Z') RETURNING id")
 			.bind(email)
 			.fetch_one(&db)
 			.await
-			.unwrap();
-		sqlx::query("INSERT INTO tg_channels (person_id, destination, events, created_at) VALUES (?, ?, '[]', '2026-01-01T00:00:00Z')")
-			.bind(id)
-			.bind(destination)
-			.execute(&db)
-			.await
-			.unwrap();
+			.unwrap()
 	}
 
 	/// The conductor says `owner` manages `place` under `gmail`, and holds tokens for its walks: the GMB's id.
@@ -576,10 +570,8 @@ async fn every_route_but_health_and_openapi_wants_an_assertion() {
 		("DELETE", "/me/gmbs/1/reinstatements/1"),
 		("PUT", "/api/conductor/gmbs"),
 		("GET", "/api/conductor/charges"),
-		("GET", "/me/tg-channels"),
-		("POST", "/me/tg-channels"),
-		("DELETE", "/me/tg-channels/1"),
-		("POST", "/me/tg-channels/1/test"),
+		("GET", "/api/conductor/notifications"),
+		("GET", &format!("/api/conductor/captures/{}.png", "0".repeat(64))),
 		("GET", "/dashboards"),
 	];
 	for (method, path) in routes {
@@ -614,8 +606,8 @@ async fn an_assertion_replayed_on_another_request_is_refused() {
 	let me = sign(&e.signer, &alice, "GET", "/me", alive());
 	assert_eq!(send("GET", "/me", &me).await, StatusCode::OK);
 	assert_eq!(send("GET", "/me/overview", &me).await, StatusCode::UNAUTHORIZED);
-	let channels = sign(&e.signer, &alice, "GET", "/me/tg-channels", alive());
-	assert_eq!(send("POST", "/me/tg-channels", &channels).await, StatusCode::UNAUTHORIZED);
+	let settings = sign(&e.signer, &alice, "GET", "/me/settings", alive());
+	assert_eq!(send("DELETE", "/me/settings", &settings).await, StatusCode::UNAUTHORIZED);
 	e.server.abort();
 }
 
@@ -968,14 +960,13 @@ async fn acting_as_a_member_needs_members_act_as() {
 #[tokio::test]
 async fn an_unverified_sign_in_cannot_claim_its_addresss_rows() {
 	let e = env().await;
-	e.unclaimed("carol@x.com", "@carol_chan").await;
+	let carol = e.unclaimed("carol@x.com").await;
 	let unverified = Who {
 		verified: false,
 		..Who::member("carol")
 	};
 	assert_eq!(e.caller(&unverified).me().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-	let channels = e.member("carol").tg_channels().await.unwrap();
-	assert_eq!(channels.iter().map(|c| c.destination.as_str()).collect::<Vec<_>>(), ["@carol_chan"]);
+	assert_eq!(id(&e.member("carol")).await, carol);
 	e.server.abort();
 }
 
@@ -984,7 +975,7 @@ async fn an_unverified_sign_in_cannot_claim_its_addresss_rows() {
 async fn an_address_another_account_holds_cannot_be_claimed() {
 	let e = env().await;
 	e.member("dan").me().await.unwrap();
-	e.unclaimed("dan@x.com", "@dan_chan").await;
+	e.unclaimed("dan@x.com").await;
 	let twin = Who {
 		sub: "dan-twin".into(),
 		..Who::member("dan")
@@ -1042,7 +1033,6 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	assert_eq!(nobody.targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN), "a member, not the operator");
 	for view in [
 		"/",
-		"/telegram",
 		"/gmbs",
 		"/gmbs/1",
 		"/gmbs/1/tracks/2",
@@ -1419,54 +1409,6 @@ async fn a_place_is_scanned_while_anyone_has_it_on() {
 	e.server.abort();
 }
 
-/// A channel's destination has to be one Telegram can take, and one member's channels are
-/// not another's.
-#[tokio::test]
-async fn telegram_channels_are_the_members_own() {
-	let e = env().await;
-	let (alice, bob) = (e.member(ALICE), e.member(BOB));
-	let ch = |destination: &str| NewTgChannel {
-		destination: destination.into(),
-		gmail_id: None,
-		events: vec![Event::ReviewGone],
-	};
-	let added = alice.add_tg_channel(&ch("-1002244305221/7")).await.unwrap();
-	assert_eq!(alice.add_tg_channel(&ch("#nope!")).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST));
-	assert_eq!(
-		alice.add_tg_channel(&NewTgChannel { events: vec![], ..ch("@chan") }).await.unwrap_err().status(),
-		Some(StatusCode::BAD_REQUEST)
-	);
-	assert_eq!(bob.tg_channels().await.unwrap(), vec![]);
-	assert_eq!(bob.delete_tg_channel(added.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(bob.test_tg_channel(added.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(alice.tg_channels().await.unwrap(), vec![added.clone()]);
-	alice.delete_tg_channel(added.id).await.unwrap();
-	assert_eq!(alice.tg_channels().await.unwrap(), vec![]);
-	e.server.abort();
-}
-
-/// A test post is one a minute per person, whatever became of the last.
-#[tokio::test]
-async fn a_second_test_post_within_a_minute_is_a_429() {
-	let e = env().await;
-	let alice = e.member(ALICE);
-	let ch = alice
-		.add_tg_channel(&NewTgChannel {
-			destination: "@chan".into(),
-			gmail_id: None,
-			events: vec![Event::ReviewGone],
-		})
-		.await
-		.unwrap();
-	// no bot is configured here, which the archive also answers 429, so the limit is told by its reason
-	let limited = |r: &Result<(), review_archive_client::Error>| matches!(r, Err(review_archive_client::Error::Api { status: StatusCode::TOO_MANY_REQUESTS, message }) if message == "one test post a minute");
-	let first = alice.test_tg_channel(ch.id).await;
-	assert!(!limited(&first), "{first:?}");
-	let second = alice.test_tg_channel(ch.id).await;
-	assert!(limited(&second), "{second:?}");
-	e.server.abort();
-}
-
 /// A member's interval is every place they pay for; a place two members pay for is scanned as
 /// often as the more eager wants, and by the service's default where one never chose. The
 /// place's own interval is for when nobody pays.
@@ -1522,5 +1464,106 @@ async fn a_members_interval_schedules_every_place_they_pay_for() {
 		Some(StatusCode::BAD_REQUEST),
 		"below schedule.min_interval"
 	);
+	e.server.abort();
+}
+
+/// A GET of the conductor's own, signed as the conductor.
+async fn as_conductor(e: &Env, path_and_query: &str) -> reqwest::Response {
+	let path = path_and_query.split('?').next().unwrap();
+	let token = e.signer.sign(&sa_auth::Assertion {
+		aud: sa_auth::Service::ReviewArchive,
+		principal: sa_auth::Principal::Conductor,
+		method: "GET".into(),
+		path: path.into(),
+		exp: alive(),
+	});
+	reqwest::Client::new()
+		.get(format!("{}{path_and_query}", e.base))
+		.header(sa_auth::HEADER, token)
+		.send()
+		.await
+		.unwrap()
+}
+
+/// A page of the Alerts feed; every note in it valid for the archive's feed.
+async fn notes(e: &Env, after: i64, limit: u32) -> sa_alerts::NotePage {
+	let page: sa_alerts::NotePage = as_conductor(e, &format!("/api/conductor/notifications?after={after}&limit={limit}")).await.json().await.unwrap();
+	for n in &page.notes {
+		n.check(sa_alerts::Origin::ReviewArchive).unwrap();
+	}
+	page
+}
+
+/// The conductor pulls a note per event on a place a live track names, with those tracks'
+/// GMBs. A place's first scan is the archive's start: it tells owners of nothing new, while
+/// hooks still get every event. A removed review's note shows its capture, as PNG, which only
+/// the conductor fetches.
+#[tokio::test]
+async fn the_conductor_pulls_alerts_on_tracked_places() {
+	let e = env().await;
+	let (alice, bob, carol) = (e.member(ALICE), e.member(BOB), e.member("carol"));
+	let a = e.gmb(ALICE, "a@gmail.com", PLACE).await;
+	let b = e.gmb(BOB, "b@gmail.com", PLACE).await;
+	let c = e.gmb("carol", "c@gmail.com", "ChIJelsewhereelsewhere").await;
+	let track = NewTrack::default();
+	let t = alice.track(a, &track).await.unwrap().id;
+	bob.track(b, &track).await.unwrap();
+	let off = TrackPatch {
+		enabled: Some(false),
+		..Default::default()
+	};
+	bob.patch_track(b, t, &off).await.unwrap();
+	let other = carol.track(c, &track).await.unwrap().id;
+	let hook = e
+		.client
+		.add_webhook(&NewWebhook {
+			url: "http://127.0.0.1:9/hook".into(),
+			events: vec![Event::ReviewNew, Event::ReviewGone],
+			secret: "0123456789abcdef".into(),
+		})
+		.await
+		.unwrap();
+
+	record(&e, t, vec![captured("r1"), review("r2")]).await;
+	assert_eq!(notes(&e, 0, 500).await, sa_alerts::NotePage { notes: vec![], next: 0 }, "the first scan is the baseline");
+	record(&e, t, vec![review("r2"), review("r3")]).await;
+	let target = e.archive.target(review_archive::core::TargetId(other)).await.unwrap();
+	e.archive.record(&Fails, &target).await.unwrap();
+
+	let first = notes(&e, 0, 2).await;
+	let rest = notes(&e, first.next, 500).await;
+	let past = notes(&e, rest.next, 500).await;
+	assert_eq!((past.notes, past.next), (vec![], rest.next), "nothing past the last, and the cursor stays");
+	let all: Vec<sa_alerts::Note> = first.notes.into_iter().chain(rest.notes).collect();
+	let summary: Vec<(sa_alerts::Rule, Vec<i64>, bool)> = all.iter().map(|n| (n.rule, n.gmbs.clone(), n.photo.is_some())).collect();
+	assert_eq!(
+		summary,
+		[
+			(sa_alerts::Rule::ReviewNew, vec![a], false),
+			(sa_alerts::Rule::ReviewGone, vec![a], true),
+			(sa_alerts::Rule::ScanFailed, vec![c], false),
+		],
+		"bob's track is off, so his GMB hears nothing"
+	);
+	let gone = &all[1];
+	assert!(gone.text.text.starts_with("Review removed · ") && gone.text.text.contains("author r1"), "{:?}", gone.text);
+	assert_eq!(
+		e.archive.store().unwrap().delivery_counts(hook.id).await.unwrap(),
+		(4, 0, 0),
+		"the hook gets the baseline's new reviews too"
+	);
+
+	let photo = gone.photo.as_deref().unwrap();
+	let png = as_conductor(&e, photo).await;
+	assert_eq!(png.status(), StatusCode::OK);
+	assert_eq!(png.headers()["content-type"], "image/png");
+	assert!(png.bytes().await.unwrap().starts_with(b"\x89PNG\r\n\x1a\n"));
+	for who in [Who::member(ALICE), admin()] {
+		let refused = http_as(&who).get(format!("{}{photo}", e.base)).send().await.unwrap();
+		assert_eq!(refused.status(), StatusCode::UNAUTHORIZED, "{} is no conductor", who.sub);
+	}
+	let unknown = as_conductor(&e, &format!("/api/conductor/captures/{}.png", "0".repeat(64))).await;
+	assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+	assert_eq!(as_conductor(&e, "/api/conductor/notifications?after=0&limit=0").await.status(), StatusCode::BAD_REQUEST);
 	e.server.abort();
 }

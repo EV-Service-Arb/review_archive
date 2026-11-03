@@ -717,7 +717,7 @@ async fn an_untracked_place_is_purged_after_a_week() {
 	.await
 	.unwrap();
 	assert_eq!(
-		archive.purge_untracked("2030-01-01T00:00:00Z".parse().unwrap()).await.unwrap(),
+		archive.purge("2030-01-01T00:00:00Z".parse().unwrap()).await.unwrap(),
 		0,
 		"a target never tracked is the operator's"
 	);
@@ -751,16 +751,16 @@ async fn an_untracked_place_is_purged_after_a_week() {
 	assert!(!e.store.target(e.target.id).await.unwrap().enabled, "off the schedule");
 
 	e.clock.set("2026-09-07T10:00:00Z");
-	assert_eq!(archive.purge_untracked(now()).await.unwrap(), 0);
+	assert_eq!(archive.purge(now()).await.unwrap(), 0);
 	e.store.track(Some(member), gmail, e.target.id, now()).await.unwrap();
 	assert!(e.store.target(e.target.id).await.unwrap().enabled, "back on the schedule, archive and all");
 	assert_eq!(e.by_source_id().await.len(), 1);
 	e.store.apply_snapshot(&gmb(true), now()).await.unwrap();
 
 	e.clock.set("2026-09-14T09:59:59Z");
-	assert_eq!(archive.purge_untracked(now()).await.unwrap(), 0, "a week from the last track, not the first");
+	assert_eq!(archive.purge(now()).await.unwrap(), 0, "a week from the last track, not the first");
 	e.clock.set("2026-09-14T10:00:00Z");
-	assert_eq!(archive.purge_untracked(now()).await.unwrap(), 1);
+	assert_eq!(archive.purge(now()).await.unwrap(), 1);
 	archive.close().await;
 	assert!(!blob.exists());
 	assert!(e.by_source_id().await.is_empty());

@@ -174,9 +174,6 @@ pub struct WebhookConfig {
 	/// same cluster). Empty: any host, as long as every address it has is public — never
 	/// loopback, private, link-local or the like.
 	pub allowed_hosts: Vec<String>,
-	/// The Telegram Bot API members' channels are posted through.
-	#[default("https://api.telegram.org/".to_owned())]
-	pub telegram_api: String,
 	/// The wait after a failed try; doubles per failure in a row.
 	#[default(Timeframe::from("30s"))]
 	pub first_retry: Timeframe,
@@ -198,9 +195,6 @@ pub struct WebhookConfig {
 	/// For a hook to acknowledge.
 	#[default(Timeframe::from("10s"))]
 	pub timeout: Timeframe,
-	/// For the Bot API to acknowledge; a photo upload takes a while.
-	#[default(Timeframe::from("30s"))]
-	pub telegram_timeout: Timeframe,
 }
 
 /// API keys and tokens. Each is needed only by what uses it, and its absence fails only
@@ -214,8 +208,6 @@ pub struct Secrets {
 	/// `GBP_REFRESH_TOKEN`).
 	#[cfg(feature = "maps")]
 	pub gbp: Option<crate::sources::gbp::Credentials>,
-	/// The bot members' Telegram channels are posted by (`TELEGRAM_BOT_TOKEN`).
-	pub telegram_bot_token: Option<String>,
 }
 
 impl std::fmt::Debug for Secrets {
@@ -224,7 +216,6 @@ impl std::fmt::Debug for Secrets {
 		d.field("google_maps_key", &self.google_maps_key.as_ref().map(|_| "***"));
 		#[cfg(feature = "maps")]
 		d.field("gbp", &self.gbp.as_ref().map(|_| "***"));
-		d.field("telegram_bot_token", &self.telegram_bot_token.as_ref().map(|_| "***"));
 		d.finish()
 	}
 }

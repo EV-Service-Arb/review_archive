@@ -39,6 +39,7 @@ miette = "7"
 playwright-rs = "=0.19.0" # the version browser_manipulation pins: its launch errors are this crate's `Error`
 rand = "0.10"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }
+sa_alerts = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_auth = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_places = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_ui = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
@@ -51,7 +52,6 @@ sha2 = "0.11"
 smart-default = "0.7"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
 strum = { version = "0.28", features = ["derive"] }
-tg_types = "0.1"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
@@ -63,6 +63,7 @@ tracing-error = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 utoipa = "5"
+uuid = { version = "1", features = ["v4"] }
 v_utils = { version = "2.23", default-features = false, features = ["macros"] }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 

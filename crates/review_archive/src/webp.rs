@@ -31,8 +31,8 @@ pub async fn provenance(c: &Capture, title: &str, source_review_id: &str) -> eyr
 	encode(c.png.clone(), image::ImageFormat::Png, exif).await
 }
 
-/// For Telegram's `sendPhoto`, documented for JPEG/PNG.
-pub fn to_png(webp: &[u8]) -> eyre::Result<Vec<u8>> {
+/// See [`crate::Archive::capture_png`].
+pub(crate) fn to_png(webp: &[u8]) -> eyre::Result<Vec<u8>> {
 	let img = image::load_from_memory_with_format(webp, image::ImageFormat::WebP)?;
 	let mut out = std::io::Cursor::new(Vec::new());
 	img.write_to(&mut out, image::ImageFormat::Png)?;

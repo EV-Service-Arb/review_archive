@@ -1,18 +1,15 @@
-//! What a member does: what their GMBs track, appeals, Telegram channels. The member is who
+//! What a member does: what their GMBs track, appeals, settings. The member is who
 //! the caller authenticated as; everything is scoped to them in the store. GMBs and balances
-//! are the conductor's: it pushes them here, and follows what walks cost.
+//! are the conductor's: it pushes them here, and follows what walks cost and the Alerts feed.
 
 use jiff::Timestamp;
 use review_archive_core::{
 	GbpLocation, PersonId, Rejected, ReviewId, TargetId, check_lang,
-	dto::{
-		Board, Charges, GmailOverview, GmbSnapshot, JobKind, MAX_CHARGES, MemberDto, MyGmbs, NewTgChannel, NewTrack, ReinstatementDto, Settings, SettingsPatch, TargetDto, TargetPatch,
-		TgChannelDto, TrackPatch,
-	},
+	dto::{Board, Charges, GmailOverview, GmbSnapshot, JobKind, MAX_PAGE, MemberDto, MyGmbs, NewTrack, ReinstatementDto, Settings, SettingsPatch, TargetDto, TargetPatch, TrackPatch},
 	maps::cost,
 	parse_interval,
 };
-use tg_types::TelegramDestination;
+use sa_alerts::NotePage;
 
 use super::Archive;
 use crate::store::people::{Claim, Seen};
@@ -164,44 +161,6 @@ impl Archive {
 		self.capture_webp(sha256).await
 	}
 
-	/// Adds a Telegram channel: a destination the archive's bot can post to, and at least
-	/// one event.
-	pub async fn add_tg_channel(&self, member: PersonId, ch: &NewTgChannel) -> eyre::Result<TgChannelDto> {
-		ch.destination
-			.parse::<TelegramDestination>()
-			.map_err(|e| Rejected::invalid(format!("destination {:?}: {e} (expected @channel, a -100… chat id, or <group>/<topic>)", ch.destination)))?;
-		if ch.events.is_empty() {
-			return Err(Rejected::invalid("subscribe the channel to at least one event").into());
-		}
-		self.store()?.add_tg_channel(member, ch, Timestamp::now()).await
-	}
-
-	/// The member's Telegram channels.
-	pub async fn tg_channels(&self, member: PersonId) -> eyre::Result<Vec<TgChannelDto>> {
-		self.store()?.tg_channels(member).await
-	}
-
-	/// Removes a channel and what it was still owed.
-	pub async fn delete_tg_channel(&self, member: PersonId, id: i64) -> eyre::Result<()> {
-		if !self.store()?.delete_tg_channel(member, id).await? {
-			return Err(Rejected::not_found(format!("no Telegram channel {id}")).into());
-		}
-		Ok(())
-	}
-
-	/// Posts a line to the channel now; what Telegram refused comes back as [`Rejected`].
-	pub async fn test_tg_channel(&self, member: PersonId, id: i64) -> eyre::Result<()> {
-		let ch = self
-			.tg_channels(member)
-			.await?
-			.into_iter()
-			.find(|c| c.id == id)
-			.ok_or_else(|| Rejected::not_found(format!("no Telegram channel {id}")))?;
-		let events: Vec<&str> = ch.events.iter().map(AsRef::as_ref).collect();
-		let text = format!("review_archive: this chat gets {}", events.join(", "));
-		Ok(self.inner.webhooks.test_telegram(&ch.destination, text).await?)
-	}
-
 	/// What the member chose, beside the defaults.
 	pub async fn settings(&self, member: PersonId) -> eyre::Result<Settings> {
 		self.store()?.settings(member).await
@@ -230,11 +189,23 @@ impl Archive {
 		self.store()?.apply_snapshot(snap, Timestamp::now()).await
 	}
 
-	/// The charge feed past `after`, `limit` (1 to [`MAX_CHARGES`]) at most.
+	/// The charge feed past `after`, `limit` at most.
 	pub async fn charges(&self, after: i64, limit: u32) -> eyre::Result<Charges> {
-		if !(1..=MAX_CHARGES).contains(&limit) {
-			return Err(Rejected::invalid(format!("limit is 1 to {MAX_CHARGES}, not {limit}")).into());
-		}
+		page(limit)?;
 		self.store()?.charges(after, limit).await
+	}
+
+	/// The Alerts feed past `after`, `limit` at most; its notes kept a day.
+	pub async fn notifications(&self, after: i64, limit: u32) -> eyre::Result<NotePage> {
+		page(limit)?;
+		self.store()?.notes(after, limit).await
+	}
+}
+
+/// A feed's page holds 1 to [`MAX_PAGE`].
+fn page(limit: u32) -> Result<(), Rejected> {
+	match (1..=MAX_PAGE).contains(&limit) {
+		true => Ok(()),
+		false => Err(Rejected::invalid(format!("limit is 1 to {MAX_PAGE}, not {limit}"))),
 	}
 }

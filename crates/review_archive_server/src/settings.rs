@@ -21,9 +21,6 @@ ev_lib::settings! {
 		gbp_client_secret: Option<String>,
 		#[secret]
 		gbp_refresh_token: Option<String>,
-		/// The bot members' Telegram channels are posted by.
-		#[secret]
-		telegram_bot_token: Option<String>,
 		/// Unset: errors are logged, not reported.
 		#[secret]
 		sentry_dsn: Option<String>,
@@ -50,7 +47,6 @@ impl Settings {
 		Secrets {
 			google_maps_key: self.google_maps_key.clone(),
 			gbp,
-			telegram_bot_token: self.telegram_bot_token.clone(),
 		}
 	}
 
@@ -106,7 +102,6 @@ mod tests {
 				"GBP_CLIENT_ID",
 				"GBP_CLIENT_SECRET",
 				"GBP_REFRESH_TOKEN",
-				"TELEGRAM_BOT_TOKEN",
 				"SENTRY_DSN",
 				"ALERT_WEBHOOK_ERROR",
 				"ALERT_WEBHOOK_WARN",
@@ -132,7 +127,7 @@ mod tests {
 		let err = from(&[("APP_ENV", "production")]).unwrap_err();
 		assert!(err.to_string().contains("PANEL_ASSERTION_KEYS"), "{err}");
 		// secrets never print
-		let s = from(&[("TELEGRAM_BOT_TOKEN", "0123456789abcdef-xyzzy")]).unwrap();
+		let s = from(&[("GOOGLE_MAPS_KEY", "0123456789abcdef-xyzzy")]).unwrap();
 		assert!(!format!("{s:?}").contains("xyzzy"));
 	}
 }
