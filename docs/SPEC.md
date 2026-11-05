@@ -89,7 +89,7 @@ Out — do not build, even as an option:
 
 `target add` resolves through `sa_places` (the conductor's crate, which its GMBs use too): a place id, a Google Maps URL, or a share link (`maps.app.goo.gl`, `share.google`, expanded to the Maps or Search URL behind it; a Search URL's `q` is the name). From a URL, take the id it carries
 (`!1s0x…:0x…` in `data=` is the place id, re-encoded). A cid alone (`?cid=`, a Search viewer's `svid`) makes an id Places details answers with the place's own; otherwise search Places API (New)
-`places:searchText` (`GOOGLE_MAPS_KEY`) for the URL's name. A place is never guessed: only
+`places:searchText` (`GOOGLE_MAPS_KEYS`) for the URL's name. A place is never guessed: only
 hits bearing that exact name count, and when several do, the operator adds one by its id.
 
 ## Storage
@@ -99,7 +99,7 @@ blob dir. Everything under one data dir (`/data` in the container).
 
 - `targets(id, label, name, address, kind[maps|gbp], place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at, cut_after)`
   — `lang` is a language tag (`fr`, `pt-BR`); anything else is refused.
-  — `label` is a person's, `name` and `address` the place's (Places when added: its search, or its details by id with a key; then every walk);
+  — `label` is a person's, `name` and `address` the place's (Places when added, with a key; then every walk);
   a target is shown as `label`, else `name`, else `place_id`.
 - `reviews(id, target_id, source_review_id, author, author_url, rating, text, reply, published_raw, published_est, first_seen, last_seen, gone_at, content_hash, capture_pending)`
   — unique `(target_id, source_review_id)`.
@@ -118,6 +118,8 @@ blob dir. Everything under one data dir (`/data` in the container).
   failed ("interrupted") on the next start of `serve` — a hand-run `scan` still going at
   that moment included; its run is marked ended again, with its real outcome, when it
   finishes.
+- `<data>/google_cache/`: every Places answer, one file per request (`sa_places`): details kept
+  for good, a search a day; re-linking asks afresh.
 - Blobs: `<data>/blobs/<sha256[0..2]>/<sha256>.webp`, lossy (quality 80). Exif carries the provenance:
   capture time (`DateTimeOriginal`, `OffsetTimeOriginal` `+00:00`), page URL (`DocumentName`),
   target label (`ImageDescription`), source review id (`ImageUniqueID`), scanner version

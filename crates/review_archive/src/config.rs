@@ -201,9 +201,9 @@ pub struct WebhookConfig {
 /// that, with an error naming it.
 #[derive(Clone, Default)]
 pub struct Secrets {
-	/// Places API key, for resolving a Maps URL that carries no place id
-	/// (`GOOGLE_MAPS_KEY`).
-	pub google_maps_key: Option<String>,
+	/// Places API keys in rotation order, free ones first (`GOOGLE_MAPS_KEYS`): naming a place,
+	/// and resolving a Maps URL that carries no place id.
+	pub google_maps_keys: Vec<String>,
 	/// OAuth credentials for `gbp` targets (`GBP_CLIENT_ID`, `GBP_CLIENT_SECRET`,
 	/// `GBP_REFRESH_TOKEN`).
 	#[cfg(feature = "maps")]
@@ -213,7 +213,7 @@ pub struct Secrets {
 impl std::fmt::Debug for Secrets {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let mut d = f.debug_struct("Secrets");
-		d.field("google_maps_key", &self.google_maps_key.as_ref().map(|_| "***"));
+		d.field("google_maps_keys", &self.google_maps_keys.iter().map(|_| "***").collect::<Vec<_>>());
 		#[cfg(feature = "maps")]
 		d.field("gbp", &self.gbp.as_ref().map(|_| "***"));
 		d.finish()

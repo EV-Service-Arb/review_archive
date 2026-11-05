@@ -63,7 +63,11 @@ impl Archive {
 					},
 				)
 				.await?,
-			None => self.insert_target(place_id, None, req.label.clone(), Some(lang), None, gbp, true).await?,
+			None => {
+				// the mirrored id stays the target's: relinking is how it moves to a newer one
+				let (_, place) = self.stored()?.google.resolve(&place_id).await.map_err(crate::failure::places_error)?;
+				self.insert_target(place_id, place.as_ref(), req.label.clone(), Some(lang), None, gbp, true).await?
+			}
 		};
 		store.track(Some(member), gmb, target.id, Timestamp::now()).await?;
 		Ok(target.into())
@@ -89,16 +93,11 @@ impl Archive {
 	pub async fn relink(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<TargetDto> {
 		let store = self.store()?;
 		store.check_track(member, gmb, target).await?;
-		let key = self
-			.inner
-			.secrets
-			.google_maps_key
-			.as_deref()
-			.ok_or_else(|| Rejected::invalid("re-linking a place needs GOOGLE_MAPS_KEY"))?;
+		if self.inner.secrets.google_maps_keys.is_empty() {
+			return Err(Rejected::invalid("re-linking a place needs GOOGLE_MAPS_KEYS").into());
+		}
 		let t = store.target(target).await?;
-		let place = sa_places::details(&self.inner.http, sa_places::PLACES, key, &t.place_id)
-			.await
-			.map_err(crate::failure::places_error)?;
+		let place = self.stored()?.google.details(&t.place_id, sa_places::Ask::Afresh).await.map_err(crate::failure::places_error)?;
 		if place.place_id != t.place_id
 			&& let Some(other) = store.find_target(&place.place_id, &t.lang, t.gbp.as_ref()).await?
 		{

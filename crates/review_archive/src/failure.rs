@@ -254,7 +254,7 @@ pub enum PlacesError {
 	/// It refused a request.
 	#[leaf]
 	#[error("Places API, {asked}: {status}: {body}")]
-	#[diagnostic(code(review_archive::places::api), help("check GOOGLE_MAPS_KEY, and that the Places API (New) is enabled for its project"))]
+	#[diagnostic(code(review_archive::places::api), help("check GOOGLE_MAPS_KEYS, and that the Places API (New) is enabled for their projects"))]
 	Api {
 		/// What was asked of it.
 		asked: String,
@@ -263,10 +263,33 @@ pub enum PlacesError {
 		/// What it said.
 		body: String,
 	},
-	/// The request itself failed, or its answer did not decode.
+	/// Every key is sitting out.
+	#[leaf]
+	#[error("every Places key is spent: {}", .spent.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
+	#[diagnostic(code(review_archive::places::exhausted), help("wait for the soonest reset, or add a key to GOOGLE_MAPS_KEYS"))]
+	Exhausted {
+		/// Why each key sits out.
+		spent: Vec<sa_places::Spent>,
+	},
+	/// The request itself failed.
 	#[foreign]
 	#[diagnostic(code(review_archive::places::http))]
 	Http(reqwest::Error),
+	/// An answer, paid or cached, is not the shape asked for.
+	#[foreign]
+	#[error("decoding a Places answer")]
+	#[diagnostic(code(review_archive::places::decode))]
+	Decode(serde_json::Error),
+	/// The on-disk cache of Places answers.
+	#[leaf]
+	#[error("the Places cache, at {}", .path.display())]
+	#[diagnostic(code(review_archive::places::cache), help("the data dir's google_cache must be readable and writable"))]
+	Cache {
+		/// The file or directory.
+		path: std::path::PathBuf,
+		#[source]
+		source: std::io::Error,
+	},
 }
 
 /// A place resolution's failure: the caller's mistake is [`Rejected::Invalid`], the rest [`PlacesError`].
@@ -276,6 +299,9 @@ pub(crate) fn places_error(e: sa_places::Error) -> eyre::Report {
 		sa_places::Error::Invalid(why) => Rejected::invalid(why).into(),
 		sa_places::Error::Api { asked, status, body } => PlacesError::new_api(asked, status, body).into(),
 		sa_places::Error::Http(e) => PlacesError::from(e).into(),
+		sa_places::Error::Exhausted(spent) => PlacesError::new_exhausted(spent).into(),
+		sa_places::Error::Decode(e) => PlacesError::from(e).into(),
+		sa_places::Error::Cache(path, source) => PlacesError::new_cache(path, source).into(),
 	}
 }
 
