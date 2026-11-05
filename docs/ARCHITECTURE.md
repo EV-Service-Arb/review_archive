@@ -224,7 +224,7 @@ with its own platform implements `sources::ReviewSource` and records through
   still get it. The conductor pulls `GET /api/conductor/notifications` as it pulls charges;
   notes are kept a day (`serve`'s idle purge). The archive holds no bot, chat or Telegram secret.
 - **Secrets come from the environment only**, through `ev_lib::settings` in the server
-  (`PANEL_ASSERTION_KEYS`, `GOOGLE_MAPS_KEY`, `GBP_*`, `SENTRY_DSN`,
+  (`PANEL_ASSERTION_KEYS`, `GOOGLE_MAPS_KEYS`, `GBP_*`, `SENTRY_DSN`,
   `ALERT_WEBHOOK_*`); the
   library takes them as `config::Secrets` and never reads the environment. Each is required
   only by what uses it and a missing one fails that with its name — except

@@ -1,5 +1,5 @@
 # Prod config, evaluated to TOML at build time and baked into the image
-# (`flake.nix: prodConfig`). Secret-free — PANEL_ASSERTION_KEYS, GOOGLE_MAPS_KEY,
+# (`flake.nix: prodConfig`). Secret-free — PANEL_ASSERTION_KEYS, GOOGLE_MAPS_KEYS,
 # the GBP_* OAuth triple, SENTRY_DSN, ALERT_WEBHOOK_{ERROR,WARN} and APP_ENV arrive
 # from the container environment (`review_archive --print-required-vars` lists the required ones).
 #

@@ -1283,7 +1283,7 @@ async fn members_share_places_but_see_only_their_own() {
 	assert_eq!(
 		alice.relink(a, t.id).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
-		"no GOOGLE_MAPS_KEY to ask Places with"
+		"no GOOGLE_MAPS_KEYS to ask Places with"
 	);
 	assert_eq!(bob.relink(a, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 

@@ -12,9 +12,10 @@ ev_lib::settings! {
 		/// assertion names the caller ([`sa_auth`]). `serve` refuses to start without them.
 		#[required_in("production")]
 		panel_assertion_keys: Option<String>,
-		/// Places API key: resolving a Maps URL that carries no place id.
+		/// Places API keys, comma-separated in rotation order, free ones first: naming a place,
+		/// and resolving a Maps URL that carries no place id.
 		#[secret]
-		google_maps_key: Option<String>,
+		google_maps_keys: Option<String>,
 		/// Business Profile OAuth client, for `gbp` targets. All three or none.
 		gbp_client_id: Option<String>,
 		#[secret]
@@ -45,7 +46,15 @@ impl Settings {
 			_ => None,
 		};
 		Secrets {
-			google_maps_key: self.google_maps_key.clone(),
+			google_maps_keys: self
+				.google_maps_keys
+				.as_deref()
+				.unwrap_or_default()
+				.split(',')
+				.map(str::trim)
+				.filter(|k| !k.is_empty())
+				.map(str::to_owned)
+				.collect(),
 			gbp,
 		}
 	}
@@ -98,7 +107,7 @@ mod tests {
 			Settings::var_names(),
 			[
 				"PANEL_ASSERTION_KEYS",
-				"GOOGLE_MAPS_KEY",
+				"GOOGLE_MAPS_KEYS",
 				"GBP_CLIENT_ID",
 				"GBP_CLIENT_SECRET",
 				"GBP_REFRESH_TOKEN",
@@ -127,7 +136,8 @@ mod tests {
 		let err = from(&[("APP_ENV", "production")]).unwrap_err();
 		assert!(err.to_string().contains("PANEL_ASSERTION_KEYS"), "{err}");
 		// secrets never print
-		let s = from(&[("GOOGLE_MAPS_KEY", "0123456789abcdef-xyzzy")]).unwrap();
+		let s = from(&[("GOOGLE_MAPS_KEYS", "0123456789abcdef-xyzzy, second-plugh")]).unwrap();
 		assert!(!format!("{s:?}").contains("xyzzy"));
+		assert_eq!(s.secrets().google_maps_keys, ["0123456789abcdef-xyzzy", "second-plugh"]);
 	}
 }

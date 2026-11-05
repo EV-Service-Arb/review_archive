@@ -105,6 +105,7 @@ struct Inner {
 struct Stored {
 	store: Store,
 	blobs: BlobStore,
+	google: sa_places::Google,
 }
 
 impl std::fmt::Debug for Archive {
@@ -165,7 +166,7 @@ pub struct Captured {
 pub struct Added {
 	/// The target.
 	pub target: Target,
-	/// Set when the input was a URL without a place id.
+	/// Set whenever there is a Places key.
 	pub resolved: Option<sa_places::Place>,
 }
 
@@ -233,6 +234,7 @@ impl Archive {
 		let store = match (config.db_path(), config.blob_dir()) {
 			(Some(db), Some(blobs)) => {
 				let stored = Stored {
+					google: sa_places::Google::new(sa_places::Keys::new(config.secrets.google_maps_keys.clone()), db.with_file_name("google_cache"))?,
 					store: Store::open(&db, config.defaults.interval).await?,
 					blobs: BlobStore::new(blobs),
 				};
@@ -334,7 +336,7 @@ impl Archive {
 	}
 
 	/// Watches a place: a place id, or a Google Maps URL (resolved with the Places API when
-	/// it has no id, which needs `google_maps_key`). A `gbp` location makes it a `gbp`
+	/// it has no id, which needs `google_maps_keys`). A `gbp` location makes it a `gbp`
 	/// target.
 	pub async fn add_target(&self, req: &NewTarget) -> eyre::Result<Added> {
 		let place = req
@@ -344,16 +346,14 @@ impl Archive {
 			.ok_or_else(|| Rejected::invalid("name the place: `place` or `maps_url`"))?;
 		let interval = req.interval.as_deref().map(parse_interval).transpose()?;
 		let gbp = req.gbp.as_deref().map(str::parse::<GbpLocation>).transpose()?;
-		let (place_id, resolved) = sa_places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), place)
-			.await
-			.map_err(crate::failure::places_error)?;
+		let (place_id, resolved) = self.stored()?.google.resolve(place).await.map_err(crate::failure::places_error)?;
 		Ok(Added {
 			target: self.insert_target(place_id, resolved.as_ref(), req.label.clone(), req.lang.clone(), interval, gbp, true).await?,
 			resolved,
 		})
 	}
 
-	/// `resolved`: when a Places search already found the place; else, with a key, Places is asked by id.
+	/// `resolved`: the place as Places knows it, for its name and address.
 	#[expect(clippy::too_many_arguments)]
 	async fn insert_target(
 		&self,
@@ -370,16 +370,6 @@ impl Archive {
 		self.check_interval(interval)?;
 		let lang = lang.unwrap_or_else(|| self.inner.defaults.lang.clone());
 		check_lang(&lang)?;
-		let looked_up;
-		let resolved = match (resolved, self.inner.secrets.google_maps_key.as_deref()) {
-			(None, Some(key)) => {
-				looked_up = sa_places::details(&self.inner.http, sa_places::PLACES, key, &place_id)
-					.await
-					.map_err(crate::failure::places_error)?;
-				Some(&looked_up)
-			}
-			(resolved, _) => resolved,
-		};
 		let target = InsertTarget {
 			label,
 			name: resolved.and_then(|r| r.name.clone()),
@@ -753,9 +743,7 @@ impl Archive {
 		}
 		let lang = req.lang.clone().unwrap_or_else(|| self.inner.defaults.lang.clone());
 		check_lang(&lang)?;
-		let (place_id, resolved) = sa_places::resolve(&self.inner.http, self.inner.secrets.google_maps_key.as_deref(), place)
-			.await
-			.map_err(crate::failure::places_error)?;
+		let (place_id, resolved) = self.stored()?.google.resolve(place).await.map_err(crate::failure::places_error)?;
 		let target = match store.find_target(&place_id, &lang, None).await? {
 			Some(t) => t,
 			None => self.insert_target(place_id, resolved.as_ref(), None, Some(lang), None, None, false).await?,
