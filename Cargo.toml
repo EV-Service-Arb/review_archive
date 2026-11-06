@@ -78,6 +78,7 @@ len_zero = "allow"
 result_large_err = "allow" # typed errors carry their backtrace and span trace; each reports a failed network round-trip
 
 [workspace.lints.rust]
+stable_features = "allow"
 unused_features = "allow"
 
 [workspace.lints.cargo]
