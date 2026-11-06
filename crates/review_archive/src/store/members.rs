@@ -368,10 +368,19 @@ impl Store {
 
 	/// The member's GMBs' tags for the conductor's page.
 	pub async fn my_gmbs(&self, member: PersonId) -> eyre::Result<MyGmbs> {
-		let rows: Vec<(i64, bool, Option<f64>, Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+		let rows: Vec<(i64, bool, Option<f64>, Option<i64>, u32, u32, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
 			"SELECT m.id,
 			        m.enabled AND EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled),
-			        w.rating, w.listed
+			        w.rating, w.listed,
+			        (SELECT COUNT(*) FROM tracks k JOIN reviews r ON r.target_id = k.target_id
+			          WHERE k.gmb_id = m.id AND k.enabled AND r.gone_at IS NOT NULL AND r.rating = 5
+			            AND NOT EXISTS (SELECT 1 FROM reinstatements x WHERE x.review_id = r.id AND x.gmb_id = k.gmb_id
+			              AND x.withdrawn_at IS NULL AND x.reinstated_at IS NULL)),
+			        (SELECT COUNT(*) FROM tracks k JOIN reviews r ON r.target_id = k.target_id JOIN reinstatements x ON x.review_id = r.id
+			          WHERE k.gmb_id = m.id AND k.enabled AND r.gone_at IS NOT NULL AND x.gmb_id = k.gmb_id
+			            AND x.withdrawn_at IS NULL AND x.reinstated_at IS NULL),
+			        EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled
+			          AND (SELECT status FROM runs WHERE target_id = k.target_id AND ad_hoc = 0 AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) = 'failed')
 			 FROM gmb_mirror m
 			 LEFT JOIN targets w ON w.id = (
 			     SELECT k.target_id FROM tracks k JOIN runs r ON r.target_id = k.target_id
@@ -392,7 +401,22 @@ impl Store {
 		.await
 		.wrap_err("counting a member's tracked places")?;
 		Ok(MyGmbs {
-			gmbs: rows.into_iter().map(|(id, tracked, rating, reviews)| (id, GmbReviews { tracked, rating, reviews })).collect(),
+			gmbs: rows
+				.into_iter()
+				.map(|(id, tracked, rating, reviews, suspended, reinstating, failing)| {
+					(
+						id,
+						GmbReviews {
+							tracked,
+							rating,
+							reviews,
+							suspended,
+							reinstating,
+							failing,
+						},
+					)
+				})
+				.collect(),
 			places_tracked,
 		})
 	}

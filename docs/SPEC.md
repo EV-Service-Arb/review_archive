@@ -276,8 +276,9 @@ The archive keeps a mirror of them and annotates them; it adds and removes none.
   `gone_at`), Removed (any other gone, no open appeal, by `gone_at`), Reinstating (gone, open
   appeal, by `requested_at`). The board narrows by 5-star and responded, each required or ruled
   out; a card's `non-5-star` and `responded` tags open it with that one ruled out.
-- `GET /me/gmbs` answers per GMB not removed `{tracked, rating, reviews}` (`tracked`: a track of it is live) (the place's figures
-  from its most recently walked track) and `places_tracked`: what the conductor's `/gmbs` page
+- `GET /me/gmbs` answers per GMB not removed `{tracked, rating, reviews, suspended, reinstating, failing}` (`tracked`: a track of it is live) (the place's figures
+  from its most recently walked track; `suspended` and `reinstating` the overview's counts summed over its enabled
+  tracks; `failing`: an enabled track's latest finished non-ad-hoc run is `failed`, a `partial` one is not) and `places_tracked`: what the conductor's `/gmbs` page
   tags a GMB with.
 
 ### Tokens

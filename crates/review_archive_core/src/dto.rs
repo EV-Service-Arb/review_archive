@@ -870,6 +870,12 @@ pub struct GmbReviews {
 	pub rating: Option<f64>,
 	/// How many reviews Google lists for it, likewise.
 	pub reviews: Option<i64>,
+	/// 5-star reviews gone from the listing with no open appeal, over its enabled tracks: what [`LocationSummary::suspended`] counts.
+	pub suspended: u32,
+	/// Gone reviews with an open appeal, over its enabled tracks.
+	pub reinstating: u32,
+	/// An enabled track's latest finished non-ad-hoc run `failed` (a `partial` run still made a snapshot).
+	pub failing: bool,
 }
 
 /// A GMB as the conductor holds it (`PUT /api/conductor/gmbs`).

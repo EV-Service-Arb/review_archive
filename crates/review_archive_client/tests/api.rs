@@ -1357,6 +1357,43 @@ async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 	e.server.abort();
 }
 
+/// The conductor's map tags a GMB with what needs the operator: its suspended reviews, its
+/// open appeals, and a failing latest walk; a `partial` walk still made a snapshot.
+#[tokio::test]
+async fn my_gmbs_tags_what_needs_the_operator() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let (troubled, quiet) = (e.gmb(ALICE, "a@gmail.com", PLACE).await, e.gmb(ALICE, "b@gmail.com", "ChIJN1t72QZ44kcRFxvqmsHcKbE").await);
+	let t = alice.track(troubled, &NewTrack::default()).await.unwrap().id;
+	let q = alice.track(quiet, &NewTrack::default()).await.unwrap().id;
+	record(&e, t, vec![review("kept"), review("suspended"), review("appealed")]).await;
+	record(&e, t, vec![review("kept")]).await;
+	record(&e, q, vec![review("kept")]).await;
+	let appealed = alice
+		.board(troubled, t)
+		.await
+		.unwrap()
+		.suspended
+		.iter()
+		.find(|c| c.review.source_review_id == "appealed")
+		.unwrap()
+		.review
+		.id;
+	alice.reinstate(troubled, appealed).await.unwrap();
+
+	let tag = async |g| alice.my_gmbs().await.unwrap().gmbs[&g].clone();
+	let ok = tag(troubled).await;
+	assert_eq!((ok.suspended, ok.reinstating, ok.failing), (1, 1, false));
+
+	let target = e.archive.target(review_archive::core::TargetId(t)).await.unwrap();
+	e.archive.record(&Fails, &target).await.unwrap();
+	let failed = tag(troubled).await;
+	assert_eq!((failed.suspended, failed.reinstating, failed.failing), (1, 1, true));
+	let nothing = tag(quiet).await;
+	assert_eq!((nothing.suspended, nothing.reinstating, nothing.failing), (0, 0, false));
+	e.server.abort();
+}
+
 /// A place is scanned while any track of it is on; turning tracks off is the member's own and
 /// leaves the shared target as it was.
 #[tokio::test]
