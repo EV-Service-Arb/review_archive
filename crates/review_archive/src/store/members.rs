@@ -368,7 +368,8 @@ impl Store {
 
 	/// The member's GMBs' tags for the conductor's page.
 	pub async fn my_gmbs(&self, member: PersonId) -> eyre::Result<MyGmbs> {
-		let rows: Vec<(i64, bool, Option<f64>, Option<i64>, u32, u32, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+		type Row = (i64, bool, Option<f64>, Option<i64>, u32, u32, bool);
+		let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
 			"SELECT m.id,
 			        m.enabled AND EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled),
 			        w.rating, w.listed,
