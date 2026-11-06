@@ -234,7 +234,7 @@ impl Archive {
 		let store = match (config.db_path(), config.blob_dir()) {
 			(Some(db), Some(blobs)) => {
 				let stored = Stored {
-					google: sa_places::Google::new(sa_places::Keys::new(config.secrets.google_maps_keys.clone()), db.with_file_name("google_cache"))?,
+					google: sa_places::Google::try_new(sa_places::Keys::new(config.secrets.google_maps_keys.clone()), db.with_file_name("google_cache"))?,
 					store: Store::open(&db, config.defaults.interval).await?,
 					blobs: BlobStore::new(blobs),
 				};
