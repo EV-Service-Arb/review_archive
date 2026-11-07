@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use eyre::WrapErr;
 use jiff::Timestamp;
 use review_archive_core::{
-	Rejected, TargetId, TargetKind, check_lang,
-	dto::{ChargeDto, Charges, GbpState, GmbSnapshot},
+	Rejected, TargetId, TargetKind,
+	dto::{ChargeDto, Charges, Country, OnGoogle, Snapshot},
 	fmt_ts,
 };
 use sqlx::SqliteConnection;
@@ -29,16 +29,12 @@ impl Store {
 	/// Takes the snapshot in one transaction, or nothing of it: [`Rejected::Conflict`] when it
 	/// contradicts the mirror. A removed GMB loses its track, as an untrack does; one not removed
 	/// and without a track gets one, on its place in its language.
-	pub async fn apply_snapshot(&self, snap: &GmbSnapshot, now: Timestamp) -> eyre::Result<()> {
+	pub async fn apply_snapshot(&self, snap: &Snapshot, now: Timestamp) -> eyre::Result<()> {
 		if let Some((sub, b)) = snap.balances.iter().find(|(_, b)| **b < 0) {
 			return Err(Rejected::invalid(format!("{sub}'s balance is {b}; balances are 0 or more")).into());
 		}
-		for g in &snap.gmbs {
-			match &g.lang {
-				Some(lang) => check_lang(lang)?,
-				None if g.removed => {}
-				None => return Err(Rejected::invalid(format!("GMB {} is not removed and has no lang", g.id)).into()),
-			}
+		if let Some(g) = snap.gmbs.iter().find(|g| !g.removed && g.country.is_none()) {
+			return Err(Rejected::invalid(format!("GMB {} is not removed and has no country", g.id)).into());
 		}
 		let mut tx = self.write().await?;
 		let held: Vec<(i64, String)> = sqlx::query_as("SELECT id, place_id FROM gmb_mirror").fetch_all(&mut *tx).await.wrap_err("loading the mirror")?;
@@ -75,11 +71,11 @@ impl Store {
 			.bind(g.id)
 			.bind(g.gmail_id)
 			.bind(&g.gmail)
-			.bind(&g.owner)
+			.bind(g.owner.to_string())
 			.bind(g.removed)
 			.bind(g.enabled)
-			.bind(g.state.as_ref())
-			.bind(&g.lang)
+			.bind(g.state.as_str())
+			.bind(g.country.map(Country::lang))
 			.bind(&g.name)
 			.bind(&g.address)
 			.bind(&g.place_id)
@@ -136,7 +132,7 @@ impl Store {
 		sqlx::query("DELETE FROM mirror_balances").execute(&mut *tx).await.wrap_err("dropping the old balances")?;
 		for (sub, balance) in &snap.balances {
 			sqlx::query("INSERT INTO mirror_balances (sub, balance) VALUES (?, ?)")
-				.bind(sub)
+				.bind(sub.to_string())
 				.bind(balance)
 				.execute(&mut *tx)
 				.await
@@ -151,7 +147,7 @@ impl Store {
 	}
 
 	/// The conductor's switch of a GMB, and its state.
-	pub(crate) async fn gmb_switch(&self, gmb: i64) -> eyre::Result<(bool, GbpState)> {
+	pub(crate) async fn gmb_switch(&self, gmb: i64) -> eyre::Result<(bool, OnGoogle)> {
 		let (enabled, state): (bool, String) = sqlx::query_as("SELECT enabled, state FROM gmb_mirror WHERE id = ?")
 			.bind(gmb)
 			.fetch_optional(&self.pool)

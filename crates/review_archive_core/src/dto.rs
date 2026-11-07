@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+pub use sa_gbp::{Country, Managed, OnGoogle, Snapshot};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
@@ -720,7 +721,7 @@ pub struct GmbSummary {
 	/// The conductor's switch; off, its track is not walked, whatever its own switch.
 	pub enabled: bool,
 	/// Where the GBP is in its life; only a verified one's track is walked.
-	pub state: GbpState,
+	pub state: OnGoogle,
 	/// Its place as tracked here.
 	pub track: LocationSummary,
 }
@@ -863,62 +864,6 @@ pub struct GmbReviews {
 	pub reinstating: u32,
 	/// An enabled track's latest finished non-ad-hoc run `failed` (a `partial` run still made a snapshot).
 	pub failing: bool,
-}
-
-/// A GMB as the conductor holds it (`PUT /api/conductor/gmbs`).
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(deny_unknown_fields)]
-pub struct MirroredGmb {
-	/// The conductor's id.
-	pub id: i64,
-	/// Its gmail's id.
-	pub gmail_id: i64,
-	/// Its gmail's address.
-	pub gmail: String,
-	/// The gmail's owner, a concierge `sub`.
-	pub owner: String,
-	/// The GMB, or its gmail, is removed.
-	pub removed: bool,
-	/// The conductor's switch; off, the archive does not walk its track.
-	pub enabled: bool,
-	/// The Google place id.
-	pub place_id: String,
-	/// Where the GBP is in its life.
-	pub state: GbpState,
-	/// The Maps language of its country, which its track is read in; `null` only for a removed GBP.
-	pub lang: Option<String>,
-	/// The GBP's name.
-	pub name: String,
-	/// The GBP's address.
-	pub address: Option<String>,
-}
-
-/// A placed GBP's life at the conductor; a draft is never sent. Stored as its lowercase name.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, strum::AsRefStr, strum::EnumString)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-#[strum(serialize_all = "lowercase")]
-pub enum GbpState {
-	/// Waiting on Google's verification.
-	Verifying,
-	/// Live: its track is walked.
-	Verified,
-	/// Suspended by Google.
-	Suspended,
-}
-
-/// `PUT /api/conductor/gmbs`: everything the conductor knows of GMBs and balances, at once.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(deny_unknown_fields)]
-pub struct GmbSnapshot {
-	/// Every GMB it ever had, removed ones included.
-	pub gmbs: Vec<MirroredGmb>,
-	/// Every person's balance by `sub`, renewed up to now.
-	pub balances: std::collections::BTreeMap<String, i64>,
-	/// The last [`ChargeDto::id`] those balances include.
-	pub charges_through: i64,
 }
 
 /// What a walk cost, for the conductor to charge (`GET /api/conductor/charges`).

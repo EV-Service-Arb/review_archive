@@ -5105,6 +5105,7 @@ dependencies = [
  "insta",
  "jiff",
  "miette",
+ "sa_gbp",
  "schemars",
  "scraper",
  "serde",
@@ -5369,7 +5370,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 [[package]]
 name = "sa_alerts"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#bf3a716abdaed1adb5f9516d45d3a1e6e190b6e8"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#98b4b0ddb933de0020de682c6f1c73d93854a614"
 dependencies = [
  "jiff",
  "sa_auth",
@@ -5382,7 +5383,7 @@ dependencies = [
 [[package]]
 name = "sa_auth"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#bf3a716abdaed1adb5f9516d45d3a1e6e190b6e8"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#98b4b0ddb933de0020de682c6f1c73d93854a614"
 dependencies = [
  "base64 0.22.1",
  "concierge_iam",
@@ -5395,9 +5396,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sa_gbp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
 name = "sa_places"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#bf3a716abdaed1adb5f9516d45d3a1e6e190b6e8"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#98b4b0ddb933de0020de682c6f1c73d93854a614"
 dependencies = [
  "base64 0.22.1",
  "eyre",
@@ -5416,7 +5427,7 @@ dependencies = [
 [[package]]
 name = "sa_ui"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#bf3a716abdaed1adb5f9516d45d3a1e6e190b6e8"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#98b4b0ddb933de0020de682c6f1c73d93854a614"
 dependencies = [
  "dioxus",
  "ev_lib 0.25.1",
@@ -7245,6 +7256,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+ "uuid",
 ]
 
 [[package]]

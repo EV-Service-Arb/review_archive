@@ -11,7 +11,7 @@ use review_archive::{
 	config::Config,
 	core::{
 		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId, Warning,
-		dto::{ChargeDto, GbpState, GmbSnapshot, LocationSummary, MirroredGmb, NewTarget, ScanState},
+		dto::{ChargeDto, Country, LocationSummary, Managed, NewTarget, OnGoogle, ScanState, Snapshot},
 		tokens::{Meter, Tokens},
 	},
 	record::Recorder,
@@ -22,6 +22,7 @@ use review_archive::{
 		people::{Claim, Seen},
 	},
 };
+use uuid::Uuid;
 
 /// A walk that costs `.0` tokens.
 struct Spends(i64);
@@ -127,26 +128,34 @@ async fn target(archive: &Archive, place: &str) -> Target {
 	archive.add_target(&t).await.unwrap().target
 }
 
-async fn person(store: &Store, sub: &str) -> PersonId {
-	let email = format!("{sub}@x");
+/// The concierge `sub` of the member named `name`, 16 bytes at most.
+fn owner(name: &str) -> Uuid {
+	let mut b = [0; 16];
+	b[..name.len()].copy_from_slice(name.as_bytes());
+	Uuid::from_bytes(b)
+}
+
+async fn person(store: &Store, name: &str) -> PersonId {
+	let email = format!("{name}@x");
+	let sub = owner(name).to_string();
 	let seen = Seen {
-		sub,
+		sub: &sub,
 		email: &email,
 		email_verified: true,
-		name: sub,
+		name,
 	};
 	match store.person(&seen, Timestamp::now()).await.unwrap() {
 		Claim::Person(p) => p,
-		refused => panic!("{sub}: {refused:?}"),
+		refused => panic!("{name}: {refused:?}"),
 	}
 }
 
 /// What the conductor pushed last.
-struct Conductor(RefCell<GmbSnapshot>);
+struct Conductor(RefCell<Snapshot>);
 
 impl Conductor {
 	fn new() -> Self {
-		Self(RefCell::new(GmbSnapshot {
+		Self(RefCell::new(Snapshot {
 			gmbs: vec![],
 			balances: Default::default(),
 			charges_through: 0,
@@ -163,16 +172,20 @@ impl Conductor {
 		let id = {
 			let mut snap = self.0.borrow_mut();
 			let id = snap.gmbs.len() as i64 + 1;
-			snap.gmbs.push(MirroredGmb {
+			snap.gmbs.push(Managed {
 				id,
 				gmail_id: id,
 				gmail: format!("{sub}.ops"),
-				owner: sub.into(),
+				owner: owner(sub),
 				removed: false,
 				enabled: true,
 				place_id: t.place_id.clone(),
-				state: GbpState::Verified,
-				lang: Some(t.lang.clone()),
+				state: OnGoogle::Verified,
+				country: Some(match t.lang.as_str() {
+					"fr" => Country::FR,
+					"en" => Country::US,
+					other => panic!("no GBP's country reads {other}"),
+				}),
 				name: sub.into(),
 				address: None,
 			});
@@ -199,7 +212,7 @@ impl Conductor {
 		let through = archive.charges(0, 500).await.unwrap().next;
 		{
 			let mut snap = self.0.borrow_mut();
-			snap.balances.insert(sub.into(), n);
+			snap.balances.insert(owner(sub), n);
 			snap.charges_through = through;
 		}
 		self.push(archive).await;
@@ -207,7 +220,7 @@ impl Conductor {
 }
 
 async fn holds(archive: &Archive, sub: &str) -> i64 {
-	archive.store().unwrap().holdings(&[sub.into()]).await.unwrap()
+	archive.store().unwrap().holdings(&[owner(sub).to_string()]).await.unwrap()
 }
 
 async fn feed(archive: &Archive) -> Vec<ChargeDto> {
@@ -236,7 +249,7 @@ async fn trackers_split_a_walk_within_their_balances() {
 		(c.key.as_str(), c.payers.as_slice(), c.spent, c.kick_back, c.label.as_str()),
 		(
 			format!("run:{}", rec.run.0).as_str(),
-			["poor".to_owned(), "rich".to_owned()].as_slice(),
+			[owner("poor").to_string(), owner("rich").to_string()].as_slice(),
 			20,
 			false,
 			t.place_id.as_str()
@@ -299,7 +312,7 @@ async fn a_gmb_the_conductor_switched_off_neither_walks_nor_pays() {
 	conductor.switch(&archive, on_gmb, true).await;
 	assert_eq!(archive.due(now).await.unwrap().iter().map(|t| t.id).collect::<Vec<_>>(), [t.id]);
 	archive.record(&Spends(20), &t).await.unwrap();
-	assert_eq!(feed(&archive).await[0].payers, ["on"]);
+	assert_eq!(feed(&archive).await[0].payers, [owner("on").to_string()]);
 	assert_eq!(holds(&archive, "off").await, 100);
 }
 

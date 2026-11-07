@@ -9,11 +9,13 @@ use review_archive::{
 	config::Config,
 	core::{
 		TargetId,
-		dto::{GbpState, GmbSnapshot, MirroredGmb, TrackPatch},
+		dto::{Country, Managed, OnGoogle, Snapshot, TrackPatch},
 	},
 	store::people::{Claim, Seen},
 };
 use serde::Deserialize;
+
+const OWNER: &str = "00000000-0000-0000-0000-00000000000a";
 
 #[path = "../../review_archive/tests/support/busy.rs"]
 mod busy;
@@ -50,7 +52,7 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 	.await
 	.unwrap();
 	let seen = Seen {
-		sub: "owner",
+		sub: OWNER,
 		email: "owner@x.com",
 		email_verified: true,
 		name: "owner",
@@ -59,19 +61,19 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 		panic!("a fresh archive")
 	};
 	let names = [SHORT, TWO_LINES, LONGER];
-	let snapshot = GmbSnapshot {
+	let snapshot = Snapshot {
 		gmbs: (1..)
 			.zip(names)
-			.map(|(id, name)| MirroredGmb {
+			.map(|(id, name)| Managed {
 				id,
 				gmail_id: 1,
 				gmail: "ops@gmail.com".into(),
-				owner: "owner".into(),
+				owner: OWNER.parse().unwrap(),
 				removed: false,
 				enabled: true,
 				place_id: format!("ChIJdashboardtest{id:0>8}"),
-				state: GbpState::Verified,
-				lang: Some("en".into()),
+				state: OnGoogle::Verified,
+				country: Some(Country::US),
 				name: name.into(),
 				address: None,
 			})

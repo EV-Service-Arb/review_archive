@@ -2,7 +2,7 @@
 
 use dioxus::{prelude::*, web::WebEventExt};
 use ev_lib::uikit_dioxus::{Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Size, Spinner, Switch, button_classes};
-use review_archive_client::dto::{GbpState, LocationSummary, RunStatus, ScanState, TrackPatch};
+use review_archive_client::dto::{LocationSummary, OnGoogle, RunStatus, ScanState, TrackPatch};
 use sa_ui::TokenCost;
 
 use crate::{
@@ -85,9 +85,9 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 					}
 				}
 				div { class: "flex flex-wrap gap-1.5",
-					if gmb.state != GbpState::Verified {
+					if gmb.state != OnGoogle::Verified {
 						Badge { tone: Tone::Warn,
-							span { title: "not scanned until the GBP is verified", "{gmb.state.as_ref()}" }
+							span { title: "not scanned until the GBP is verified", "{gmb.state}" }
 						}
 					}
 					Badge { tone: Tone::Ok,

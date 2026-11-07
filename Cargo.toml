@@ -41,6 +41,7 @@ rand = "0.10"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }
 sa_alerts = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_auth = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
+sa_gbp = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_places = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_ui = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 schemars = "1"

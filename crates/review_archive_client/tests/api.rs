@@ -12,7 +12,7 @@ use review_archive::{
 	core::{
 		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
 		dto::{
-			CaptureRequest, Event, GbpState, GmbSnapshot, JobStatus, LocationSummary, Me, MemberDto, MirroredGmb, NewTarget, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch,
+			CaptureRequest, Country, Event, JobStatus, LocationSummary, Managed, Me, MemberDto, NewTarget, NewWebhook, OnGoogle, Setting, Settings, SettingsPatch, Snapshot, TargetPatch,
 			TrackPatch,
 		},
 		tokens::Meter,
@@ -33,8 +33,9 @@ const PANEL_KEY: &str = "panel:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const FOREIGN_KEY: &str = "panel:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 /// Who the test panel vouches for on a request: it signs for them and strips this.
 const CALLER_HEADER: &str = "x-test-caller";
-const ALICE: &str = "alice";
-const BOB: &str = "bob";
+const ALICE: &str = "00000000-0000-0000-0000-0000000a11ce";
+const BOB: &str = "00000000-0000-0000-0000-000000000b0b";
+const CAROL: &str = "00000000-0000-0000-0000-0000000ca201";
 const PLACE: &str = "ChIJLU7jZClu5kcR4PcOOO6p3I0";
 
 /// A concierge account, as the panel's assertion names it.
@@ -111,7 +112,7 @@ struct Env {
 	client: Client,
 	server: tokio::task::JoinHandle<()>,
 	/// What the conductor pushed last.
-	mirror: std::sync::Mutex<GmbSnapshot>,
+	mirror: std::sync::Mutex<Snapshot>,
 }
 
 async fn env() -> Env {
@@ -153,7 +154,7 @@ async fn env() -> Env {
 		base,
 		client,
 		server,
-		mirror: std::sync::Mutex::new(GmbSnapshot {
+		mirror: std::sync::Mutex::new(Snapshot {
 			gmbs: vec![],
 			balances: Default::default(),
 			charges_through: 0,
@@ -197,20 +198,20 @@ impl Env {
 				.find(|g| g.gmail == gmail)
 				.map_or_else(|| m.gmbs.iter().map(|g| g.gmail_id).max().unwrap_or(0) + 1, |g| g.gmail_id);
 			let id = m.gmbs.len() as i64 + 1;
-			m.gmbs.push(MirroredGmb {
+			m.gmbs.push(Managed {
 				id,
 				gmail_id,
 				gmail: gmail.into(),
-				owner: owner.into(),
+				owner: owner.parse().unwrap(),
 				removed: false,
 				enabled: true,
 				place_id: place.into(),
-				state: GbpState::Verified,
-				lang: Some("en".into()),
+				state: OnGoogle::Verified,
+				country: Some(Country::US),
 				name: format!("GBP {id}"),
 				address: None,
 			});
-			m.balances.entry(owner.into()).or_insert(1000);
+			m.balances.entry(owner.parse().unwrap()).or_insert(1000);
 			m.clone()
 		};
 		self.archive.apply_snapshot(&snap).await.unwrap();
@@ -914,7 +915,7 @@ async fn me_is_open_to_anyone_signed_in() {
 		me,
 		Me {
 			id: me.id,
-			email: "alice@x.com".into(),
+			email: format!("{ALICE}@x.com"),
 			name: ALICE.into(),
 			permissions: vec![],
 		}
@@ -1014,8 +1015,9 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 		..Config::default()
 	};
 	let archive = Archive::open(config).await.unwrap();
+	const TEST: &str = "00000000-0000-0000-0000-00000000007e";
 	let seen = Seen {
-		sub: "test",
+		sub: TEST,
 		email: "test@localhost",
 		email_verified: true,
 		name: "test",
@@ -1023,17 +1025,17 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	let Claim::Person(test) = archive.person(&seen).await.unwrap() else {
 		panic!("nobody else holds the address")
 	};
-	let snapshot = GmbSnapshot {
-		gmbs: vec![MirroredGmb {
+	let snapshot = Snapshot {
+		gmbs: vec![Managed {
 			id: 1,
 			gmail_id: 1,
 			gmail: "ops@gmail.com".into(),
-			owner: "test".into(),
+			owner: TEST.parse().unwrap(),
 			removed: false,
 			enabled: true,
 			place_id: PLACE.into(),
-			state: GbpState::Verified,
-			lang: Some("en".into()),
+			state: OnGoogle::Verified,
+			country: Some(Country::US),
 			name: "GBP 1".into(),
 			address: None,
 		}],
@@ -1554,10 +1556,10 @@ async fn notes(e: &Env, after: i64, limit: u32) -> sa_alerts::NotePage {
 #[tokio::test]
 async fn the_conductor_pulls_alerts_on_tracked_places() {
 	let e = env().await;
-	let (alice, bob, carol) = (e.member(ALICE), e.member(BOB), e.member("carol"));
+	let (alice, bob, carol) = (e.member(ALICE), e.member(BOB), e.member(CAROL));
 	let a = e.gmb(ALICE, "a@gmail.com", PLACE).await;
 	let b = e.gmb(BOB, "b@gmail.com", PLACE).await;
-	let c = e.gmb("carol", "c@gmail.com", "ChIJelsewhereelsewhere").await;
+	let c = e.gmb(CAROL, "c@gmail.com", "ChIJelsewhereelsewhere").await;
 	let t = track_of(&alice, a).await.id;
 	let off = TrackPatch {
 		enabled: Some(false),
@@ -1643,11 +1645,11 @@ async fn put_snapshot(e: &Env, snapshot: &serde_json::Value) -> StatusCode {
 #[tokio::test]
 async fn the_snapshot_tracks_every_placed_gbp() {
 	let e = env().await;
-	let gbp = |id: i64, gmail_id: i64, owner: &str, state: &str, lang: Option<&str>, place: &str| {
+	let gbp = |id: i64, gmail_id: i64, owner: &str, state: &str, country: Option<&str>, place: &str| {
 		serde_json::json!({
 			"id": id, "gmail_id": gmail_id, "gmail": format!("{owner}@gmail.com"), "owner": owner,
-			"removed": lang.is_none(), "enabled": true, "place_id": place,
-			"state": state, "lang": lang, "name": format!("GBP {id}"), "address": "1 rue de la Paix, Paris",
+			"removed": country.is_none(), "enabled": true, "place_id": place,
+			"state": state, "country": country, "name": format!("GBP {id}"), "address": "1 rue de la Paix, Paris",
 		})
 	};
 	let snapshot = |gbps: Vec<serde_json::Value>| serde_json::json!({"gmbs": gbps, "balances": {ALICE: 1000, BOB: 1000}, "charges_through": 0});
@@ -1655,16 +1657,16 @@ async fn the_snapshot_tracks_every_placed_gbp() {
 		let gmails: Vec<serde_json::Value> = http_as(&Who::member(who)).get(format!("{}/me/overview", e.base)).send().await.unwrap().json().await.unwrap();
 		gmails.into_iter().flat_map(|g| g["gmbs"].as_array().unwrap().clone()).collect()
 	};
-	let verified = gbp(1, 1, ALICE, "verified", Some("fr"), PLACE);
-	let verifying = gbp(2, 1, ALICE, "verifying", Some("en"), "ChIJverifyingverifying00");
+	let verified = gbp(1, 1, ALICE, "verified", Some("FR"), PLACE);
+	let verifying = gbp(2, 1, ALICE, "verifying", Some("US"), "ChIJverifyingverifying00");
 	let gone = gbp(3, 1, ALICE, "suspended", None, "ChIJremovedremovedremoved");
 
-	let mut nameless = gbp(4, 1, ALICE, "verified", Some("fr"), "ChIJnolangnolangnolang00");
-	nameless["lang"] = serde_json::Value::Null;
+	let mut nameless = gbp(4, 1, ALICE, "verified", Some("FR"), "ChIJnolangnolangnolang00");
+	nameless["country"] = serde_json::Value::Null;
 	assert_eq!(
 		put_snapshot(&e, &snapshot(vec![verified.clone(), nameless])).await,
 		StatusCode::BAD_REQUEST,
-		"a placed GBP has a language"
+		"a placed GBP has a country"
 	);
 	assert_eq!(put_snapshot(&e, &snapshot(vec![verified.clone(), verifying.clone(), gone.clone()])).await, StatusCode::NO_CONTENT);
 
@@ -1681,7 +1683,7 @@ async fn the_snapshot_tracks_every_placed_gbp() {
 	let due: Vec<i64> = e.archive.due(Timestamp::now()).await.unwrap().into_iter().map(|t| t.id.0).collect();
 	assert_eq!(due, [on["id"].as_i64().unwrap()], "a verifying GBP's place waits");
 
-	let transferred = gbp(1, 2, BOB, "verified", Some("fr"), PLACE);
+	let transferred = gbp(1, 2, BOB, "verified", Some("FR"), PLACE);
 	assert_eq!(put_snapshot(&e, &snapshot(vec![transferred, verifying, gone])).await, StatusCode::NO_CONTENT);
 	assert_eq!(overview(ALICE).await.iter().map(|g| g["id"].as_i64().unwrap()).collect::<Vec<_>>(), [2]);
 	let bobs = overview(BOB).await;

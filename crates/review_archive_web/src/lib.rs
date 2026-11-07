@@ -25,7 +25,7 @@ use ev_lib::{
 };
 use review_archive_client::{
 	Client,
-	dto::{GbpState, GmailDto, GmailOverview, GmbSummary, LocationSummary, Me, MemberDto},
+	dto::{GmailDto, GmailOverview, GmbSummary, LocationSummary, Me, MemberDto, OnGoogle},
 };
 use sa_auth::{Members, Permission, PermissionSet};
 use wasm_bindgen::{JsCast, prelude::*};
@@ -268,7 +268,7 @@ struct Gmb {
 	name: String,
 	/// The conductor's switch.
 	enabled: bool,
-	state: GbpState,
+	state: OnGoogle,
 }
 
 impl From<(&GmailDto, &GmbSummary)> for Gmb {

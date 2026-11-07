@@ -722,17 +722,17 @@ async fn an_untracked_place_is_purged_after_a_week() {
 		"a target never tracked is the operator's"
 	);
 
-	let gmb = |removed| review_archive::core::dto::GmbSnapshot {
-		gmbs: vec![review_archive::core::dto::MirroredGmb {
+	let gmb = |removed| review_archive::core::dto::Snapshot {
+		gmbs: vec![review_archive::core::dto::Managed {
 			id: 1,
 			gmail_id: 1,
 			gmail: "ops".into(),
-			owner: "m".into(),
+			owner: uuid::Uuid::nil(),
 			removed,
 			enabled: true,
 			place_id: e.target.place_id.clone(),
-			state: review_archive::core::dto::GbpState::Verified,
-			lang: Some(e.target.lang.clone()),
+			state: review_archive::core::dto::OnGoogle::Verified,
+			country: Some(review_archive::core::dto::Country::FR), // the target reads fr
 			name: "m's".into(),
 			address: None,
 		}],

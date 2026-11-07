@@ -5,7 +5,7 @@
 use jiff::Timestamp;
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, TargetId,
-	dto::{Board, Charges, GbpState, GmailOverview, GmbSnapshot, JobKind, MAX_PAGE, MemberDto, MyGmbs, ReinstatementDto, Settings, SettingsPatch, TargetDto, TrackPatch},
+	dto::{Board, Charges, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch},
 	maps::cost,
 	parse_interval,
 };
@@ -84,8 +84,8 @@ impl Archive {
 		store.check_track(member, gmb, target).await?;
 		match store.gmb_switch(gmb).await? {
 			(false, _) => return Err(Rejected::Busy(format!("GMB {gmb} is switched off")).into()),
-			(true, GbpState::Verified) => {}
-			(true, state) => return Err(Rejected::Busy(format!("GMB {gmb} is {}", state.as_ref())).into()),
+			(true, OnGoogle::Verified) => {}
+			(true, state) => return Err(Rejected::Busy(format!("GMB {gmb} is {state}")).into()),
 		}
 		let now = Timestamp::now();
 		#[cfg(feature = "maps")]
@@ -146,7 +146,7 @@ impl Archive {
 	}
 
 	/// The conductor's snapshot of GMBs and balances; see [`Store::apply_snapshot`](crate::store::Store::apply_snapshot).
-	pub async fn apply_snapshot(&self, snap: &GmbSnapshot) -> eyre::Result<()> {
+	pub async fn apply_snapshot(&self, snap: &Snapshot) -> eyre::Result<()> {
 		self.store()?.apply_snapshot(snap, Timestamp::now()).await
 	}
 

@@ -252,7 +252,8 @@ The archive keeps a mirror of them and annotates them; it adds and removes none.
 - `gmb_mirror(id, gmail_id, gmail, owner, removed, enabled, state, lang, name, address, place_id)`: the
   conductor's GBPs with a place (GMBs here; a draft is never sent), its ids, `owner` a `sub`, `enabled` its
   switch, which may govern other services too, `state` `verifying | verified | suspended`, `lang` the Maps
-  language of its country (none only for a removed one). `PUT /api/conductor/gmbs` (a Conductor assertion, below) upserts every one
+  language of its country (none only for a removed one). `PUT /api/conductor/gmbs` (a Conductor assertion, below), an
+  `sa_gbp::Snapshot` (the conductor's crate: the GBP with its state and country, `Country::lang` the language), upserts every one
   in one transaction and never deletes; a GMB whose place changes, or one missing from the snapshot,
   is a 409 and nothing is written. Its gmail and owner may change (a transfer): its track and appeals
   go with it. A GMB the conductor removes loses its track; its appeals stay. GBP reads keep the service's one grant: a

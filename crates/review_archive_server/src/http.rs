@@ -23,8 +23,8 @@ use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
 	ReviewId, TargetId,
 	dto::{
-		Board, CaptureRequest, Charges, DayStats, ErrorBody, EventPayload, ExportQuery, FeedQuery, GmailOverview, GmbSnapshot, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs,
-		NewLayout, NewTarget, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto,
+		Board, CaptureRequest, Charges, DayStats, ErrorBody, EventPayload, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs, NewLayout,
+		NewTarget, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto,
 		TargetPatch, TrackPatch, WaitQuery, WebhookDto, stats_csv,
 	},
 };
@@ -551,9 +551,9 @@ async fn withdraw(State(s): State<AppState>, Member(m): Member, Path((gmb, revie
 }
 
 /// The conductor's GMBs and balances, taken whole or not at all.
-#[utoipa::path(put, path = "/api/conductor/gmbs", tag = "conductor", request_body = GmbSnapshot,
+#[utoipa::path(put, path = "/api/conductor/gmbs", tag = "conductor", request_body = Snapshot,
 	responses((status = 204), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody), (status = 409, body = ErrorBody)))]
-async fn apply_snapshot(State(s): State<AppState>, JsonBody(snap): JsonBody<GmbSnapshot>) -> ApiResult<StatusCode> {
+async fn apply_snapshot(State(s): State<AppState>, JsonBody(snap): JsonBody<Snapshot>) -> ApiResult<StatusCode> {
 	s.archive.apply_snapshot(&snap).await?;
 	Ok(StatusCode::NO_CONTENT)
 }

@@ -9,7 +9,7 @@ repository.workspace = true
 readme.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["clap", "kamadak-exif", "tracing-error"] # clap: v_utils' settings derive emits it; kamadak-exif: its lib is `exif`
+ignored = ["clap", "kamadak-exif", "tracing-error"]
 
 [features]
 default = ["maps", "store"]
@@ -68,6 +68,7 @@ png.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing-subscriber.workspace = true # the examples print the walk's log
+uuid.workspace = true
 
 [lints]
 workspace = true

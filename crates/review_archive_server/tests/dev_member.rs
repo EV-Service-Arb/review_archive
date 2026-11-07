@@ -5,9 +5,11 @@ use std::time::Duration;
 use review_archive::{
 	Archive,
 	config::Config,
-	core::dto::{GbpState, GmbSnapshot, Me, MirroredGmb},
+	core::dto::{Country, Managed, Me, OnGoogle, Snapshot},
 	store::people::{Claim, Seen},
 };
+
+const OWNER: &str = "00000000-0000-0000-0000-00000000000a";
 
 /// The worker scans every member's places; the dashboard opens on the one who has them.
 #[tokio::test]
@@ -21,7 +23,7 @@ async fn the_dev_member_is_whoever_manages_the_archive() {
 	.await
 	.unwrap();
 	let seen = Seen {
-		sub: "owner",
+		sub: OWNER,
 		email: "owner@x.com",
 		email_verified: true,
 		name: "owner",
@@ -29,17 +31,17 @@ async fn the_dev_member_is_whoever_manages_the_archive() {
 	let Claim::Person(owner) = archive.person(&seen).await.unwrap() else {
 		panic!("a fresh archive")
 	};
-	let snapshot = GmbSnapshot {
-		gmbs: vec![MirroredGmb {
+	let snapshot = Snapshot {
+		gmbs: vec![Managed {
 			id: 1,
 			gmail_id: 1,
 			gmail: "ops@gmail.com".into(),
-			owner: "owner".into(),
+			owner: OWNER.parse().unwrap(),
 			removed: false,
 			enabled: true,
 			place_id: "ChIJdevmembertest0000000".into(),
-			state: GbpState::Verified,
-			lang: Some("en".into()),
+			state: OnGoogle::Verified,
+			country: Some(Country::US),
 			name: "GBP 1".into(),
 			address: None,
 		}],
