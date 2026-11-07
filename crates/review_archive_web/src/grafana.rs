@@ -16,12 +16,14 @@ use strum::IntoEnumIterator;
 use wasm_bindgen::{JsCast, prelude::*};
 
 use crate::{
-	Refresh, Route, View, act,
+	Picked, Refresh, Route, Selection, View, act,
 	filter::reviews::{Review, Reviews},
 	may,
 };
 
 const KIOSK: &str = "?kiosk&hideLogo&_dash.hideTimePicker&_dash.hideVariables&_dash.hideLinks";
+/// the overview shows its `gmbs` variable
+const KIOSK_PICKS: &str = "?kiosk&hideLogo&_dash.hideTimePicker&_dash.hideLinks";
 
 fn grafana() -> reqwest::Url {
 	crate::directory(crate::host().grafana.as_deref().expect("required at mount under Ui::Grafana"))
@@ -46,8 +48,9 @@ struct Placed {
 	on: Option<EventHandler<Up>>,
 }
 
-/// What is done in a dashboard: a click in the overview's cards, a drop on the board's lanes.
+/// What is done in a dashboard: a click in the overview's cards, a pick of its `gmbs`, a drop on the board's lanes.
 enum Up {
+	Select(Picked),
 	Open { gmb: i64, target: i64 },
 	Scan { gmb: i64, target: i64 },
 	Enable { gmb: i64, target: i64, on: bool },
@@ -69,6 +72,8 @@ pub fn Host(me: i64, children: Element) -> Element {
 	let publish = may(sa_auth::Archive::Operate);
 	use_future(move || async move {
 		let (mut steered, mut style) = (String::new(), String::new());
+		// the frame's `gmbs` last reported, so a pick is told once while its echo comes back
+		let mut picked = Vec::new();
 		loop {
 			wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |done, _| {
 				window().request_animation_frame(&done).expect("requestAnimationFrame takes a function");
@@ -104,8 +109,30 @@ pub fn Host(me: i64, children: Element) -> Element {
 				continue;
 			}
 			if path == steered {
+				let gmbs = |url: reqwest::Url| {
+					let mut v: Vec<String> = url.query_pairs().filter(|(k, _)| k == "var-gmbs").map(|(_, v)| v.into_owned()).collect();
+					v.sort();
+					v
+				};
+				let here = gmbs(reqwest::Url::parse(&inner.location().href().expect("a same-origin location reads")).expect("a location is a URL"));
+				// a URL without the variable says nothing of it
+				if !here.is_empty() && here != gmbs(grafana().join(&steered).expect("a slot's path is relative")) && here != picked {
+					let up = match here.as_slice() {
+						[all] if all == "$__all" => Picked::All,
+						[none] if none.is_empty() => Picked::Only(Default::default()),
+						ids => Picked::Only(
+							ids.iter()
+								.map(|id| id.parse().unwrap_or_else(|_| panic!("var-gmbs={id}: the variable's values are GMB ids")))
+								.collect(),
+						),
+					};
+					picked = here;
+					let on = slots.peek().iter().find(|s| Some(s.id) == *shown.peek()).and_then(|s| s.on);
+					on.expect("only the overview has gmbs, and it takes what is done in it").call(Up::Select(up));
+				}
 				continue;
 			}
+			picked.clear();
 			// Grafana's router follows its window's location on popstate; replaced, so back stays the page's
 			let url = grafana().join(&path).expect("a slot's path is relative");
 			inner
@@ -276,11 +303,26 @@ fn Slot(class: String, path: String, on: Option<EventHandler<Up>>) -> Element {
 pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 	let Frame { me, .. } = use_context();
 	let Refresh(refresh) = use_context();
+	let Selection(selection) = use_context();
 	let mut reviews: Signal<Reviews> = use_context();
 	let member = tab.unwrap_or(me);
 	let gmail = gmail.map(|g| g.to_string()).unwrap_or_default();
-	let path = format!("d/ra-overview/{KIOSK}&var-member={member}&var-gmail={gmail}&var-keys={keys}&var-rev={}", refresh());
+	// a member's tab is not the host's selection: its `gmbs` stays the frame's own
+	let gmbs = match (tab, selection()) {
+		(Some(_), _) => String::new(),
+		(None, Picked::All) => "&var-gmbs=$__all".into(),
+		(None, Picked::Only(ids)) if ids.is_empty() => "&var-gmbs=".into(),
+		(None, Picked::Only(ids)) => {
+			let mut ids: Vec<_> = ids.into_iter().collect();
+			ids.sort_unstable();
+			ids.iter().map(|id| format!("&var-gmbs={id}")).collect()
+		}
+		(None, Picked::Unknown) => unreachable!("the overview shows once the selection is known"),
+	};
+	let path = format!("d/ra-overview/{KIOSK_PICKS}&var-member={member}&var-gmail={gmail}&var-keys={keys}{gmbs}&var-rev={}", refresh());
 	let on = move |up: Up| match up {
+		Up::Select(picked) if tab.is_none() => crate::select(&picked),
+		Up::Select(_) => {}
 		Up::Open { gmb, target } => {
 			reviews.set(Reviews::default());
 			navigator().push(Route::at(tab, View::Gmb { gmb, target: Some(target) }));
@@ -316,7 +358,8 @@ pub fn Location(gmb: i64, target: i64, tab: Option<i64>) -> Element {
 	let on = move |up: Up| match up {
 		Up::Reinstate { review } => act(move |c| async move { c.reinstate(gmb, review).await.map(drop) }),
 		Up::Withdraw { review } => act(move |c| async move { c.withdraw_reinstatement(gmb, review).await }),
-		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } | Up::Favorite { .. } | Up::Relink { .. } | Up::Untrack { .. } => unreachable!("a board has no location cards"),
+		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } | Up::Favorite { .. } | Up::Relink { .. } | Up::Untrack { .. } | Up::Select(_) =>
+			unreachable!("a board has no location cards nor gmbs"),
 	};
 	rsx! {
 		Slot { class: "min-h-0 w-full flex-1", path, on }

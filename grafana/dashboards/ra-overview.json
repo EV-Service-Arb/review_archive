@@ -55,6 +55,62 @@
           "value": ""
         },
         "options": []
+      },
+      {
+        "name": "gmbs",
+        "label": "GMBs",
+        "type": "query",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "review_archive"
+        },
+        "query": {
+          "refId": "variable",
+          "queryType": "infinity",
+          "infinityQuery": {
+            "type": "json",
+            "source": "url",
+            "format": "table",
+            "parser": "backend",
+            "url": "/me/overview",
+            "url_options": {
+              "method": "GET",
+              "headers": [
+                {
+                  "key": "x-member",
+                  "value": "${member}"
+                }
+              ]
+            },
+            "root_selector": "$$.gmbs.{\"__value\": $string(id), \"__text\": tracks[0].target.label ? tracks[0].target.label : place_id}",
+            "columns": [
+              {
+                "selector": "__text",
+                "text": "__text",
+                "type": "string"
+              },
+              {
+                "selector": "__value",
+                "text": "__value",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": "*",
+        "allowCustomValue": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": []
       }
     ]
   },
@@ -100,7 +156,7 @@
               }
             ]
           },
-          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    gmbs.(\n    $b := $;\n    tracks.{\n      \"key\": $string($b.id) & \":\" & $string(target.id),\n      \"gmb\": $b.id, \"gmail\": $g.id, \"gmail_name\": $g.gmail,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"favorite\": favorite, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"rating\": rating, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"corrupted\": corrupted, \"captured\": captured, \"non_five_star\": non_five_star, \"suspended\": suspended, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    })\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
+          "root_selector": "(\n  $order := $merge($append([], $map($split(\"${keys}\", \",\"), function($k, $i) { {$k: $i} })));\n  $rows := $$[(\"${gmail}\" = \"\") or ($string(id) = \"${gmail}\")].(\n    $g := $;\n    gmbs[(\"${gmbs:csv}\" = \"*\") or ($string(id) in $split(\"${gmbs:csv}\", \",\"))].(\n    $b := $;\n    tracks.{\n      \"key\": $string($b.id) & \":\" & $string(target.id),\n      \"gmb\": $b.id, \"gmail\": $g.id, \"gmail_name\": $g.gmail,\n      \"target\": target.id, \"label\": target.label, \"address\": target.address, \"place_id\": target.place_id,\n      \"enabled\": enabled, \"favorite\": favorite, \"snapshots_7d\": snapshots_7d, \"snapshots_30d\": snapshots_30d,\n      \"live\": live, \"listed\": listed, \"rating\": rating, \"new_7d\": new_7d, \"posts_7d\": posts_7d,\n      \"post\": latest_post.text, \"post_at\": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,\n      \"responded\": responded, \"corrupted\": corrupted, \"captured\": captured, \"non_five_star\": non_five_star, \"suspended\": suspended, \"removed\": removed, \"reinstating\": reinstating, \"held\": held,\n      \"last_run_at\": last_run_at, \"last_run_status\": last_run_status, \"last_run_error\": last_run_error,\n      \"scan\": scan.state, \"scan_since\": scan.since, \"scan_ahead\": scan.ahead, \"scan_cost\": scan_cost\n    })\n  );\n  $sort($append([], $rows[$type($lookup($order, key)) = \"number\"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })\n)",
           "columns": [
             {
               "selector": "gmb",

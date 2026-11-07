@@ -6,5 +6,9 @@
 	<div style="height: 100dvh">
 		<mfe-review-archive-dashboard api="/" sign-in="{sign_in}" csrf-cookie="review_archive_dev_csrf" base="" ui="legacy"></mfe-review-archive-dashboard>
 	</div>
+	<script>
+		// this page is the element's host, with no outline: it narrows nothing
+		addEventListener("sa:gmbs-request", () => dispatchEvent(new CustomEvent("sa:gmbs", { detail: { ids: null } })));
+	</script>
 	<script type="module" src="/mfe/mfe-review-archive-dashboard.js"></script>
 </body>

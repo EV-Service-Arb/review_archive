@@ -1,16 +1,15 @@
-// The dashboard following the conductor's own navigation, in a headless Chromium against its local stack: the host's
-// links move the location with `pushState` (no reload), and the element must show where they point; leaving for the
-// sites and coming back must find the same running dashboard, not a second one mounted beside it.
-// `SA_CONDUCTOR_ORIGIN=<origin> node examples/host_navigation.cjs <gmail> <other gmail>` inside `nix develop`, the origin
-// site_conductor's `nix run .#local-stack -- --watch` (the one it prints), its signed-in user holding both gmails.
+// The dashboard following the conductor, in a headless Chromium against its local stack: it lists the outline's
+// selection (`sa:gmbs`) and sets it from its filters (`sa:gmbs-select`); the host's links move the location with
+// `pushState` (no reload); leaving for the sites and coming back must find the same running dashboard, not a second
+// one mounted beside it.
+// `SA_CONDUCTOR_ORIGIN=<origin> node examples/host_navigation.cjs` inside `nix develop`, the origin
+// site_conductor's `nix run .#local-stack -- --watch` (the one it prints), its signed-in user holding two GMBs or more.
 const path = require('path');
 const { chromium } = require(path.dirname(process.env.PLAYWRIGHT_CLI_JS));
 const assert = require('assert');
 
 const BASE = process.env.SA_CONDUCTOR_ORIGIN;
 if (!BASE) throw new Error("SA_CONDUCTOR_ORIGIN: the local stack's conductor, as its banner prints it");
-const [gmail, other] = process.argv.slice(2, 4).map(Number);
-assert.ok(gmail && other, 'usage: host_navigation.cjs <gmail> <other gmail>');
 
 (async () => {
 	const browser = await chromium.launch({ executablePath: process.env.REVIEW_ARCHIVE_CHROME });
@@ -19,40 +18,56 @@ assert.ok(gmail && other, 'usage: host_navigation.cjs <gmail> <other gmail>');
 	page.on('pageerror', (e) => errors.push(e.message));
 	let boots = 0;
 	page.on('response', (r) => r.url().endsWith('/review_archive_web_bg.wasm') && (boots += 1));
+	await page.addInitScript(() => {
+		window.__told = [];
+		addEventListener('sa:gmbs', (e) => window.__told.push(e.detail.ids));
+	});
 	const dashboard = page.locator('mfe-review-archive-dashboard');
-	const scope = async () => (await dashboard.innerText()).split('\n')[0];
-	const shows = async (want, why) => {
-		await page.waitForFunction(
-			([w]) => document.querySelector('mfe-review-archive-dashboard')?.innerText.split('\n')[0] === w,
-			[want],
-			{ timeout: 10000 },
-		).catch(() => {}); // the assert below says what it shows instead
-		assert.equal(await scope(), want, why);
+	const listed = async () => /(\d+) of (\d+)/.exec(await dashboard.innerText())?.slice(1).map(Number);
+	const lists = async (want, why) => {
+		await page
+			.waitForFunction(([w]) => /(\d+) of (\d+)/.exec(document.querySelector('mfe-review-archive-dashboard')?.innerText ?? '')?.[0] === w, [`${want[0]} of ${want[1]}`], { timeout: 10000 })
+			.catch(() => {}); // the assert below says what it lists instead
+		assert.deepEqual(await listed(), want, why);
 	};
-	const name = async (id) => (await (await page.request.get(`${BASE}/api/v1/gmails`)).json()).gmails.find((g) => g.id === id).gmail;
+	const select = (ids) => page.evaluate((ids) => dispatchEvent(new CustomEvent('sa:gmbs-select', { detail: { ids } })), ids);
+	const told = () => page.evaluate(() => window.__told.at(-1));
 
-	await page.goto(`${BASE}/auth/login?return_to=${encodeURIComponent(`/review_archive/gmails/${gmail}`)}`);
+	await page.goto(`${BASE}/auth/login?return_to=${encodeURIComponent('/review_archive/gmbs?grafana=false')}`);
 	await dashboard.locator(':text("Across locations")').waitFor({ timeout: 60000 });
-	await shows(await name(gmail), 'a gmail opened by its URL');
+	const gmbs = (await (await page.request.get(`${BASE}/api/review_archive/me/overview`)).json()).flatMap((g) => g.gmbs);
+	const tracks = (ids) => gmbs.filter((b) => ids === null || ids.includes(b.id)).reduce((n, b) => n + b.tracks.length, 0);
+	const tracked = gmbs.filter((b) => b.tracks.length > 0).map((b) => b.id);
+	assert.ok(tracked.length >= 2, 'the signed-in user tracks two GMBs or more');
 
-	await page.getByRole('link', { name: 'Places', exact: true }).click();
-	await page.waitForURL(/\/review_archive\/$/);
-	await shows('All gmails', "the outline's Places: every gmail");
+	await select(null);
+	await lists([tracks(null), tracks(null)], 'every GMB');
+	await select([]);
+	await lists([0, 0], 'none');
+	const two = tracked.slice(0, 2);
+	await select(two);
+	await lists([tracks(two), tracks(two)], 'the outline picked two');
 
-	await page.getByRole('link', { name: await name(other), exact: true }).click();
-	await page.waitForURL(new RegExp(`/review_archive/gmails/${other}$`));
-	await shows(await name(other), "the outline's gmail");
+	// the filter row narrows the selection and sets it, Clear gives the two back
+	const place = gmbs.find((b) => b.id === two[0]).place_id;
+	await dashboard.getByPlaceholder('regex: address, name, place id, gmail').fill(place);
+	await lists([tracks([two[0]]), tracks(two)], "a place id: its GMB's tracks, of the two");
+	await page.waitForFunction(([id]) => JSON.stringify(window.__told.at(-1)) === JSON.stringify([id]), [two[0]], { timeout: 5000 });
+	await dashboard.getByRole('button', { name: 'Clear' }).click();
+	await lists([tracks(two), tracks(two)], 'cleared: the two again');
+	assert.deepEqual(await told(), [...two].sort((a, b) => a - b), 'the host holds the two again');
 
-	await page.getByRole('link', { name: 'Review Archive', exact: true }).click();
-	await shows('All gmails', "the top bar's Review Archive");
-
-	await page.goBack();
-	await shows(await name(other), 'back');
+	// a selection made elsewhere clears the row
+	await dashboard.getByPlaceholder('regex: address, name, place id, gmail').fill(place);
+	await lists([tracks([two[0]]), tracks(two)], 'narrowed again');
+	await select(null);
+	await lists([tracks(null), tracks(null)], "the outline's own pick");
+	assert.equal(await dashboard.getByPlaceholder('regex: address, name, place id, gmail').inputValue(), '', 'the row no longer describes the selection');
 
 	await page.getByRole('link', { name: 'Sites', exact: true }).click();
 	await page.waitForURL(/\/sites\//);
 	await page.getByRole('link', { name: 'Review Archive', exact: true }).click();
-	await shows('All gmails', 'back from the sites');
+	await lists([tracks(null), tracks(null)], 'back from the sites');
 
 	assert.deepEqual(errors, [], 'no page errors');
 	assert.equal(boots, 1, 'one dashboard for the page: the bundle booted once');

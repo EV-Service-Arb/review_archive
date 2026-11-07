@@ -377,10 +377,14 @@ in. Design: Figma "review_archive / dashboard", on ev_lib's `uikit`. One holding
 `GET /members` at `/act-as` (the panel's account menu links there), acting as them through
 `X-Member`; the open tabs outlive a full load of the page, per browser tab. Where it is is its URL — `/gmbs` (the
 overview), `/gmbs/{id}` (a GMB's board, a switch between its tracks, or a language to track it
-in), `/gmails/{id}`, `/settings`, under `/members/{id}` for a member's tab. The conductor's sidebar, beside it on
-every page, lists the person's gmails and GMBs, switches them and links to those views; a member's tab
-draws its own list of that member's gmails. Adding a GMB is the conductor's home. A card under a GMB
-switched off at the conductor is dimmed, as one whose track is off. Standalone (`--dev-member`), the binary serves the same page at `/`.
+in), `/gmails/{id}`, `/settings`, under `/members/{id}` for a member's tab. The conductor's outline, beside it on
+every page, is one selection of the person's GMBs, which the caller's own tab lists and totals, nothing else: the host
+tells it on `window` as `sa:gmbs` `{ids}` (the conductor's ids; `null` every GMB, `[]` none), again on `sa:gmbs-request`,
+and until then the tab waits. The tab's regex and facets narrow its selection and set it (`sa:gmbs-select` `{ids}`),
+Clear restores the one they narrowed, and a selection made elsewhere clears them; so does a pick in the overview's
+Grafana `gmbs` variable, which the tab steers to the selection. A member's tab draws its own list of that member's
+gmails, and its filters are its own. Adding a GMB is the conductor's home. A card under a GMB
+switched off at the conductor is dimmed, as one whose track is off. Standalone (`--dev-member`), the binary serves the same page at `/`, its own host, whose selection is every GMB.
 The host's Grafana (the element's `grafana` attribute: its base) draws the overview and a place's
 board, or the legacy UI does: the element's `ui` attribute (`grafana` or `legacy`) is the host's
 default, and `?grafana=true` / `?grafana=false` on its URL overrides it for that browser tab. A host

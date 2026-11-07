@@ -13,7 +13,7 @@ ROOT = """(
   $order := $merge($append([], $map($split("${keys}", ","), function($k, $i) { {$k: $i} })));
   $rows := $$[("${gmail}" = "") or ($string(id) = "${gmail}")].(
     $g := $;
-    gmbs.(
+    gmbs[("${gmbs:csv}" = "*") or ($string(id) in $split("${gmbs:csv}", ","))].(
     $b := $;
     tracks.{
       "key": $string($b.id) & ":" & $string(target.id),
@@ -52,6 +52,36 @@ def query(columns):
 
 def hidden(name):
 	return {"name": name, "type": "textbox", "hide": 2, "query": "", "current": {"text": "", "value": ""}, "options": []}
+
+
+# the element steers it to the conductor's GMB selection, and a pick here becomes that selection
+GMBS = {
+	"name": "gmbs",
+	"label": "GMBs",
+	"type": "query",
+	"datasource": DS,
+	"query": {
+		"refId": "variable",
+		"queryType": "infinity",
+		"infinityQuery": {
+			"type": "json",
+			"source": "url",
+			"format": "table",
+			"parser": "backend",
+			"url": "/me/overview",
+			"url_options": {"method": "GET", "headers": [{"key": "x-member", "value": "${member}"}]},
+			"root_selector": '$$.gmbs.{"__value": $string(id), "__text": tracks[0].target.label ? tracks[0].target.label : place_id}',
+			"columns": [{"selector": "__text", "text": "__text", "type": "string"}, {"selector": "__value", "text": "__value", "type": "string"}],
+		},
+	},
+	"refresh": 1,
+	"multi": True,
+	"includeAll": True,
+	"allValue": "*",
+	"allowCustomValue": True,
+	"current": {"text": ["All"], "value": ["$__all"]},
+	"options": [],
+}
 
 
 CARD_COLUMNS = [
@@ -253,7 +283,7 @@ dashboard = {
 	"schemaVersion": 41,
 	"editable": True,
 	"time": {"from": "now-30d", "to": "now"},
-	"templating": {"list": [hidden("member"), hidden("gmail"), hidden("keys"), hidden("rev")]},
+	"templating": {"list": [hidden("member"), hidden("gmail"), hidden("keys"), hidden("rev"), GMBS]},
 	"panels": [
 		{
 			"id": 2,

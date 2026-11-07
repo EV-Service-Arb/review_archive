@@ -459,9 +459,88 @@ fn act<F: Future<Output = Result<(), review_archive_client::Error>> + 'static>(f
 
 const SHELL: &str = "flex min-h-0 flex-1 bg-background text-ink text-[13px] font-sans";
 
+/// The GMBs the host's outline lists (`sa:gmbs`, the conductor's ids): what the caller's own tab narrows to.
+#[derive(Clone, PartialEq)]
+enum Picked {
+	/// no `sa:gmbs` yet
+	Unknown,
+	All,
+	Only(std::collections::HashSet<i64>),
+}
+
+impl Picked {
+	fn holds(&self, gmb: i64) -> bool {
+		match self {
+			Self::All => true,
+			Self::Only(ids) => ids.contains(&gmb),
+			Self::Unknown => unreachable!("nothing is listed before the host's selection is known"),
+		}
+	}
+}
+
+#[derive(Clone, Copy)]
+struct Selection(Signal<Picked>);
+
+/// Asks the host to make `picked` its selection; it answers with `sa:gmbs`.
+fn select(picked: &Picked) {
+	let ids = match picked {
+		Picked::All => JsValue::NULL,
+		Picked::Only(ids) => {
+			let mut ids: Vec<_> = ids.iter().copied().collect();
+			ids.sort_unstable();
+			ids.into_iter().map(|id| JsValue::from(id as f64)).collect::<js_sys::Array>().into()
+		}
+		Picked::Unknown => unreachable!("only a known selection is narrowed"),
+	};
+	let detail = js_sys::Object::new();
+	js_sys::Reflect::set(&detail, &"ids".into(), &ids).expect("setting a field");
+	let init = web_sys::CustomEventInit::new();
+	init.set_detail(&detail);
+	let ev = web_sys::CustomEvent::new_with_event_init_dict("sa:gmbs-select", &init).expect("a plain event");
+	web_sys::window().expect("a browser").dispatch_event(&ev).expect("dispatching to a window");
+}
+
 #[component]
 fn Shell() -> Element {
 	use_context_provider(|| Views(Signal::new(Default::default())));
+	let Selection(mut picked) = use_context_provider(|| Selection(Signal::new(Picked::Unknown)));
+	let listener = use_hook(|| {
+		let (rt, shell) = (dioxus::core::Runtime::current(), dioxus::core::current_scope_id());
+		let on_gmbs = Closure::<dyn FnMut(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
+			let ids = js_sys::Reflect::get(&e.detail(), &"ids".into()).unwrap_or_else(|_| panic!("sa:gmbs without a detail object: {:?}", e.detail()));
+			let next = match ids.is_null() {
+				true => Picked::All,
+				false => Picked::Only(
+					ids.dyn_into::<js_sys::Array>()
+						.unwrap_or_else(|ids| panic!("sa:gmbs ids is neither null nor an array: {ids:?}"))
+						.iter()
+						.map(|id| match id.as_f64() {
+							Some(n) if n.fract() == 0. => n as i64,
+							_ => panic!("sa:gmbs ids holds a non-id: {id:?}"),
+						})
+						.collect(),
+				),
+			};
+			rt.in_scope(shell, || {
+				if *picked.peek() != next {
+					picked.set(next);
+				}
+			});
+		});
+		let window = web_sys::window().expect("a browser");
+		window.add_event_listener_with_callback("sa:gmbs", on_gmbs.as_ref().unchecked_ref()).expect("adding a listener");
+		// the host may have told the page before this listened
+		window
+			.dispatch_event(&web_sys::CustomEvent::new("sa:gmbs-request").expect("a plain event"))
+			.expect("dispatching to a window");
+		std::rc::Rc::new(on_gmbs)
+	});
+	use_drop(move || {
+		web_sys::window()
+			.expect("a browser")
+			.remove_event_listener_with_callback("sa:gmbs", listener.as_ref().as_ref().unchecked_ref())
+			.expect("removing a listener");
+	});
 	let route = use_route::<Route>();
 	let me = use_resource(|| async { api().me().await.map_err(shown) });
 	let body = match &*me.read() {
@@ -652,8 +731,9 @@ fn Workspace(view: Route) -> Element {
 			None => api(),
 		})
 	});
+	let Selection(selection) = use_context();
 	let refresh = use_context_provider(|| Refresh(Signal::new(0)));
-	use_context_provider(|| Signal::new(filter::Filter::default()));
+	let mut filter = use_context_provider(|| Signal::new(filter::Filter::default()));
 	use_context_provider(|| Signal::new(filter::reviews::Reviews::default()));
 	let failure = use_context_provider(|| Failure(Signal::new(None)));
 	let overview = use_resource(move || {
@@ -661,6 +741,66 @@ fn Workspace(view: Route) -> Element {
 		async move {
 			refresh.0();
 			client.overview().await.map_err(shown)
+		}
+	});
+	// the own tab's filter row selects for the host: what it narrows (`base`: the selection as it was when it began),
+	// and what it asked for that the host has not echoed yet
+	let mut base = use_signal(|| None::<Picked>);
+	let mut asked = use_signal(Vec::<Picked>::new);
+	use_effect(move || {
+		let now = selection();
+		if tab.is_some() || now == Picked::Unknown {
+			return;
+		}
+		let mut pending = asked.write();
+		match pending.iter().position(|p| *p == now) {
+			Some(i) => drop(pending.drain(..=i)),
+			// someone else's selection: the row no longer describes it
+			None => {
+				pending.clear();
+				base.set(None);
+				if *filter.peek() != filter::Filter::default() {
+					filter.set(filter::Filter::default());
+				}
+			}
+		}
+	});
+	use_effect(move || {
+		let narrowing = filter.read().clone();
+		let Some(Ok(gmails)) = overview.read().clone() else { return };
+		if tab.is_some() || *selection.peek() == Picked::Unknown {
+			return;
+		}
+		let ask = match narrowing == filter::Filter::default() {
+			true => match base.write().take() {
+				Some(was) => was,
+				None => return,
+			},
+			false => {
+				let from = base.write().get_or_insert_with(|| selection.peek().clone()).clone();
+				let cards = gmails
+					.iter()
+					.flat_map(|g| g.gmbs.iter().map(move |b| (g, b)))
+					.filter(|(_, b)| from.holds(b.id))
+					.flat_map(|(g, b)| {
+						b.tracks.iter().map(|l| {
+							(
+								Gmb {
+									id: b.id,
+									gmail: g.gmail.clone(),
+									enabled: b.enabled,
+								},
+								l.clone(),
+							)
+						})
+					})
+					.collect();
+				Picked::Only(narrowing.keep(cards).into_iter().map(|(g, _)| g.id).collect())
+			}
+		};
+		if ask != *selection.peek() && asked.peek().last() != Some(&ask) {
+			asked.write().push(ask.clone());
+			select(&ask);
 		}
 	});
 	// while a scan is queued or walking, its card is read again
@@ -720,7 +860,12 @@ fn Workspace(view: Route) -> Element {
 	};
 	// a removed gmail's URL shows them all, as home does
 	let current = picked.filter(|id| gmails.iter().any(|g| g.gmail.id == *id));
-	let scope = current.and_then(|id| gmails.iter().find(|g| g.gmail.id == id)).cloned();
+	// the host's outline is the caller's GMBs: a member's tab is narrowed by its own rail
+	let listed = match (tab, base()) {
+		(Some(_), _) => Picked::All,
+		(None, Some(base)) => base,
+		(None, None) => selection(),
+	};
 	let acting = tab.map(|m| {
 		let who = match whom {
 			Some(w) if !w.name.is_empty() => format!("{} <{}>", w.name, w.email),
@@ -743,26 +888,31 @@ fn Workspace(view: Route) -> Element {
 				if let Some(e) = failure.0() {
 					div { class: "border-b border-border bg-accent-error/15 px-6 py-2 text-accent-error", "{e}" }
 				}
-				match (at, scope) {
-					(View::Settings, _) => rsx! {
+				match at {
+					View::Settings => rsx! {
 						settings::Page {}
 					},
-					(View::Gmb { gmb, target }, _) => match gmb_of(gmb) {
+					View::Gmb { gmb, target } => match gmb_of(gmb) {
 						Some((gmail, b)) => rsx! { GmbPage { gmb: Gmb { id: b.id, gmail, enabled: b.enabled }, place_id: b.place_id, tracks: b.tracks, target, tab } },
 						None => rsx! { div { class: "p-6 text-ink-soft", "No GMB #{gmb} of yours: it may have been removed." } },
 					},
-					(_, None) if gmails.is_empty() => rsx! {
+					_ if gmails.is_empty() => rsx! {
 						div { class: "p-6 text-ink-soft",
 							"No GMBs yet. "
 							AddGmb {}
 						}
 					},
-					(_, scope) => {
-						let shown = |g: &&GmailOverview| scope.as_ref().is_none_or(|s| s.gmail.id == g.gmail.id);
+					_ if listed == Picked::Unknown => rsx! { div { class: "p-6 text-ink-soft", "Waiting for the outline's selection…" } },
+					_ => {
 						let mut cards = Vec::new();
 						let mut untracked = Vec::new();
-						for g in gmails.iter().filter(shown) {
-							for b in &g.gmbs {
+						let mut under = Vec::new();
+						for g in gmails.iter().filter(|g| current.is_none_or(|c| c == g.gmail.id)) {
+							let gmbs: Vec<_> = g.gmbs.iter().filter(|b| listed.holds(b.id)).collect();
+							if !gmbs.is_empty() {
+								under.push(g.gmail.clone());
+							}
+							for b in gmbs {
 								let gmb = Gmb {
 									id: b.id,
 									gmail: g.gmail.clone(),
@@ -775,7 +925,11 @@ fn Workspace(view: Route) -> Element {
 							}
 						}
 						cards.sort_by_key(|(_, l)| (std::cmp::Reverse(l.snapshots_7d), l.target.id));
-						rsx! { Places { cards, untracked, gmail: scope.map(|s| s.gmail), tab } }
+						let gmail = match <[GmailDto; 1]>::try_from(under) {
+							Ok([one]) => Some(one),
+							Err(_) => None,
+						};
+						rsx! { Places { cards, untracked, gmail, tab } }
 					}
 				}
 			}
@@ -865,7 +1019,7 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<
 	}
 }
 
-/// Tracked places as cards, as given: one gmail's (`gmail`), else every gmail's. A place tracked
+/// Tracked places as cards, as given; `gmail`: the one gmail they are all under, if one. A place tracked
 /// under two GMBs is a card under each: its counts are that GMB's. `untracked`: GMBs with no
 /// track yet, and their place ids.
 #[component]
@@ -885,9 +1039,7 @@ fn Places(cards: Vec<(Gmb, LocationSummary)>, untracked: Vec<(Gmb, String)>, gma
 		Ui::Legacy => rsx! {
 			main { class: "min-h-0 flex-1 overflow-y-auto p-6",
 				if total == 0 {
-					div { class: "text-ink-soft",
-						if gmail.is_some() { "No places tracked under this gmail yet." } else { "No places tracked yet." }
-					}
+					div { class: "text-ink-soft", "No places tracked here." }
 				} else if shown.is_empty() {
 					div { class: "text-ink-soft", "No place matches the filters." }
 				}
@@ -906,13 +1058,6 @@ fn Places(cards: Vec<(Gmb, LocationSummary)>, untracked: Vec<(Gmb, String)>, gma
 		},
 	};
 	rsx! {
-		header { class: "flex h-14 shrink-0 items-center gap-3 border-b border-border px-6",
-			span { class: "text-ink-soft", {gmail.as_ref().map_or("All gmails", |g| g.gmail.as_str())} }
-			span { class: "text-ink-soft", "/" }
-			span { class: "font-medium", "Locations" }
-			div { class: "flex-1" }
-			AddGmb {}
-		}
 		if !untracked.is_empty() {
 			div { class: "flex flex-wrap items-center gap-2 border-b border-border px-6 py-2",
 				span { class: "text-ink-soft", "Not tracked:" }
