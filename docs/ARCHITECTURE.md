@@ -43,7 +43,7 @@ crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, backgrou
   src/config.rs                 the config (v_utils `Settings`): data dir, bind, and every library and server section
 crates/review_archive_client/   typed async client of the HTTP API through the panel, on the core's DTOs; native and wasm
 crates/review_archive_web/      the dashboard MFE (dioxus, wasm), over the client; `package.sh` lays out /mfe/, `index.html` is `/`;
-                                with `?grafana=true` (kept per browser tab) it frames the host's Grafana (its `grafana` attribute):
+                                with `ui="grafana"`, or `?grafana=true` (kept per browser tab), it frames the host's Grafana (its `grafana` attribute):
                                 the overview and a place's board in one frame, booted with the page and steered between them; the board is `ra-location` through the
                                 tilers plugin (`evmain-tilers-app`): the lanes and the runs, each a panel, drops posted up to the page
 grafana/                        those dashboards, over the API through the conductor's Infinity datasource `review_archive`;

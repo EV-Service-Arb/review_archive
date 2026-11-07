@@ -49,6 +49,8 @@ struct Host {
 	base: String,
 	/// The host's Grafana base, resolved against the page; required by [`Ui::Grafana`] only.
 	grafana: Option<String>,
+	/// The tab's `?grafana=` choice, else the host's `ui` attribute.
+	ui: Ui,
 }
 
 /// The entry module's URL: every file of the bundle sits next to it.
@@ -58,7 +60,6 @@ static MOUNT: OnceLock<Mount> = OnceLock::new();
 /// What the page gives the element when it mounts.
 struct Mount {
 	locale: Locale,
-	ui: Ui,
 	/// The element's attributes, or the names of those it left out.
 	host: Result<Host, Vec<&'static str>>,
 }
@@ -90,11 +91,8 @@ fn mount(el: web_sys::Element) {
 		.map(|(_, v)| v.into_owned())
 		.collect();
 	// the router drops the query, so a tab keeps what its link asked for across navigation and reloads
-	let ui = match asked.as_slice() {
-		[] => match session().get_item(UI).expect("sessionStorage is readable") {
-			Some(ui) => ui.parse().expect("written below"),
-			None => Ui::Legacy,
-		},
+	let chosen = match asked.as_slice() {
+		[] => session().get_item(UI).expect("sessionStorage is readable").map(|ui| ui.parse().expect("written below")),
 		[v] => {
 			let ui = match v.as_str() {
 				"true" => Ui::Grafana,
@@ -102,22 +100,25 @@ fn mount(el: web_sys::Element) {
 				v => panic!("?grafana={v}: a link asks for `true` or `false`"),
 			};
 			session().set_item(UI, &ui.to_string()).expect("sessionStorage is writable");
-			ui
+			Some(ui)
 		}
 		many => panic!("?grafana given {} times: {many:?}", many.len()),
 	};
 	let attr = |name| el.get_attribute(name);
+	let default = attr("ui").map(|ui| ui.parse::<Ui>().unwrap_or_else(|_| panic!("ui=\"{ui}\": a host asks for `grafana` or `legacy`")));
+	let ui = chosen.or(default);
 	let required = match ui {
-		Ui::Legacy => &["api", "sign-in", "csrf-cookie", "base"][..],
-		Ui::Grafana => &["api", "sign-in", "csrf-cookie", "base", "grafana"],
+		Some(Ui::Grafana) => &["api", "sign-in", "csrf-cookie", "base", "ui", "grafana"][..],
+		_ => &["api", "sign-in", "csrf-cookie", "base", "ui"],
 	};
-	let host = match (attr("api"), attr("sign-in"), attr("csrf-cookie"), attr("base"), attr("grafana")) {
-		(Some(api), Some(sign_in), Some(csrf_cookie), Some(base), grafana) if grafana.is_some() || ui == Ui::Legacy => Ok(Host {
+	let host = match (attr("api"), attr("sign-in"), attr("csrf-cookie"), attr("base"), default, ui, attr("grafana")) {
+		(Some(api), Some(sign_in), Some(csrf_cookie), Some(base), Some(_), Some(ui), grafana) if grafana.is_some() || ui == Ui::Legacy => Ok(Host {
 			api,
 			sign_in,
 			csrf_cookie,
 			base,
 			grafana,
+			ui,
 		}),
 		_ => Err(required.iter().copied().filter(|a| !el.has_attribute(a)).collect()),
 	};
@@ -126,7 +127,7 @@ fn mount(el: web_sys::Element) {
 		cfg = cfg.history(std::rc::Rc::new(Based::new(&host.base)));
 	}
 	let locale = ev_lib::mfe::host_locale(&el);
-	assert!(MOUNT.set(Mount { locale, ui, host }).is_ok(), "one dashboard per page");
+	assert!(MOUNT.set(Mount { locale, host }).is_ok(), "one dashboard per page");
 	dioxus::LaunchBuilder::new().with_cfg(cfg).launch(root);
 }
 
@@ -161,7 +162,9 @@ impl Based {
 impl dioxus::history::History for Based {
 	fn current_route(&self) -> String {
 		if self.here() {
-			self.last.replace(self.web.current_route());
+			let route = self.web.current_route();
+			// at the bare base with a query (`/review_archive?grafana=true`) the route is the query alone
+			self.last.replace(if route.starts_with('/') { route } else { format!("/{route}") });
 		}
 		self.last.borrow().clone()
 	}
@@ -233,7 +236,7 @@ fn host() -> &'static Host {
 }
 
 fn ui() -> Ui {
-	MOUNT.get().expect("set before launch").ui
+	host().ui
 }
 
 /// The API as this tab's member: the caller, or the member their tab acts as.

@@ -381,9 +381,10 @@ in), `/gmails/{id}`, `/settings`, under `/members/{id}` for a member's tab. The 
 every page, lists the person's gmails and GMBs, switches them and links to those views; a member's tab
 draws its own list of that member's gmails. Adding a GMB is the conductor's home. A card under a GMB
 switched off at the conductor is dimmed, as one whose track is off. Standalone (`--dev-member`), the binary serves the same page at `/`.
-`?grafana=true` on its URL has the host's Grafana (the element's `grafana` attribute: its base) draw
-the overview and a place's board, for that browser tab (`?grafana=false` undoes it); otherwise the
-legacy UI does. A host without the attribute has no Grafana, and the element says so.
+The host's Grafana (the element's `grafana` attribute: its base) draws the overview and a place's
+board, or the legacy UI does: the element's `ui` attribute (`grafana` or `legacy`) is the host's
+default, and `?grafana=true` / `?grafana=false` on its URL overrides it for that browser tab. A host
+without the `grafana` attribute has no Grafana, and the element says so.
 
 ## Library
 
