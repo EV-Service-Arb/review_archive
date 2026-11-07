@@ -51,12 +51,11 @@ struct Placed {
 /// What is done in a dashboard: a click in the overview's cards, a pick of its `gmbs`, a drop on the board's lanes.
 enum Up {
 	Select(Picked),
-	Open { gmb: i64, target: i64 },
+	Open { gmb: i64 },
 	Scan { gmb: i64, target: i64 },
 	Enable { gmb: i64, target: i64, on: bool },
 	Favorite { gmb: i64, target: i64, on: bool },
 	Relink { gmb: i64, target: i64 },
-	Untrack { gmb: i64, target: i64 },
 	Reinstate { review: i64 },
 	Withdraw { review: i64 },
 }
@@ -199,10 +198,7 @@ pub fn Host(me: i64, children: Element) -> Element {
 				let kind = field("kind").as_string();
 				let id = |k| field(k).as_f64().unwrap_or_else(|| panic!("{kind:?}'s {k} is not an id: {:?}", field(k))) as i64;
 				let up = match kind.as_deref() {
-					Some("ra-open") => Up::Open {
-						gmb: id("gmb"),
-						target: id("target"),
-					},
+					Some("ra-open") => Up::Open { gmb: id("gmb") },
 					Some("ra-scan") => Up::Scan {
 						gmb: id("gmb"),
 						target: id("target"),
@@ -218,10 +214,6 @@ pub fn Host(me: i64, children: Element) -> Element {
 						on: field("on").as_bool().unwrap_or_else(|| panic!("ra-favorite's on is not a bool: {:?}", field("on"))),
 					},
 					Some("ra-relink") => Up::Relink {
-						gmb: id("gmb"),
-						target: id("target"),
-					},
-					Some("ra-untrack") => Up::Untrack {
 						gmb: id("gmb"),
 						target: id("target"),
 					},
@@ -323,15 +315,14 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 	let on = move |up: Up| match up {
 		Up::Select(picked) if tab.is_none() => crate::select(&picked),
 		Up::Select(_) => {}
-		Up::Open { gmb, target } => {
+		Up::Open { gmb } => {
 			reviews.set(Reviews::default());
-			navigator().push(Route::at(tab, View::Gmb { gmb, target: Some(target) }));
+			navigator().push(Route::at(tab, View::Gmb(gmb)));
 		}
 		Up::Scan { gmb, target } => act(move |c| async move { c.scan_tracked(gmb, target).await.map(drop) }),
 		Up::Enable { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
 		Up::Favorite { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
 		Up::Relink { gmb, target } => act(move |c| async move { c.relink(gmb, target).await.map(drop) }),
-		Up::Untrack { gmb, target } => act(move |c| async move { c.untrack(gmb, target).await }),
 		Up::Reinstate { .. } | Up::Withdraw { .. } => unreachable!("the overview has no lanes"),
 	};
 	rsx! {
@@ -358,8 +349,7 @@ pub fn Location(gmb: i64, target: i64, tab: Option<i64>) -> Element {
 	let on = move |up: Up| match up {
 		Up::Reinstate { review } => act(move |c| async move { c.reinstate(gmb, review).await.map(drop) }),
 		Up::Withdraw { review } => act(move |c| async move { c.withdraw_reinstatement(gmb, review).await }),
-		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } | Up::Favorite { .. } | Up::Relink { .. } | Up::Untrack { .. } | Up::Select(_) =>
-			unreachable!("a board has no location cards nor gmbs"),
+		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } | Up::Favorite { .. } | Up::Relink { .. } | Up::Select(_) => unreachable!("a board has no location cards nor gmbs"),
 	};
 	rsx! {
 		Slot { class: "min-h-0 w-full flex-1", path, on }

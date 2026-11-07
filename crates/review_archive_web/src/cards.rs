@@ -1,10 +1,8 @@
 //! The locations overview as the kit draws it: a card per place.
 
 use dioxus::{prelude::*, web::WebEventExt};
-use ev_lib::uikit_dioxus::{
-	Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuItemVariant, DropdownMenuTrigger, Size, Spinner, Switch, button_classes,
-};
-use review_archive_client::dto::{LocationSummary, RunStatus, ScanState, TrackPatch};
+use ev_lib::uikit_dioxus::{Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Size, Spinner, Switch, button_classes};
+use review_archive_client::dto::{GbpState, LocationSummary, RunStatus, ScanState, TrackPatch};
 use sa_ui::TokenCost;
 
 use crate::{
@@ -54,12 +52,12 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 					div { class: "flex min-h-7 flex-col justify-end", // a name that wraps takes the space above it
 						div {
 							class: "line-clamp-2 text-[14px] leading-5 font-semibold",
-							title: if cut() { "{loc.target.label}" },
+							title: if cut() { "{gmb.name}" },
 							onresize: move |e| {
 								let name = e.as_web_event().target();
 								cut.set(name.scroll_height() > name.client_height());
 							},
-							"{loc.target.label}"
+							"{gmb.name}"
 						}
 					}
 					if let Some(address) = &loc.target.address {
@@ -87,6 +85,11 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 					}
 				}
 				div { class: "flex flex-wrap gap-1.5",
+					if gmb.state != GbpState::Verified {
+						Badge { tone: Tone::Warn,
+							span { title: "not scanned until the GBP is verified", "{gmb.state.as_ref()}" }
+						}
+					}
 					Badge { tone: Tone::Ok,
 						match loc.listed {
 							Some(listed) => rsx! { span { title: "archived and still listed / listed on Google", "live: {loc.live}/{listed}" } },
@@ -189,12 +192,6 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 					DropdownMenuItem { onclick: move |_| act(move |c| async move { c.relink(id, target).await.map(drop) }),
 						span { "⟳" }
 						span { title: "ask Google for the place's id, name and address again", "re-link" }
-					}
-					DropdownMenuItem {
-						variant: DropdownMenuItemVariant::Destructive,
-						onclick: move |_| act(move |c| async move { c.untrack(id, target).await }),
-						span { "🗑" }
-						span { title: "stop tracking under this GMB; the archive stays", "delete" }
 					}
 				}
 			}

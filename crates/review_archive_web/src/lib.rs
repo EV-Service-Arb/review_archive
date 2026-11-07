@@ -1,4 +1,4 @@
-//! The dashboard: a person's GMBs (the conductor's, under their managing gmails), the places
+//! The dashboard: a person's GMBs (the conductor's, under their managing gmails), the place
 //! each tracks, and per place a board of its reviews — snapshotted, suspended, removed, reinstating. The Service-Arb panel mounts it and
 //! forwards its calls to the archive: the panel's session cookie and CSRF header sign them.
 //! One who may act as others gets tabs: their own dashboard, and any member's, acting as them.
@@ -19,13 +19,13 @@ use ev_lib::{
 	i18n::{Locale, Messages, Translator},
 	t,
 	uikit_dioxus::{
-		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Input, Size, Spinner, Tabs,
-		TabsList, TabsTrigger,
+		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Size, Tabs, TabsList,
+		TabsTrigger,
 	},
 };
 use review_archive_client::{
 	Client,
-	dto::{GmailDto, GmailOverview, LocationSummary, Me, MemberDto, NewTrack},
+	dto::{GbpState, GmailDto, GmailOverview, GmbSummary, LocationSummary, Me, MemberDto},
 };
 use sa_auth::{Members, Permission, PermissionSet};
 use wasm_bindgen::{JsCast, prelude::*};
@@ -265,8 +265,22 @@ fn may(p: impl Permission) -> bool {
 struct Gmb {
 	id: i64,
 	gmail: GmailDto,
+	name: String,
 	/// The conductor's switch.
 	enabled: bool,
+	state: GbpState,
+}
+
+impl From<(&GmailDto, &GmbSummary)> for Gmb {
+	fn from((gmail, b): (&GmailDto, &GmbSummary)) -> Self {
+		Self {
+			id: b.id,
+			gmail: gmail.clone(),
+			name: b.name.clone(),
+			enabled: b.enabled,
+			state: b.state,
+		}
+	}
 }
 
 /// What a tab shows.
@@ -274,11 +288,8 @@ struct Gmb {
 enum View {
 	Home,
 	Gmail(i64),
-	/// A GMB's board: of `target`, else of its first track; with none, a track to start.
-	Gmb {
-		gmb: i64,
-		target: Option<i64>,
-	},
+	/// A GMB's board.
+	Gmb(i64),
 	Settings,
 }
 
@@ -287,8 +298,7 @@ impl dioxus::router::ToRouteSegments for View {
 		match self {
 			Self::Home => write!(f, "/gmbs"),
 			Self::Gmail(g) => write!(f, "/gmails/{g}"),
-			Self::Gmb { gmb, target: None } => write!(f, "/gmbs/{gmb}"),
-			Self::Gmb { gmb, target: Some(t) } => write!(f, "/gmbs/{gmb}/tracks/{t}"),
+			Self::Gmb(gmb) => write!(f, "/gmbs/{gmb}"),
 			Self::Settings => write!(f, "/settings"),
 		}
 	}
@@ -302,8 +312,7 @@ impl dioxus::router::FromRouteSegments for View {
 		match segments {
 			[] | [""] | ["gmbs"] => Ok(Self::Home),
 			["gmails", g] => Ok(Self::Gmail(id(g)?)),
-			["gmbs", g] => Ok(Self::Gmb { gmb: id(g)?, target: None }),
-			["gmbs", g, "tracks", t] => Ok(Self::Gmb { gmb: id(g)?, target: Some(id(t)?) }),
+			["gmbs", g] => Ok(Self::Gmb(id(g)?)),
 			["settings"] => Ok(Self::Settings),
 			_ => Err(format!("no view at /{}", segments.join("/"))),
 		}
@@ -782,18 +791,7 @@ fn Workspace(view: Route) -> Element {
 					.iter()
 					.flat_map(|g| g.gmbs.iter().map(move |b| (g, b)))
 					.filter(|(_, b)| from.holds(b.id))
-					.flat_map(|(g, b)| {
-						b.tracks.iter().map(|l| {
-							(
-								Gmb {
-									id: b.id,
-									gmail: g.gmail.clone(),
-									enabled: b.enabled,
-								},
-								l.clone(),
-							)
-						})
-					})
+					.map(|(g, b)| (Gmb::from((&g.gmail, b)), b.track.clone()))
 					.collect();
 				Picked::Only(narrowing.keep(cards).into_iter().map(|(g, _)| g.id).collect())
 			}
@@ -817,7 +815,7 @@ fn Workspace(view: Route) -> Element {
 			.await
 			.expect("a timer never rejects");
 			if let Some(Ok(gmails)) = &*overview.peek()
-				&& gmails.iter().flat_map(|g| &g.gmbs).flat_map(|b| &b.tracks).any(|l| l.scan.is_some())
+				&& gmails.iter().flat_map(|g| &g.gmbs).any(|b| b.track.scan.is_some())
 			{
 				refresh += 1;
 			}
@@ -856,7 +854,7 @@ fn Workspace(view: Route) -> Element {
 	let picked = match at {
 		View::Home | View::Settings => None,
 		View::Gmail(gmail) => Some(gmail),
-		View::Gmb { gmb, .. } => gmb_of(gmb).map(|(g, _)| g.id),
+		View::Gmb(gmb) => gmb_of(gmb).map(|(g, _)| g.id),
 	};
 	// a removed gmail's URL shows them all, as home does
 	let current = picked.filter(|id| gmails.iter().any(|g| g.gmail.id == *id));
@@ -892,8 +890,8 @@ fn Workspace(view: Route) -> Element {
 					View::Settings => rsx! {
 						settings::Page {}
 					},
-					View::Gmb { gmb, target } => match gmb_of(gmb) {
-						Some((gmail, b)) => rsx! { GmbPage { gmb: Gmb { id: b.id, gmail, enabled: b.enabled }, place_id: b.place_id, tracks: b.tracks, target, tab } },
+					View::Gmb(gmb) => match gmb_of(gmb) {
+						Some((gmail, b)) => rsx! { board::Board { gmb: Gmb::from((&gmail, &b)), location: b.track, tab } },
 						None => rsx! { div { class: "p-6 text-ink-soft", "No GMB #{gmb} of yours: it may have been removed." } },
 					},
 					_ if gmails.is_empty() => rsx! {
@@ -905,31 +903,20 @@ fn Workspace(view: Route) -> Element {
 					_ if listed == Picked::Unknown => rsx! { div { class: "p-6 text-ink-soft", "Waiting for the outline's selection…" } },
 					_ => {
 						let mut cards = Vec::new();
-						let mut untracked = Vec::new();
 						let mut under = Vec::new();
 						for g in gmails.iter().filter(|g| current.is_none_or(|c| c == g.gmail.id)) {
 							let gmbs: Vec<_> = g.gmbs.iter().filter(|b| listed.holds(b.id)).collect();
 							if !gmbs.is_empty() {
 								under.push(g.gmail.clone());
 							}
-							for b in gmbs {
-								let gmb = Gmb {
-									id: b.id,
-									gmail: g.gmail.clone(),
-									enabled: b.enabled,
-								};
-								match b.tracks.is_empty() {
-									true => untracked.push((gmb, b.place_id.clone())),
-									false => cards.extend(b.tracks.iter().map(|l| (gmb.clone(), l.clone()))),
-								}
-							}
+							cards.extend(gmbs.into_iter().map(|b| (Gmb::from((&g.gmail, b)), b.track.clone())));
 						}
 						cards.sort_by_key(|(_, l)| (std::cmp::Reverse(l.snapshots_7d), l.target.id));
 						let gmail = match <[GmailDto; 1]>::try_from(under) {
 							Ok([one]) => Some(one),
 							Err(_) => None,
 						};
-						rsx! { Places { cards, untracked, gmail, tab } }
+						rsx! { Places { cards, gmail, tab } }
 					}
 				}
 			}
@@ -1020,10 +1007,9 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<
 }
 
 /// Tracked places as cards, as given; `gmail`: the one gmail they are all under, if one. A place tracked
-/// under two GMBs is a card under each: its counts are that GMB's. `untracked`: GMBs with no
-/// track yet, and their place ids.
+/// under two GMBs is a card under each: its counts are that GMB's.
 #[component]
-fn Places(cards: Vec<(Gmb, LocationSummary)>, untracked: Vec<(Gmb, String)>, gmail: Option<GmailDto>, tab: Option<i64>) -> Element {
+fn Places(cards: Vec<(Gmb, LocationSummary)>, gmail: Option<GmailDto>, tab: Option<i64>) -> Element {
 	let filter: Signal<filter::Filter> = use_context();
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
@@ -1047,7 +1033,7 @@ fn Places(cards: Vec<(Gmb, LocationSummary)>, untracked: Vec<(Gmb, String)>, gma
 					for (g, loc) in shown {
 						cards::LocationCard {
 							key: "{g.id}-{loc.target.id}",
-							to: Route::at(tab, View::Gmb { gmb: g.id, target: Some(loc.target.id) }),
+							to: Route::at(tab, View::Gmb(g.id)),
 							all: gmail.is_none(),
 							gmb: g,
 							loc,
@@ -1058,87 +1044,8 @@ fn Places(cards: Vec<(Gmb, LocationSummary)>, untracked: Vec<(Gmb, String)>, gma
 		},
 	};
 	rsx! {
-		if !untracked.is_empty() {
-			div { class: "flex flex-wrap items-center gap-2 border-b border-border px-6 py-2",
-				span { class: "text-ink-soft", "Not tracked:" }
-				for (g, place_id) in untracked {
-					Link {
-						key: "{g.id}",
-						class: "rounded-md border border-border px-2 py-0.5 font-mono text-[11px] hover:bg-hover",
-						to: Route::at(tab, View::Gmb { gmb: g.id, target: None }),
-						title: "{g.gmail.gmail}",
-						"{place_id}"
-					}
-				}
-			}
-		}
 		filter::Bar { kept, total }
 		{overview}
-	}
-}
-
-/// A GMB's page: the board of one of its tracks, a switch between them when there are several,
-/// and with none, the language to start tracking it in.
-#[component]
-fn GmbPage(gmb: Gmb, place_id: String, tracks: Vec<LocationSummary>, target: Option<i64>, tab: Option<i64>) -> Element {
-	let mut lang = use_signal(String::new);
-	let mut gbp = use_signal(String::new);
-	let mut pending = use_signal(|| false);
-	let shown = match target {
-		Some(t) => tracks.iter().find(|l| l.target.id == t),
-		None => tracks.first(),
-	};
-	let Some(location) = shown.cloned() else {
-		let id = gmb.id;
-		return rsx! {
-			header { class: "flex h-14 shrink-0 items-center gap-3 border-b border-border px-6",
-				span { class: "text-ink-soft", "{gmb.gmail.gmail}" }
-				span { class: "text-ink-soft", "/" }
-				span { class: "font-mono", "{place_id}" }
-			}
-			form {
-				class: "flex items-center gap-2 p-6",
-				onsubmit: move |e: FormEvent| {
-					e.prevent_default();
-					let req = NewTrack {
-						label: None,
-						lang: Some(lang().trim().to_owned()).filter(|l| !l.is_empty()),
-						gbp: Some(gbp().trim().to_owned()).filter(|g| !g.is_empty()),
-					};
-					pending.set(true);
-					let nav = navigator();
-					act(move |c| async move {
-						let t = c.track(id, &req).await;
-						pending.set(false);
-						nav.push(Route::at(tab, View::Gmb { gmb: id, target: Some(t?.id) }));
-						Ok(())
-					});
-				},
-				span { "Track its reviews in" }
-				Input { class: "w-24", placeholder: "fr", value: lang(), oninput: move |e: FormEvent| lang.set(e.value()) }
-				Input { class: "w-56", placeholder: "GBP <account>/<location> (optional)", value: gbp(), oninput: move |e: FormEvent| gbp.set(e.value()) }
-				Button { disabled: pending(),
-					if pending() { Spinner {} " Tracking…" } else { "Track" }
-				}
-			}
-		};
-	};
-	let switch = (tracks.len() > 1).then(|| {
-		rsx! {
-			div { class: "flex gap-1",
-				for l in tracks.clone() {
-					Link {
-						key: "{l.target.id}",
-						class: if l.target.id == location.target.id { "rounded-md px-2 py-0.5 bg-hover text-ink" } else { "rounded-md px-2 py-0.5 text-ink-soft hover:bg-hover" },
-						to: Route::at(tab, View::Gmb { gmb: gmb.id, target: Some(l.target.id) }),
-						"{l.target.lang} · {l.target.kind.as_ref()}"
-					}
-				}
-			}
-		}
-	});
-	rsx! {
-		board::Board { gmb, location, tab, {switch} }
 	}
 }
 

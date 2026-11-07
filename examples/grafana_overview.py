@@ -15,10 +15,10 @@ ROOT = """(
     $g := $;
     gmbs[("${gmbs:csv}" = "*") or ($string(id) in $split("${gmbs:csv}", ","))].(
     $b := $;
-    tracks.{
+    track.{
       "key": $string($b.id) & ":" & $string(target.id),
-      "gmb": $b.id, "gmail": $g.id, "gmail_name": $g.gmail,
-      "target": target.id, "label": target.label, "address": target.address, "place_id": target.place_id,
+      "gmb": $b.id, "gmail": $g.id, "gmail_name": $g.gmail, "state": $b.state = "verified" ? null : $b.state,
+      "target": target.id, "label": $b.name, "address": target.address, "place_id": target.place_id,
       "enabled": enabled, "favorite": favorite, "snapshots_7d": snapshots_7d, "snapshots_30d": snapshots_30d,
       "live": live, "listed": listed, "rating": rating, "new_7d": new_7d, "posts_7d": posts_7d,
       "post": latest_post.text, "post_at": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,
@@ -70,7 +70,7 @@ GMBS = {
 			"parser": "backend",
 			"url": "/me/overview",
 			"url_options": {"method": "GET", "headers": [{"key": "x-member", "value": "${member}"}]},
-			"root_selector": '$$.gmbs.{"__value": $string(id), "__text": tracks[0].target.label ? tracks[0].target.label : place_id}',
+			"root_selector": '$$.gmbs.{"__value": $string(id), "__text": name}',
 			"columns": [{"selector": "__text", "text": "__text", "type": "string"}, {"selector": "__value", "text": "__value", "type": "string"}],
 		},
 	},
@@ -90,6 +90,7 @@ CARD_COLUMNS = [
 	("gmail_name", "gmail_name", "string"),
 	("target", "target", "number"),
 	("label", "label", "string"),
+	("state", "state", "string"),
 	("address", "address", "string"),
 	("place_id", "place_id", "string"),
 	("enabled", "enabled", "boolean"),
@@ -154,6 +155,7 @@ CONTENT = """<div class="ra-grid">
     {{#if rating}}<div class="ra-avg" title="the star average Google gives the place"><b>{{fixed rating 2}}</b><small>★ average</small></div>{{/if}}
   </div>
   <div class="ra-badges">
+    {{#if state}}<span class="warn" title="not scanned until the GBP is verified">{{state}}</span>{{/if}}
     <span class="ok" title="archived and still listed / listed on Google">live: {{live}}{{#if listed}}/{{listed}}{{/if}}</span>
     <span class="ok" title="posted over the last 7 days, removed ones included">new 7d: +{{new_7d}}</span>
     {{#if post}}<span class="ok" title="owner's latest post, {{ago post_at}}:&#10;{{post}}">posts 7d: {{posts_7d}}</span>{{/if}}
@@ -174,7 +176,6 @@ CONTENT = """<div class="ra-grid">
       <div>
         <button data-act="favorite">{{#if favorite}}<i class="ra-gold">★</i> unfavorite{{else}}☆ favorite{{/if}}</button>
         <button data-act="relink" title="ask Google for the place's id, name and address again">⟳ re-link</button>
-        <button data-act="delete" class="ra-del" title="stop tracking under this GMB; the archive stays">🗑 delete</button>
       </div>
     </details>
   </div>
@@ -215,7 +216,6 @@ context.element.querySelectorAll('.ra-card').forEach((card) => {
     enable: { kind: 'ra-enable', ...ids, on: !row.enabled },
     favorite: { kind: 'ra-favorite', ...ids, on: !row.favorite },
     relink: { kind: 'ra-relink', ...ids },
-    delete: { kind: 'ra-untrack', ...ids },
   };
   card.addEventListener('click', () => up({ kind: 'ra-open', ...ids }));
   card.querySelector('.ra-menu').addEventListener('click', (e) => e.stopPropagation());
@@ -273,8 +273,7 @@ STYLES = """.ra-grid { display: grid; grid-template-columns: repeat(auto-fill, m
 .ra-menu > div { position: absolute; right: 0; bottom: 100%; z-index: 10; display: flex; flex-direction: column; min-width: 140px; padding: 4px; border: 1px solid rgba(128,128,128,.3); border-radius: 6px; background: #181b1f; }
 .ra-menu > div button { display: flex; gap: 8px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .ra-menu > div button:hover { background: rgba(128,128,128,.2); }
-.ra-gold { color: #ff9830; font-style: normal; }
-.ra-menu > div .ra-del { color: #f2495c; }"""
+.ra-gold { color: #ff9830; font-style: normal; }"""
 
 dashboard = {
 	"uid": "ra-overview",

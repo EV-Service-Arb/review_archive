@@ -36,9 +36,9 @@ if (!BASE) throw new Error("SA_CONDUCTOR_ORIGIN: the local stack's conductor, as
 	await page.goto(`${BASE}/auth/login?return_to=${encodeURIComponent('/review_archive/gmbs?grafana=false')}`);
 	await dashboard.locator(':text("Across locations")').waitFor({ timeout: 60000 });
 	const gmbs = (await (await page.request.get(`${BASE}/api/review_archive/me/overview`)).json()).flatMap((g) => g.gmbs);
-	const tracks = (ids) => gmbs.filter((b) => ids === null || ids.includes(b.id)).reduce((n, b) => n + b.tracks.length, 0);
-	const tracked = gmbs.filter((b) => b.tracks.length > 0).map((b) => b.id);
-	assert.ok(tracked.length >= 2, 'the signed-in user tracks two GMBs or more');
+	const tracks = (ids) => gmbs.filter((b) => ids === null || ids.includes(b.id)).length; // a GMB has one track
+	const tracked = gmbs.map((b) => b.id);
+	assert.ok(tracked.length >= 2, 'the signed-in user has two GMBs or more');
 
 	await select(null);
 	await lists([tracks(null), tracks(null)], 'every GMB');

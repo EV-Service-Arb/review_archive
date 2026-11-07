@@ -9,7 +9,7 @@ use review_archive::{
 	config::Config,
 	core::{
 		TargetId,
-		dto::{GmbSnapshot, MirroredGmb, NewTrack, TrackPatch},
+		dto::{GbpState, GmbSnapshot, MirroredGmb, TrackPatch},
 	},
 	store::people::{Claim, Seen},
 };
@@ -58,10 +58,11 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 	let Claim::Person(owner) = archive.person(&seen).await.unwrap() else {
 		panic!("a fresh archive")
 	};
-	let labels = [SHORT, TWO_LINES, LONGER];
+	let names = [SHORT, TWO_LINES, LONGER];
 	let snapshot = GmbSnapshot {
-		gmbs: (1..=3)
-			.map(|id| MirroredGmb {
+		gmbs: (1..)
+			.zip(names)
+			.map(|(id, name)| MirroredGmb {
 				id,
 				gmail_id: 1,
 				gmail: "ops@gmail.com".into(),
@@ -69,24 +70,23 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 				removed: false,
 				enabled: true,
 				place_id: format!("ChIJdashboardtest{id:0>8}"),
+				state: GbpState::Verified,
+				lang: Some("en".into()),
+				name: name.into(),
+				address: None,
 			})
 			.collect(),
 		balances: Default::default(),
 		charges_through: 0,
 	};
 	archive.apply_snapshot(&snapshot).await.unwrap();
-	for (gmb, label) in (1..).zip(labels) {
-		let track = NewTrack {
-			label: Some(label.into()),
-			..Default::default()
-		};
-		let t = archive.track(owner, gmb, &track).await.unwrap();
+	for b in archive.overview(owner).await.unwrap().into_iter().flat_map(|g| g.gmbs) {
 		// no scans: there is no browser for them
 		let off = TrackPatch {
 			enabled: Some(false),
 			favorite: None,
 		};
-		archive.patch_track(owner, gmb, TargetId(t.id), &off).await.unwrap();
+		archive.patch_track(owner, b.id, TargetId(b.track.target.id), &off).await.unwrap();
 	}
 	archive.close().await;
 
