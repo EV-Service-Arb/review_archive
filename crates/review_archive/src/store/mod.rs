@@ -394,7 +394,7 @@ fn target_columns(default_interval: Timeframe) -> String {
 		"t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang,
 		 COALESCE((SELECT MIN(COALESCE(pe.interval_secs, {default})) FROM tracks tr
 		           JOIN gmb_mirror mg ON mg.id = tr.gmb_id LEFT JOIN people pe ON pe.sub = mg.owner
-		           WHERE tr.target_id = t.id AND tr.enabled AND mg.enabled), t.interval_secs) AS interval_secs,
+		           WHERE tr.target_id = t.id AND tr.enabled AND mg.enabled AND mg.state = 'verified'), t.interval_secs) AS interval_secs,
 		 t.enabled, t.created_at"
 	)
 }
@@ -437,25 +437,7 @@ impl Store {
 
 	/// Adds a target.
 	pub async fn add_target(&self, t: &InsertTarget, now: Timestamp) -> eyre::Result<TargetId> {
-		let id: i64 = sqlx::query_scalar(
-			"INSERT INTO targets (label, name, address, kind, place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-		)
-		.bind(&t.label)
-		.bind(&t.name)
-		.bind(&t.address)
-		.bind(t.kind.as_ref())
-		.bind(&t.place_id)
-		.bind(t.gbp.as_ref().map(|g| g.account.as_str()))
-		.bind(t.gbp.as_ref().map(|g| g.location.as_str()))
-		.bind(&t.lang)
-		.bind(i64::try_from(t.interval.duration().as_secs()).map_err(|_| Rejected::invalid("the interval is too long"))?)
-		.bind(t.enabled)
-		.bind(fmt_ts(now))
-		.fetch_one(&self.pool)
-		.await
-		.wrap_err("inserting target")?;
-		Ok(TargetId(id))
+		insert_target(&self.pool, t, now).await
 	}
 
 	/// Every target, by id.
@@ -513,14 +495,14 @@ impl Store {
 		Ok(orphans)
 	}
 
-	/// Enabled targets, by id, but for those whose every track is switched off, by its member or the conductor.
+	/// Enabled targets, by id, but for those with no live track: on, under a verified GMB the conductor switched on.
 	pub(crate) async fn scheduled_targets(&self) -> eyre::Result<Vec<Target>> {
 		let columns = &self.target_columns;
 		let rows: Vec<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
 			"SELECT {columns} FROM targets t
 			 WHERE t.enabled
 			   AND (NOT EXISTS (SELECT 1 FROM tracks k WHERE k.target_id = t.id)
-			        OR EXISTS (SELECT 1 FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id WHERE k.target_id = t.id AND k.enabled AND m.enabled))
+			        OR EXISTS (SELECT 1 FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id WHERE k.target_id = t.id AND k.enabled AND m.enabled AND m.state = 'verified'))
 			 ORDER BY t.id"
 		)))
 		.fetch_all(&self.pool)
@@ -566,22 +548,9 @@ impl Store {
 	}
 
 	/// The target on this place and language, read from this GBP location (`None`: from
-	/// Maps), if any: where ad-hoc captures and members' tracks go.
+	/// Maps), if any: where ad-hoc captures and GMBs' tracks go.
 	pub async fn find_target(&self, place_id: &str, lang: &str, gbp: Option<&GbpLocation>) -> eyre::Result<Option<Target>> {
-		let columns = &self.target_columns;
-		let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-			"SELECT {columns} FROM targets t
-			 WHERE t.place_id = ?1 AND t.lang = ?2 AND t.kind = IIF(?3 IS NULL, 'maps', 'gbp') AND t.gbp_account IS ?3 AND t.gbp_location IS ?4
-			 ORDER BY t.id LIMIT 1"
-		)))
-		.bind(place_id)
-		.bind(lang)
-		.bind(gbp.map(|g| g.account.as_str()))
-		.bind(gbp.map(|g| g.location.as_str()))
-		.fetch_optional(&self.pool)
-		.await
-		.wrap_err("looking up a target by place")?;
-		row.map(Target::try_from).transpose()
+		target_on(&self.pool, &self.target_columns, place_id, lang, gbp).await
 	}
 
 	/// Points a target at the place Google now knows it as.
@@ -1094,6 +1063,46 @@ impl Store {
 			.await
 			.wrap_err("counting captures")
 	}
+}
+
+/// Adds a target.
+async fn insert_target<'e, E: sqlx::SqliteExecutor<'e>>(db: E, t: &InsertTarget, now: Timestamp) -> eyre::Result<TargetId> {
+	let id: i64 = sqlx::query_scalar(
+		"INSERT INTO targets (label, name, address, kind, place_id, gbp_account, gbp_location, lang, interval_secs, enabled, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+	)
+	.bind(&t.label)
+	.bind(&t.name)
+	.bind(&t.address)
+	.bind(t.kind.as_ref())
+	.bind(&t.place_id)
+	.bind(t.gbp.as_ref().map(|g| g.account.as_str()))
+	.bind(t.gbp.as_ref().map(|g| g.location.as_str()))
+	.bind(&t.lang)
+	.bind(i64::try_from(t.interval.duration().as_secs()).map_err(|_| Rejected::invalid("the interval is too long"))?)
+	.bind(t.enabled)
+	.bind(fmt_ts(now))
+	.fetch_one(db)
+	.await
+	.wrap_err("inserting target")?;
+	Ok(TargetId(id))
+}
+
+/// See [`Store::find_target`].
+async fn target_on<'e, E: sqlx::SqliteExecutor<'e>>(db: E, columns: &str, place_id: &str, lang: &str, gbp: Option<&GbpLocation>) -> eyre::Result<Option<Target>> {
+	let row: Option<TargetRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+		"SELECT {columns} FROM targets t
+		 WHERE t.place_id = ?1 AND t.lang = ?2 AND t.kind = IIF(?3 IS NULL, 'maps', 'gbp') AND t.gbp_account IS ?3 AND t.gbp_location IS ?4
+		 ORDER BY t.id LIMIT 1"
+	)))
+	.bind(place_id)
+	.bind(lang)
+	.bind(gbp.map(|g| g.account.as_str()))
+	.bind(gbp.map(|g| g.location.as_str()))
+	.fetch_optional(db)
+	.await
+	.wrap_err("looking up a target by place")?;
+	row.map(Target::try_from).transpose()
 }
 
 async fn review_by_id<'e, E: sqlx::SqliteExecutor<'e>>(db: E, id: ReviewId) -> eyre::Result<Option<ReviewDto>> {

@@ -30,7 +30,7 @@ use std::fmt;
 use reqwest::{Method, RequestBuilder, StatusCode, Url};
 pub use review_archive_core::dto;
 use review_archive_core::dto::{
-	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, MEMBER_HEADER, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewTrack, NewWebhook,
+	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, MEMBER_HEADER, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewWebhook,
 	ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch, WaitQuery, WebhookDto,
 };
 use serde::de::DeserializeOwned;
@@ -286,17 +286,6 @@ impl Client {
 	/// `DELETE /me/settings`: every setting back to its default.
 	pub async fn reset_settings(&self) -> Result<Settings, Error> {
 		Self::json(self.request(Method::DELETE, "me/settings")?).await
-	}
-
-	/// `POST /me/gmbs/{gmb}/tracks`: the place's target, shared or new.
-	pub async fn track(&self, gmb: i64, req: &NewTrack) -> Result<TargetDto, Error> {
-		Self::json(self.request(Method::POST, &format!("me/gmbs/{gmb}/tracks"))?.json(req)).await
-	}
-
-	/// `DELETE /me/gmbs/{gmb}/tracks/{target}`.
-	pub async fn untrack(&self, gmb: i64, target: i64) -> Result<(), Error> {
-		Self::send(self.request(Method::DELETE, &format!("me/gmbs/{gmb}/tracks/{target}"))?).await?;
-		Ok(())
 	}
 
 	/// `PATCH /me/gmbs/{gmb}/tracks/{target}`: on or off, favorite or not.

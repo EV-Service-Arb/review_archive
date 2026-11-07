@@ -12,7 +12,7 @@ use review_archive::{
 	core::{
 		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
 		dto::{
-			CaptureRequest, Event, GmbSnapshot, JobStatus, LocationSummary, Me, MemberDto, MirroredGmb, NewTarget, NewTrack, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch,
+			CaptureRequest, Event, GbpState, GmbSnapshot, JobStatus, LocationSummary, Me, MemberDto, MirroredGmb, NewTarget, NewWebhook, Setting, Settings, SettingsPatch, TargetPatch,
 			TrackPatch,
 		},
 		tokens::Meter,
@@ -187,7 +187,7 @@ impl Env {
 			.unwrap()
 	}
 
-	/// The conductor says `owner` manages `place` under `gmail`, and holds tokens for its walks: the GMB's id.
+	/// The conductor says `owner` manages `place` under `gmail`, verified, and holds tokens for its walks: the GMB's id.
 	async fn gmb(&self, owner: &str, gmail: &str, place: &str) -> i64 {
 		let snap = {
 			let mut m = self.mirror.lock().unwrap();
@@ -205,6 +205,10 @@ impl Env {
 				removed: false,
 				enabled: true,
 				place_id: place.into(),
+				state: GbpState::Verified,
+				lang: Some("en".into()),
+				name: format!("GBP {id}"),
+				address: None,
 			});
 			m.balances.entry(owner.into()).or_insert(1000);
 			m.clone()
@@ -212,11 +216,26 @@ impl Env {
 		self.archive.apply_snapshot(&snap).await.unwrap();
 		snap.gmbs.last().unwrap().id
 	}
+
+	/// The conductor removes the GMB.
+	async fn remove(&self, gmb: i64) {
+		let snap = {
+			let mut m = self.mirror.lock().unwrap();
+			m.gmbs.iter_mut().find(|g| g.id == gmb).unwrap().removed = true;
+			m.clone()
+		};
+		self.archive.apply_snapshot(&snap).await.unwrap();
+	}
 }
 
-/// The first place a member tracks, as their overview shows it.
+/// The place a member's GMB tracks.
+async fn track_of(member: &Client, gmb: i64) -> review_archive::core::dto::TargetDto {
+	member.overview().await.unwrap().into_iter().flat_map(|g| g.gmbs).find(|b| b.id == gmb).unwrap().track.target
+}
+
+/// The first GMB's place, as its member's overview shows it.
 fn first(overview: &[review_archive::core::dto::GmailOverview]) -> &LocationSummary {
-	&overview[0].gmbs[0].tracks[0]
+	&overview[0].gmbs[0].track
 }
 
 async fn id(c: &Client) -> i64 {
@@ -562,8 +581,6 @@ async fn every_route_but_health_and_openapi_wants_an_assertion() {
 		("GET", "/me"),
 		("GET", "/me/overview"),
 		("GET", "/me/gmbs"),
-		("POST", "/me/gmbs/1/tracks"),
-		("DELETE", "/me/gmbs/1/tracks/1"),
 		("PATCH", "/me/gmbs/1/tracks/1"),
 		("GET", "/me/gmbs/1/tracks/1/board"),
 		("PUT", "/me/gmbs/1/reinstatements/1"),
@@ -944,8 +961,12 @@ async fn acting_as_a_member_needs_members_act_as() {
 	assert_eq!(admin.overview().await.unwrap(), vec![], "without the header, the admin's own");
 	let as_alice = admin.clone().as_member(a);
 	assert_eq!(as_alice.overview().await.unwrap(), alice.overview().await.unwrap());
-	as_alice.track(g, &NewTrack::default()).await.unwrap();
-	assert_eq!(alice.overview().await.unwrap()[0].gmbs[0].tracks.len(), 1, "the admin's write is alice's");
+	let favorite = TrackPatch {
+		favorite: Some(true),
+		..Default::default()
+	};
+	as_alice.patch_track(g, track_of(&alice, g).await.id, &favorite).await.unwrap();
+	assert!(first(&alice.overview().await.unwrap()).favorite, "the admin's write is alice's");
 	assert_eq!(as_alice.me().await.unwrap().email, "root@x.com");
 	assert_eq!(admin.as_member(9999).overview().await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	for c in [e.client.clone(), e.member(BOB)] {
@@ -1011,6 +1032,10 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 			removed: false,
 			enabled: true,
 			place_id: PLACE.into(),
+			state: GbpState::Verified,
+			lang: Some("en".into()),
+			name: "GBP 1".into(),
+			address: None,
 		}],
 		balances: Default::default(),
 		charges_through: 0,
@@ -1204,14 +1229,9 @@ async fn members_share_places_but_see_only_their_own() {
 	let a = e.gmb(ALICE, "ops.paris@gmail.com", PLACE).await;
 	let b = e.gmb(BOB, "bob@gmail.com", PLACE).await;
 
-	let track = NewTrack {
-		lang: Some("fr".into()),
-		..Default::default()
-	};
-	let t = alice.track(a, &track).await.unwrap();
-	assert_eq!(bob.track(b, &track).await.unwrap().id, t.id, "one place, one target");
+	let t = track_of(&alice, a).await;
+	assert_eq!(track_of(&bob, b).await.id, t.id, "one place, one target");
 	assert_eq!(e.client.targets().await.unwrap().len(), 1);
-	assert_eq!(bob.track(a, &track).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND), "alice's GMB is not bob's");
 
 	// the overview counts screenshots by when they were taken: one today, one a fortnight ago
 	let taken = |id: &str, days_ago: i64| {
@@ -1287,13 +1307,13 @@ async fn members_share_places_but_see_only_their_own() {
 	);
 	assert_eq!(bob.relink(a, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 
-	// once bob stops tracking the place, its screenshots are no longer his to see
+	// once bob's GMB is removed, the place's screenshots are no longer his to see
 	assert!(bob.capture_webp(&url).await.is_ok());
-	bob.untrack(b, t.id).await.unwrap();
+	e.remove(b).await;
 	assert_eq!(bob.capture_webp(&url).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(bob.overview().await.unwrap()[0].gmbs[0].tracks, vec![]);
-	assert_eq!(alice.overview().await.unwrap()[0].gmbs[0].tracks.len(), 1, "alice's track stays");
-	alice.untrack(a, t.id).await.unwrap();
+	assert_eq!(bob.overview().await.unwrap(), vec![]);
+	assert_eq!(track_of(&alice, a).await.id, t.id, "alice's track stays");
+	e.remove(a).await;
 	assert_eq!(e.client.targets().await.unwrap().len(), 1, "untracked by all, the target and its archive stay");
 	e.server.abort();
 }
@@ -1306,7 +1326,7 @@ async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 	let e = env().await;
 	let alice = e.member(ALICE);
 	let g = e.gmb(ALICE, "ops@gmail.com", PLACE).await;
-	let t = alice.track(g, &NewTrack::default()).await.unwrap();
+	let t = track_of(&alice, g).await;
 	let low = Observed {
 		rating: Some(2),
 		..review("removed")
@@ -1364,8 +1384,8 @@ async fn my_gmbs_tags_what_needs_the_operator() {
 	let e = env().await;
 	let alice = e.member(ALICE);
 	let (troubled, quiet) = (e.gmb(ALICE, "a@gmail.com", PLACE).await, e.gmb(ALICE, "b@gmail.com", "ChIJN1t72QZ44kcRFxvqmsHcKbE").await);
-	let t = alice.track(troubled, &NewTrack::default()).await.unwrap().id;
-	let q = alice.track(quiet, &NewTrack::default()).await.unwrap().id;
+	let t = track_of(&alice, troubled).await.id;
+	let q = track_of(&alice, quiet).await.id;
 	record(&e, t, vec![review("kept"), review("suspended"), review("appealed")]).await;
 	record(&e, t, vec![review("kept")]).await;
 	record(&e, q, vec![review("kept")]).await;
@@ -1401,9 +1421,7 @@ async fn a_place_is_scanned_while_anyone_has_it_on() {
 	let e = env().await;
 	let (alice, bob) = (e.member(ALICE), e.member(BOB));
 	let (a, b) = (e.gmb(ALICE, "a@gmail.com", PLACE).await, e.gmb(BOB, "b@gmail.com", PLACE).await);
-	let track = NewTrack::default();
-	let t = alice.track(a, &track).await.unwrap().id;
-	bob.track(b, &track).await.unwrap();
+	let t = track_of(&alice, a).await.id;
 	let untracked = e
 		.client
 		.add_target(&NewTarget {
@@ -1454,9 +1472,7 @@ async fn a_members_interval_schedules_every_place_they_pay_for() {
 	let e = env().await;
 	let (alice, bob) = (e.member(ALICE), e.member(BOB));
 	let (a, b) = (e.gmb(ALICE, "alice@gmail.com", PLACE).await, e.gmb(BOB, "bob@gmail.com", PLACE).await);
-	let track = NewTrack::default();
-	let t = alice.track(a, &track).await.unwrap();
-	bob.track(b, &track).await.unwrap();
+	let t = track_of(&alice, a).await;
 	let scheduled = async || e.client.target(t.id).await.unwrap().target.interval_secs;
 	let every = |interval: &str| SettingsPatch { interval: Some(interval.into()) };
 	let day = 86_400;
@@ -1492,8 +1508,8 @@ async fn a_members_interval_schedules_every_place_they_pay_for() {
 
 	assert_eq!(alice.reset_settings().await.unwrap(), interval(None));
 	assert_eq!(scheduled().await, day, "alice is back on the default, sooner than bob's");
-	alice.untrack(a, t.id).await.unwrap();
-	bob.untrack(b, t.id).await.unwrap();
+	e.remove(a).await;
+	e.remove(b).await;
 	assert_eq!(scheduled().await, 12 * 3600, "nobody pays: the place's own");
 
 	assert_eq!(
@@ -1542,15 +1558,13 @@ async fn the_conductor_pulls_alerts_on_tracked_places() {
 	let a = e.gmb(ALICE, "a@gmail.com", PLACE).await;
 	let b = e.gmb(BOB, "b@gmail.com", PLACE).await;
 	let c = e.gmb("carol", "c@gmail.com", "ChIJelsewhereelsewhere").await;
-	let track = NewTrack::default();
-	let t = alice.track(a, &track).await.unwrap().id;
-	bob.track(b, &track).await.unwrap();
+	let t = track_of(&alice, a).await.id;
 	let off = TrackPatch {
 		enabled: Some(false),
 		..Default::default()
 	};
 	bob.patch_track(b, t, &off).await.unwrap();
-	let other = carol.track(c, &track).await.unwrap().id;
+	let other = track_of(&carol, c).await.id;
 	let hook = e
 		.client
 		.add_webhook(&NewWebhook {
@@ -1602,5 +1616,75 @@ async fn the_conductor_pulls_alerts_on_tracked_places() {
 	let unknown = as_conductor(&e, &format!("/api/conductor/captures/{}.png", "0".repeat(64))).await;
 	assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
 	assert_eq!(as_conductor(&e, "/api/conductor/notifications?after=0&limit=0").await.status(), StatusCode::BAD_REQUEST);
+	e.server.abort();
+}
+
+/// `PUT /api/conductor/gmbs` as the conductor sends it.
+async fn put_snapshot(e: &Env, snapshot: &serde_json::Value) -> StatusCode {
+	let token = e.signer.sign(&sa_auth::Assertion {
+		aud: sa_auth::Service::ReviewArchive,
+		principal: sa_auth::Principal::Conductor,
+		method: "PUT".into(),
+		path: "/api/conductor/gmbs".into(),
+		exp: alive(),
+	});
+	reqwest::Client::new()
+		.put(format!("{}/api/conductor/gmbs", e.base))
+		.header(sa_auth::HEADER, token)
+		.json(snapshot)
+		.send()
+		.await
+		.unwrap()
+		.status()
+}
+
+/// A placed GBP has its track from the snapshot on; it is walked only while verified, and it
+/// follows its gmail to another owner.
+#[tokio::test]
+async fn the_snapshot_tracks_every_placed_gbp() {
+	let e = env().await;
+	let gbp = |id: i64, gmail_id: i64, owner: &str, state: &str, lang: Option<&str>, place: &str| {
+		serde_json::json!({
+			"id": id, "gmail_id": gmail_id, "gmail": format!("{owner}@gmail.com"), "owner": owner,
+			"removed": lang.is_none(), "enabled": true, "place_id": place,
+			"state": state, "lang": lang, "name": format!("GBP {id}"), "address": "1 rue de la Paix, Paris",
+		})
+	};
+	let snapshot = |gbps: Vec<serde_json::Value>| serde_json::json!({"gmbs": gbps, "balances": {ALICE: 1000, BOB: 1000}, "charges_through": 0});
+	let overview = async |who: &str| -> Vec<serde_json::Value> {
+		let gmails: Vec<serde_json::Value> = http_as(&Who::member(who)).get(format!("{}/me/overview", e.base)).send().await.unwrap().json().await.unwrap();
+		gmails.into_iter().flat_map(|g| g["gmbs"].as_array().unwrap().clone()).collect()
+	};
+	let verified = gbp(1, 1, ALICE, "verified", Some("fr"), PLACE);
+	let verifying = gbp(2, 1, ALICE, "verifying", Some("en"), "ChIJverifyingverifying00");
+	let gone = gbp(3, 1, ALICE, "suspended", None, "ChIJremovedremovedremoved");
+
+	let mut nameless = gbp(4, 1, ALICE, "verified", Some("fr"), "ChIJnolangnolangnolang00");
+	nameless["lang"] = serde_json::Value::Null;
+	assert_eq!(
+		put_snapshot(&e, &snapshot(vec![verified.clone(), nameless])).await,
+		StatusCode::BAD_REQUEST,
+		"a placed GBP has a language"
+	);
+	assert_eq!(put_snapshot(&e, &snapshot(vec![verified.clone(), verifying.clone(), gone.clone()])).await, StatusCode::NO_CONTENT);
+
+	let gmbs = overview(ALICE).await;
+	assert_eq!(gmbs.iter().map(|g| g["id"].as_i64().unwrap()).collect::<Vec<_>>(), [1, 2], "a removed GBP is not listed");
+	let target = |g: &serde_json::Value| g["track"]["target"].clone();
+	let (on, waiting) = (target(&gmbs[0]), target(&gmbs[1]));
+	assert_eq!(
+		(on["place_id"].as_str(), on["lang"].as_str(), on["label"].as_str()),
+		(Some(PLACE), Some("fr"), Some("GBP 1")),
+		"named as the snapshot says"
+	);
+	assert_eq!((gmbs[1]["state"].as_str(), waiting["lang"].as_str()), (Some("verifying"), Some("en")));
+	let due: Vec<i64> = e.archive.due(Timestamp::now()).await.unwrap().into_iter().map(|t| t.id.0).collect();
+	assert_eq!(due, [on["id"].as_i64().unwrap()], "a verifying GBP's place waits");
+
+	let transferred = gbp(1, 2, BOB, "verified", Some("fr"), PLACE);
+	assert_eq!(put_snapshot(&e, &snapshot(vec![transferred, verifying, gone])).await, StatusCode::NO_CONTENT);
+	assert_eq!(overview(ALICE).await.iter().map(|g| g["id"].as_i64().unwrap()).collect::<Vec<_>>(), [2]);
+	let bobs = overview(BOB).await;
+	assert_eq!(target(&bobs[0]), on, "the track goes with the GBP");
 	e.server.abort();
 }

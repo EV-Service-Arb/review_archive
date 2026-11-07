@@ -5,7 +5,7 @@ use std::time::Duration;
 use review_archive::{
 	Archive,
 	config::Config,
-	core::dto::{GmbSnapshot, Me, MirroredGmb},
+	core::dto::{GbpState, GmbSnapshot, Me, MirroredGmb},
 	store::people::{Claim, Seen},
 };
 
@@ -38,6 +38,10 @@ async fn the_dev_member_is_whoever_manages_the_archive() {
 			removed: false,
 			enabled: true,
 			place_id: "ChIJdevmembertest0000000".into(),
+			state: GbpState::Verified,
+			lang: Some("en".into()),
+			name: "GBP 1".into(),
+			address: None,
 		}],
 		balances: Default::default(),
 		charges_through: 0,
@@ -51,7 +55,7 @@ async fn the_dev_member_is_whoever_manages_the_archive() {
 	let mut serve = tokio::process::Command::new(env!("CARGO_BIN_EXE_review_archive"))
 		.arg("--config")
 		.arg(&config)
-		.args(["serve", "--dev-member", "none"])
+		.args(["serve", "--dev-member", "none", "--no-login-check"])
 		.env("APP_ENV", "development")
 		.kill_on_drop(true)
 		.spawn()

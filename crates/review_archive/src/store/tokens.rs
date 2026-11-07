@@ -106,12 +106,14 @@ impl Store {
 		Ok(Rail { left, reopens_at })
 	}
 
-	/// The owners of the GMBs switched on with a track of `target` on, by `sub`.
+	/// The owners of the verified GMBs switched on with a track of `target` on, by `sub`.
 	async fn trackers(&self, target: TargetId) -> eyre::Result<Vec<String>> {
-		sqlx::query_scalar("SELECT DISTINCT m.owner FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id WHERE k.target_id = ? AND k.enabled AND m.enabled ORDER BY m.owner")
-			.bind(target.0)
-			.fetch_all(&self.pool)
-			.await
-			.wrap_err("listing who tracks a target")
+		sqlx::query_scalar(
+			"SELECT DISTINCT m.owner FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id WHERE k.target_id = ? AND k.enabled AND m.enabled AND m.state = 'verified' ORDER BY m.owner",
+		)
+		.bind(target.0)
+		.fetch_all(&self.pool)
+		.await
+		.wrap_err("listing who tracks a target")
 	}
 }

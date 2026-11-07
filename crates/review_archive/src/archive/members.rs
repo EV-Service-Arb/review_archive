@@ -1,11 +1,11 @@
-//! What a member does: what their GMBs track, appeals, settings. The member is who
+//! What a member does: their GMBs' tracks, appeals, settings. The member is who
 //! the caller authenticated as; everything is scoped to them in the store. GMBs and balances
 //! are the conductor's: it pushes them here, and follows what walks cost and the Alerts feed.
 
 use jiff::Timestamp;
 use review_archive_core::{
-	GbpLocation, PersonId, Rejected, ReviewId, TargetId, check_lang,
-	dto::{Board, Charges, GmailOverview, GmbSnapshot, JobKind, MAX_PAGE, MemberDto, MyGmbs, NewTrack, ReinstatementDto, Settings, SettingsPatch, TargetDto, TargetPatch, TrackPatch},
+	PersonId, Rejected, ReviewId, TargetId,
+	dto::{Board, Charges, GbpState, GmailOverview, GmbSnapshot, JobKind, MAX_PAGE, MemberDto, MyGmbs, ReinstatementDto, Settings, SettingsPatch, TargetDto, TrackPatch},
 	maps::cost,
 	parse_interval,
 };
@@ -41,46 +41,6 @@ impl Archive {
 			Some(_) => Ok(()),
 			None => Err(Rejected::not_found(format!("no person {id}")).into()),
 		}
-	}
-
-	/// Tracks the member's GMB's place: the target on that place, language and source if there
-	/// is one — enabled, if it was not — else a new one.
-	pub async fn track(&self, member: PersonId, gmb: i64, req: &NewTrack) -> eyre::Result<TargetDto> {
-		let store = self.store()?;
-		store.check_gmb(Some(member), gmb).await?;
-		let lang = req.lang.clone().unwrap_or_else(|| self.inner.defaults.lang.clone());
-		check_lang(&lang)?;
-		let gbp = req.gbp.as_deref().map(str::parse::<GbpLocation>).transpose()?;
-		let place_id = store.gmb_place(gmb).await?;
-		let target = match store.find_target(&place_id, &lang, gbp.as_ref()).await? {
-			Some(t) if t.enabled => t,
-			Some(t) =>
-				self.update_target(
-					t.id,
-					&TargetPatch {
-						enabled: Some(true),
-						..Default::default()
-					},
-				)
-				.await?,
-			None => {
-				// the mirrored id stays the target's: relinking is how it moves to a newer one
-				let (_, place) = self.stored()?.google.resolve(&place_id).await.map_err(crate::failure::places_error)?;
-				self.insert_target(place_id, place.as_ref(), req.label.clone(), Some(lang), None, gbp, true).await?
-			}
-		};
-		store.track(Some(member), gmb, target.id, Timestamp::now()).await?;
-		Ok(target.into())
-	}
-
-	/// The operator puts a target under any GMB.
-	pub async fn assign(&self, gmb: i64, target: TargetId) -> eyre::Result<()> {
-		self.store()?.track(None, gmb, target, Timestamp::now()).await
-	}
-
-	/// Stops the member's GMB tracking a target; the target and its archive stay until `defaults.untracked_retention` after no GMB tracks it.
-	pub async fn untrack(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<()> {
-		self.store()?.untrack(member, gmb, target, Timestamp::now()).await
 	}
 
 	/// Changes the member's GMB's track of a place: on or off, favorite or not.
@@ -122,8 +82,10 @@ impl Archive {
 	pub async fn scan_tracked(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<i64> {
 		let store = self.store()?;
 		store.check_track(member, gmb, target).await?;
-		if !store.gmb_enabled(gmb).await? {
-			return Err(Rejected::Busy(format!("GMB {gmb} is switched off")).into());
+		match store.gmb_switch(gmb).await? {
+			(false, _) => return Err(Rejected::Busy(format!("GMB {gmb} is switched off")).into()),
+			(true, GbpState::Verified) => {}
+			(true, state) => return Err(Rejected::Busy(format!("GMB {gmb} is {}", state.as_ref())).into()),
 		}
 		let now = Timestamp::now();
 		#[cfg(feature = "maps")]

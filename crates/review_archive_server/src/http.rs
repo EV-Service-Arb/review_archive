@@ -24,7 +24,7 @@ use review_archive_core::{
 	ReviewId, TargetId,
 	dto::{
 		Board, CaptureRequest, Charges, DayStats, ErrorBody, EventPayload, ExportQuery, FeedQuery, GmailOverview, GmbSnapshot, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs,
-		NewLayout, NewTarget, NewTrack, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto,
+		NewLayout, NewTarget, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto,
 		TargetPatch, TrackPatch, WaitQuery, WebhookDto, stats_csv,
 	},
 };
@@ -101,8 +101,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 		.route("/me/overview", get(overview))
 		.route("/me/gmbs", get(my_gmbs))
 		.route("/me/settings", get(settings).patch(patch_settings).delete(reset_settings))
-		.route("/me/gmbs/{gmb}/tracks", post(track))
-		.route("/me/gmbs/{gmb}/tracks/{target}", axum::routing::delete(untrack).patch(patch_track))
+		.route("/me/gmbs/{gmb}/tracks/{target}", axum::routing::patch(patch_track))
 		.route("/me/gmbs/{gmb}/tracks/{target}/relink", post(relink))
 		.route("/me/gmbs/{gmb}/tracks/{target}/scan", post(scan_tracked))
 		.route("/me/gmbs/{gmb}/tracks/{target}/board", get(board))
@@ -502,22 +501,6 @@ async fn patch_settings(State(s): State<AppState>, Member(m): Member, JsonBody(r
 #[utoipa::path(delete, path = "/me/settings", tag = "me", responses((status = 200, body = Settings)))]
 async fn reset_settings(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Settings>> {
 	Ok(Json(s.archive.reset_settings(m).await?))
-}
-
-/// Tracks the GMB's place. A place already watched (same place, language and source) is
-/// shared, not scanned twice.
-#[utoipa::path(post, path = "/me/gmbs/{gmb}/tracks", tag = "me", params(("gmb" = i64, Path)), request_body = NewTrack,
-	responses((status = 201, body = TargetDto), (status = 400, body = ErrorBody), (status = 404, body = ErrorBody)))]
-async fn track(State(s): State<AppState>, Member(m): Member, Path(gmb): Path<i64>, JsonBody(req): JsonBody<NewTrack>) -> ApiResult<(StatusCode, Json<TargetDto>)> {
-	Ok((StatusCode::CREATED, Json(s.archive.track(m, gmb, &req).await?)))
-}
-
-/// Stops tracking; the place and its archive stay until `defaults.untracked_retention` after no GMB tracks it.
-#[utoipa::path(delete, path = "/me/gmbs/{gmb}/tracks/{target}", tag = "me", params(("gmb" = i64, Path), ("target" = i64, Path)),
-	responses((status = 204), (status = 404, body = ErrorBody)))]
-async fn untrack(State(s): State<AppState>, Member(m): Member, Path((gmb, target)): Path<(i64, i64)>) -> ApiResult<StatusCode> {
-	s.archive.untrack(m, gmb, TargetId(target)).await?;
-	Ok(StatusCode::NO_CONTENT)
 }
 
 /// Switches the GMB's track of a place on or off, or marks it a favorite; the place's target stays as it is.

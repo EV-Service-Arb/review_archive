@@ -702,7 +702,7 @@ async fn a_scan_names_its_place() {
 	assert_eq!((t.to_string().as_str(), t.name.as_deref()), ("our Joe's", Some("Joe's Pizzeria")));
 }
 
-/// A place no gmail tracks is off the schedule and keeps its archive for `defaults.untracked_retention`,
+/// A place no GMB tracks is off the schedule and keeps its archive for `defaults.untracked_retention`,
 /// to be tracked again with it; past that its archive is purged, and the place is new to the archive.
 #[tokio::test]
 async fn an_untracked_place_is_purged_after_a_week() {
@@ -722,15 +722,6 @@ async fn an_untracked_place_is_purged_after_a_week() {
 		"a target never tracked is the operator's"
 	);
 
-	let seen = review_archive::store::people::Seen {
-		sub: "m",
-		email: "m@x",
-		email_verified: true,
-		name: "m",
-	};
-	let review_archive::store::people::Claim::Person(member) = e.store.person(&seen, now()).await.unwrap() else {
-		panic!("a fresh archive refuses nobody")
-	};
 	let gmb = |removed| review_archive::core::dto::GmbSnapshot {
 		gmbs: vec![review_archive::core::dto::MirroredGmb {
 			id: 1,
@@ -740,19 +731,21 @@ async fn an_untracked_place_is_purged_after_a_week() {
 			removed,
 			enabled: true,
 			place_id: e.target.place_id.clone(),
+			state: review_archive::core::dto::GbpState::Verified,
+			lang: Some(e.target.lang.clone()),
+			name: "m's".into(),
+			address: None,
 		}],
 		balances: Default::default(),
 		charges_through: 0,
 	};
 	e.store.apply_snapshot(&gmb(false), now()).await.unwrap();
-	let gmail = 1;
-	e.store.track(Some(member), gmail, e.target.id, now()).await.unwrap();
-	e.store.untrack(member, gmail, e.target.id, now()).await.unwrap();
+	e.store.apply_snapshot(&gmb(true), now()).await.unwrap();
 	assert!(!e.store.target(e.target.id).await.unwrap().enabled, "off the schedule");
 
 	e.clock.set("2026-09-07T10:00:00Z");
 	assert_eq!(archive.purge(now()).await.unwrap(), 0);
-	e.store.track(Some(member), gmail, e.target.id, now()).await.unwrap();
+	e.store.apply_snapshot(&gmb(false), now()).await.unwrap();
 	assert!(e.store.target(e.target.id).await.unwrap().enabled, "back on the schedule, archive and all");
 	assert_eq!(e.by_source_id().await.len(), 1);
 	e.store.apply_snapshot(&gmb(true), now()).await.unwrap();

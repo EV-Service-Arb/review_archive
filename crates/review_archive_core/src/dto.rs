@@ -707,19 +707,22 @@ pub struct PostDto {
 	pub first_seen: String,
 }
 
-/// A GMB: one place a gmail manages, and the archive's tracks of it.
+/// A GMB: one place a gmail manages, and the archive's track of it.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GmbSummary {
 	/// The conductor's id.
 	pub id: i64,
+	/// The GBP's name, at the conductor.
+	pub name: String,
 	/// The Google place id.
 	pub place_id: String,
-	/// The conductor's switch; off, none of its tracks is walked, whatever their own switches.
+	/// The conductor's switch; off, its track is not walked, whatever its own switch.
 	pub enabled: bool,
-	/// Its places as tracked here, a target per language and source, by snapshots over 7 days,
-	/// most first; empty: not tracked.
-	pub tracks: Vec<LocationSummary>,
+	/// Where the GBP is in its life; only a verified one's track is walked.
+	pub state: GbpState,
+	/// Its place as tracked here.
+	pub track: LocationSummary,
 }
 
 /// A gmail and its GMBs.
@@ -803,22 +806,6 @@ pub struct SettingsPatch {
 	pub interval: Option<String>,
 }
 
-/// `POST /me/gmbs/{gmb}/tracks`: watch the GMB's place. The place is watched once however
-/// many members track it; one already watched with this language and source is reused.
-#[skip_serializing_none]
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(default)]
-pub struct NewTrack {
-	/// The place's name when unset.
-	pub label: Option<String>,
-	/// UI language of the Maps page, e.g. `fr`.
-	pub lang: Option<String>,
-	/// `<account>/<location>`: read reviews through the Business Profile API, which needs
-	/// the archive's Google account among the location's managers.
-	pub gbp: Option<String>,
-}
-
 /// `GET /me`: who is signed in.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -856,7 +843,7 @@ pub struct MemberDto {
 pub struct MyGmbs {
 	/// By GMB id; removed GMBs are left out.
 	pub gmbs: std::collections::BTreeMap<i64, GmbReviews>,
-	/// Places with a track on under a GMB switched on, now.
+	/// Places with a track on under a verified GMB switched on, now.
 	pub places_tracked: i64,
 }
 
@@ -864,7 +851,7 @@ pub struct MyGmbs {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GmbReviews {
-	/// It is switched on, and a track of it is on.
+	/// It is verified and switched on, and its track is on.
 	pub tracked: bool,
 	/// The place's star average, from its most recently walked tracked target; `null` when never walked.
 	pub rating: Option<f64>,
@@ -893,10 +880,32 @@ pub struct MirroredGmb {
 	pub owner: String,
 	/// The GMB, or its gmail, is removed.
 	pub removed: bool,
-	/// The conductor's switch; off, the archive walks none of its tracks.
+	/// The conductor's switch; off, the archive does not walk its track.
 	pub enabled: bool,
 	/// The Google place id.
 	pub place_id: String,
+	/// Where the GBP is in its life.
+	pub state: GbpState,
+	/// The Maps language of its country, which its track is read in; `null` only for a removed GBP.
+	pub lang: Option<String>,
+	/// The GBP's name.
+	pub name: String,
+	/// The GBP's address.
+	pub address: Option<String>,
+}
+
+/// A placed GBP's life at the conductor; a draft is never sent. Stored as its lowercase name.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, strum::AsRefStr, strum::EnumString)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum GbpState {
+	/// Waiting on Google's verification.
+	Verifying,
+	/// Live: its track is walked.
+	Verified,
+	/// Suspended by Google.
+	Suspended,
 }
 
 /// `PUT /api/conductor/gmbs`: everything the conductor knows of GMBs and balances, at once.

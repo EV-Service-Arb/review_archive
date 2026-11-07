@@ -2,6 +2,8 @@
 //! appeals. Every query here is scoped by the member; the archive under it
 //! (targets, reviews, captures) stays shared.
 
+use std::collections::HashMap;
+
 use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
 use review_archive_core::{
@@ -12,7 +14,7 @@ use review_archive_core::{
 };
 use sqlx::{FromRow, SqliteConnection};
 
-use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow, no_target};
+use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow};
 
 #[derive(FromRow)]
 struct LocationRow {
@@ -75,48 +77,6 @@ pub(super) async fn left_untracked(conn: &mut SqliteConnection, target: TargetId
 }
 
 impl Store {
-	/// Tracks a target under a GMB; tracking it twice is tracking it. `member: None` is
-	/// the operator, who may assign any GMB.
-	pub async fn track(&self, member: Option<PersonId>, gmb: i64, target: TargetId, now: Timestamp) -> eyre::Result<()> {
-		self.check_gmb(member, gmb).await?;
-		let mut tx = self.write().await?;
-		// back on the schedule it was taken off when its last track went
-		let live = sqlx::query("UPDATE targets SET enabled = enabled OR untracked_at IS NOT NULL, untracked_at = NULL WHERE id = ? AND id > 0")
-			.bind(target.0)
-			.execute(&mut *tx)
-			.await
-			.wrap_err("tracking a target")?;
-		if live.rows_affected() != 1 {
-			return Err(no_target(target).into());
-		}
-		sqlx::query("INSERT INTO tracks (gmb_id, target_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
-			.bind(gmb)
-			.bind(target.0)
-			.bind(fmt_ts(now))
-			.execute(&mut *tx)
-			.await
-			.wrap_err("tracking a target")?;
-		tx.commit().await.wrap_err("committing a track")
-	}
-
-	/// Stops tracking; the target and its archive stay, until `defaults.untracked_retention`
-	/// after its last track went.
-	pub async fn untrack(&self, member: PersonId, gmb: i64, target: TargetId, now: Timestamp) -> eyre::Result<()> {
-		let mut tx = self.write().await?;
-		let done = sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM tracks WHERE gmb_id = ({MEMBERS_GMB}) AND target_id = ?")))
-			.bind(gmb)
-			.bind(member.0)
-			.bind(target.0)
-			.execute(&mut *tx)
-			.await
-			.wrap_err("untracking a target")?;
-		if done.rows_affected() != 1 {
-			return Err(no_track(gmb, target).into());
-		}
-		left_untracked(&mut tx, target, now).await?;
-		tx.commit().await.wrap_err("committing an untrack")
-	}
-
 	/// Changes a member's track; absent fields stay.
 	pub async fn patch_track(&self, member: PersonId, gmb: i64, target: TargetId, patch: &TrackPatch) -> eyre::Result<()> {
 		let done = sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -136,13 +96,13 @@ impl Store {
 		Ok(())
 	}
 
-	/// The member's gmails, each one's GMBs, and their places as tracked, by screenshots over 7 days, most first.
+	/// The member's gmails, each one's GMBs, and their places as tracked.
 	pub async fn overview(&self, member: PersonId, now: Timestamp) -> eyre::Result<Vec<GmailOverview>> {
 		let days_ago = |d: i64| fmt_ts(now - SignedDuration::from_hours(24 * d));
 		// one snapshot: every location row's GMB is among the GMBs read
 		let mut tx = self.pool.begin().await.wrap_err("starting a read")?;
-		let gmbs: Vec<(i64, i64, String, String, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-			"SELECT m.id, m.gmail_id, m.gmail, m.place_id, m.enabled FROM gmb_mirror m WHERE m.id IN ({MEMBERS_GMBS}) ORDER BY m.gmail, m.gmail_id, m.id"
+		let gmbs: Vec<(i64, i64, String, String, String, bool, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+			"SELECT m.id, m.gmail_id, m.gmail, m.name, m.place_id, m.enabled, m.state FROM gmb_mirror m WHERE m.id IN ({MEMBERS_GMBS}) ORDER BY m.gmail, m.gmail_id, m.id"
 		)))
 		.bind(member.0)
 		.fetch_all(&mut *tx)
@@ -183,8 +143,7 @@ impl Store {
 			 FROM tracks k
 			 JOIN targets t ON t.id = k.target_id
 			 LEFT JOIN posts p ON p.id = (SELECT id FROM posts WHERE target_id = t.id ORDER BY first_seen DESC, id DESC LIMIT 1)
-			 WHERE k.gmb_id IN ({MEMBERS_GMBS})
-			 ORDER BY snapshots_7d DESC, t.id"
+			 WHERE k.gmb_id IN ({MEMBERS_GMBS})"
 		)))
 		.bind(member.0)
 		.bind(days_ago(7))
@@ -193,22 +152,7 @@ impl Store {
 		.await
 		.wrap_err("loading the overview")?;
 		tx.commit().await.wrap_err("ending a read")?;
-		let mut out: Vec<GmailOverview> = Vec::new();
-		for (id, gmail_id, gmail, place_id, enabled) in gmbs {
-			if out.last().is_none_or(|g| g.gmail.id != gmail_id) {
-				out.push(GmailOverview {
-					gmail: GmailDto { id: gmail_id, gmail },
-					gmbs: vec![],
-				});
-			}
-			let g = out.last_mut().expect("pushed above");
-			g.gmbs.push(GmbSummary {
-				id,
-				place_id,
-				enabled,
-				tracks: vec![],
-			});
-		}
+		let mut tracks = HashMap::with_capacity(rows.len());
 		for r in rows {
 			let status = r
 				.last_run_status
@@ -217,8 +161,7 @@ impl Store {
 				.transpose()
 				.wrap_err_with(|| format!("target {}'s last run has an unknown status", r.target.id))?;
 			let held = self.held(TargetId(r.target.id)).await?;
-			let gmb = out.iter_mut().flat_map(|g| &mut g.gmbs).find(|b| b.id == r.gmb_id).expect("read in the same transaction");
-			gmb.tracks.push(LocationSummary {
+			let track = LocationSummary {
 				target: Target::try_from(r.target)?.into(),
 				enabled: r.track_enabled,
 				favorite: r.favorite,
@@ -255,6 +198,24 @@ impl Store {
 					(None, None) => None,
 				},
 				scan_cost: r.scan_cost.unwrap_or(cost::FIRST_SCREEN), // a place never walked costs at least its first screen
+			};
+			assert!(tracks.insert(r.gmb_id, track).is_none(), "GMB {} tracks two places; a GMB tracks its one", r.gmb_id);
+		}
+		let mut out: Vec<GmailOverview> = Vec::new();
+		for (id, gmail_id, gmail, name, place_id, enabled, state) in gmbs {
+			if out.last().is_none_or(|g| g.gmail.id != gmail_id) {
+				out.push(GmailOverview {
+					gmail: GmailDto { id: gmail_id, gmail },
+					gmbs: vec![],
+				});
+			}
+			out.last_mut().expect("pushed above").gmbs.push(GmbSummary {
+				id,
+				name,
+				place_id,
+				enabled,
+				state: state.parse().wrap_err_with(|| format!("GMB {id}'s state {state:?}"))?,
+				track: tracks.remove(&id).expect("a snapshot tracks every GMB it does not remove, in its transaction"),
 			});
 		}
 		Ok(out)
@@ -338,7 +299,7 @@ impl Store {
 
 	/// Withdraws the open appeal of a review: kept, marked withdrawn.
 	pub async fn withdraw_reinstatement(&self, member: PersonId, gmb: i64, review: ReviewId, now: Timestamp) -> eyre::Result<()> {
-		self.check_gmb(Some(member), gmb).await?;
+		self.check_gmb(member, gmb).await?;
 		let done = sqlx::query("UPDATE reinstatements SET withdrawn_at = ? WHERE gmb_id = ? AND review_id = ? AND withdrawn_at IS NULL AND reinstated_at IS NULL")
 			.bind(fmt_ts(now))
 			.bind(gmb)
@@ -371,7 +332,7 @@ impl Store {
 		type Row = (i64, bool, Option<f64>, Option<i64>, u32, u32, bool);
 		let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
 			"SELECT m.id,
-			        m.enabled AND EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled),
+			        m.enabled AND m.state = 'verified' AND EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled),
 			        w.rating, w.listed,
 			        (SELECT COUNT(*) FROM tracks k JOIN reviews r ON r.target_id = k.target_id
 			          WHERE k.gmb_id = m.id AND k.enabled AND r.gone_at IS NOT NULL AND r.rating = 5
@@ -395,7 +356,7 @@ impl Store {
 		.wrap_err("tagging a member's GMBs")?;
 		let places_tracked: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
 			"SELECT COUNT(DISTINCT k.target_id) FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id
-			 WHERE k.enabled AND m.enabled AND k.gmb_id IN ({MEMBERS_GMBS})"
+			 WHERE k.enabled AND m.enabled AND m.state = 'verified' AND k.gmb_id IN ({MEMBERS_GMBS})"
 		)))
 		.bind(member.0)
 		.fetch_one(&self.pool)
@@ -422,17 +383,14 @@ impl Store {
 		})
 	}
 
-	/// [`Rejected::NotFound`] unless the GMB is the member's and not removed (any GMB not removed for the operator).
-	pub(crate) async fn check_gmb(&self, member: Option<PersonId>, gmb: i64) -> eyre::Result<()> {
-		let found: bool = sqlx::query_scalar(
-			"SELECT EXISTS (SELECT 1 FROM gmb_mirror m WHERE m.id = ?1 AND NOT m.removed
-			                AND (?2 IS NULL OR m.owner = (SELECT sub FROM people WHERE id = ?2)))",
-		)
-		.bind(gmb)
-		.bind(member.map(|m| m.0))
-		.fetch_one(&self.pool)
-		.await
-		.wrap_err("looking up a GMB")?;
+	/// [`Rejected::NotFound`] unless the GMB is the member's and not removed.
+	async fn check_gmb(&self, member: PersonId, gmb: i64) -> eyre::Result<()> {
+		let found: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT EXISTS ({MEMBERS_GMB})")))
+			.bind(gmb)
+			.bind(member.0)
+			.fetch_one(&self.pool)
+			.await
+			.wrap_err("looking up a GMB")?;
 		if !found {
 			return Err(no_gmb(gmb).into());
 		}

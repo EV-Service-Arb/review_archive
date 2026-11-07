@@ -88,7 +88,7 @@ impl Emitter {
 		}
 		let gmbs: Vec<i64> = sqlx::query_scalar(
 			"SELECT DISTINCT m.id FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id
-			 WHERE k.target_id = ? AND k.enabled AND m.enabled AND NOT m.removed ORDER BY m.id",
+			 WHERE k.target_id = ? AND k.enabled AND m.enabled AND m.state = 'verified' AND NOT m.removed ORDER BY m.id",
 		)
 		.bind(payload.target_id)
 		.fetch_all(&mut *tx)

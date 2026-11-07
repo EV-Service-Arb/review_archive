@@ -57,8 +57,6 @@ enum Cmd {
 	/// Starts Chromium as a walk does, on a throwaway profile, and shoots an element as a walk
 	/// shoots a card: whether this host runs the configured browser.
 	CheckBrowser,
-	/// Put a target under a GMB (the conductor's id), for the member who owns it.
-	Track { gmb: i64, target: i64 },
 	/// Captures + manifest.json of one target, to a directory or a .zip.
 	Export {
 		#[arg(long)]
@@ -247,7 +245,6 @@ async fn run(cli: Cli, config: AppConfig, settings: Settings) -> eyre::Result<()
 		Cmd::Target(cmd) => target_cmd(&archive, cmd).await,
 		Cmd::Scan(args) => scan(&archive, &config.schedule, args).await,
 		Cmd::Serve(args) => serve(archive, &config, &settings, args).await,
-		Cmd::Track { gmb, target } => archive.assign(gmb, TargetId(target)).await,
 		Cmd::Export { target, since, out } => {
 			let done = archive.export(TargetId(target), &ExportQuery { since }, Destination::Path(out.clone())).await?;
 			println!("{} reviews, {} captures → {}", done.reviews, done.captures, out.display());

@@ -11,7 +11,7 @@ use review_archive::{
 	config::Config,
 	core::{
 		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId, Warning,
-		dto::{ChargeDto, GmbSnapshot, LocationSummary, MirroredGmb, NewTarget, ScanState},
+		dto::{ChargeDto, GbpState, GmbSnapshot, LocationSummary, MirroredGmb, NewTarget, ScanState},
 		tokens::{Meter, Tokens},
 	},
 	record::Recorder,
@@ -77,7 +77,7 @@ async fn card(archive: &Archive, member: PersonId, t: TargetId) -> LocationSumma
 		.unwrap()
 		.into_iter()
 		.flat_map(|g| g.gmbs)
-		.flat_map(|b| b.tracks)
+		.map(|b| b.track)
 		.find(|l| l.target.id == t.0)
 		.unwrap()
 }
@@ -158,7 +158,7 @@ impl Conductor {
 		archive.apply_snapshot(&snap).await.unwrap();
 	}
 
-	/// `sub` tracks `t` under a GMB of their own; returns the GMB.
+	/// `sub` tracks `t` under a verified GMB of their own on its place and language; returns the GMB.
 	async fn tracks(&self, archive: &Archive, sub: &str, t: &Target) -> i64 {
 		let id = {
 			let mut snap = self.0.borrow_mut();
@@ -171,12 +171,21 @@ impl Conductor {
 				removed: false,
 				enabled: true,
 				place_id: t.place_id.clone(),
+				state: GbpState::Verified,
+				lang: Some(t.lang.clone()),
+				name: sub.into(),
+				address: None,
 			});
 			id
 		};
 		self.push(archive).await;
-		archive.assign(id, t.id).await.unwrap();
 		id
+	}
+
+	/// The conductor removes `gmb`.
+	async fn remove(&self, archive: &Archive, gmb: i64) {
+		self.0.borrow_mut().gmbs.iter_mut().find(|g| g.id == gmb).unwrap().removed = true;
+		self.push(archive).await;
 	}
 
 	/// The conductor's switch of `gmb`.
@@ -284,7 +293,7 @@ async fn a_gmb_the_conductor_switched_off_neither_walks_nor_pays() {
 	assert!(matches!(refused.downcast_ref::<Rejected>(), Some(Rejected::Busy(_))), "{refused:#}");
 	let gmb = archive.overview(off).await.unwrap().into_iter().flat_map(|g| g.gmbs).find(|b| b.id == off_gmb).unwrap();
 	assert!(!gmb.enabled);
-	assert!(gmb.tracks[0].enabled, "the track's own switch stays the member's");
+	assert!(gmb.track.enabled, "the track's own switch stays the member's");
 	assert_eq!(archive.my_gmbs(off).await.unwrap().places_tracked, 0);
 
 	conductor.switch(&archive, on_gmb, true).await;
@@ -422,11 +431,11 @@ async fn a_purged_places_charges_stay_in_the_feed() {
 	let archive = open(dir.path()).await;
 	let conductor = Conductor::new();
 	let t = target(&archive, "ChIJtokenstest00000purged").await;
-	let a = person(archive.store().unwrap(), "a").await;
+	person(archive.store().unwrap(), "a").await;
 	let gmb = conductor.tracks(&archive, "a", &t).await;
 	conductor.set(&archive, "a", 100).await;
 	archive.record(&Spends(20), &t).await.unwrap();
-	archive.untrack(a, gmb, t.id).await.unwrap();
+	conductor.remove(&archive, gmb).await;
 
 	archive.purge(Timestamp::now() + SignedDuration::from_hours(24 * 7)).await.unwrap();
 	assert!(archive.store().unwrap().targets().await.unwrap().is_empty());

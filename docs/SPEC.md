@@ -249,20 +249,24 @@ The archive keeps a mirror of them and annotates them; it adds and removes none.
   ids were keyed by email: each address is a person without a `sub`, claimed by the first
   sign-in with it — only when concierge says the address is verified and no other account
   already holds it; otherwise the request is a 403 and an error is logged for an admin.
-- `gmb_mirror(id, gmail_id, gmail, owner, removed, enabled, place_id)`: the conductor's GMBs, its ids,
-  `owner` a `sub`, `enabled` its switch, which may govern other services too. `PUT /api/conductor/gmbs` (a Conductor assertion, below) upserts every one
-  in one transaction and never deletes; a GMB whose gmail, owner or place changes, or one
-  missing from the snapshot, is a 409 and nothing is written. A GMB the conductor removes loses
-  its tracks, as an untrack does; its appeals stay. GBP reads keep the service's one grant: a
+- `gmb_mirror(id, gmail_id, gmail, owner, removed, enabled, state, lang, name, address, place_id)`: the
+  conductor's GBPs with a place (GMBs here; a draft is never sent), its ids, `owner` a `sub`, `enabled` its
+  switch, which may govern other services too, `state` `verifying | verified | suspended`, `lang` the Maps
+  language of its country (none only for a removed one). `PUT /api/conductor/gmbs` (a Conductor assertion, below) upserts every one
+  in one transaction and never deletes; a GMB whose place changes, or one missing from the snapshot,
+  is a 409 and nothing is written. Its gmail and owner may change (a transfer): its track and appeals
+  go with it. A GMB the conductor removes loses its track; its appeals stay. GBP reads keep the service's one grant: a
   client adds the service's Google account as a manager of their GBP.
-- `tracks(gmb_id, target_id, created_at, enabled, favorite)`. Tracking a GMB finds the target on
-  its place, a language and a source, or makes one (enabling a disabled one); a GMB may have
-  several. Targets, reviews, captures and blobs stay shared, so two members on one place cost
-  one scan and one capture. Scheduling stays per target, its interval its payers' (see
-  Scheduling). The operator assigns an existing target with `track <gmb-id> <target-id>`.
-- Tracks are switched on or off by their member (`enabled`, on when added;
-  `PATCH /me/gmbs/{gmb}/tracks/{target}`). A track is live while it is on and its GMB is, at the
-  conductor; a GMB switched off there pays for no walk and asks for none. A target someone tracks
+- `tracks(gmb_id, target_id, created_at, enabled, favorite)`, derived from the mirror: the snapshot's
+  transaction gives every GMB not removed and without a track one, on the `maps` target of its place
+  in its `lang` (enabled if it was not), else on a new one, named and addressed as the snapshot says.
+  A GMB has one track; one that has it keeps it, wherever re-linking moved its target. Targets,
+  reviews, captures and blobs stay shared, so two members on one place cost one scan and one
+  capture. Scheduling stays per target, its interval its payers' (see Scheduling).
+- Tracks are switched on or off, and favorited, by their member (`enabled`, on when added;
+  `PATCH /me/gmbs/{gmb}/tracks/{target}`). A track is live while it is on and its GMB is verified and
+  switched on at the conductor; a GMB verifying, suspended or switched off there pays for no walk and
+  asks for none. A target someone tracks
   is scanned while one of its tracks is live; one nobody tracks keeps to its own `enabled`.
   Switching never touches the shared target.
 - `reinstatements(gmb_id, review_id, requested_at, withdrawn_at, reinstated_at)`
@@ -276,9 +280,9 @@ The archive keeps a mirror of them and annotates them; it adds and removes none.
   `gone_at`), Removed (any other gone, no open appeal, by `gone_at`), Reinstating (gone, open
   appeal, by `requested_at`). The board narrows by 5-star and responded, each required or ruled
   out; a card's `non-5-star` and `responded` tags open it with that one ruled out.
-- `GET /me/gmbs` answers per GMB not removed `{tracked, rating, reviews, suspended, reinstating, failing}` (`tracked`: a track of it is live) (the place's figures
-  from its most recently walked track; `suspended` and `reinstating` the overview's counts summed over its enabled
-  tracks; `failing`: an enabled track's latest finished non-ad-hoc run is `failed`, a `partial` one is not) and `places_tracked`: what the conductor's `/gmbs` page
+- `GET /me/gmbs` answers per GMB not removed `{tracked, rating, reviews, suspended, reinstating, failing}` (`tracked`: its track is live) (the place's figures
+  from its last walk; `suspended` and `reinstating` the overview's counts while its track is on;
+  `failing`: its track is on and its latest finished non-ad-hoc run is `failed`, a `partial` one is not) and `places_tracked`: what the conductor's `/gmbs` page
   tags a GMB with.
 
 ### Tokens
@@ -300,7 +304,7 @@ scanned pay.
   (`tokens.per_hour`); the next scroll past that ends the walk (`WalkEnd::Budget`), recording a
   cut as a limit does — a first scan too — so the next scan goes on from there. A scan a member
   asks for (`POST /me/gmbs/{gmb}/tracks/{target}/scan`) is that member's alone, and refused
-  (`429`) while they hold less than a first screen or the GMB is switched off; asked for while the same scan is already
+  (`429`) while they hold less than a first screen or the GMB is switched off or not verified; asked for while the same scan is already
   queued, it is that job's and its first requester pays. Places nobody tracks, the operator's
   jobs and ad-hoc captures are paid by no one and limited by the hour only.
 - The run's end transaction writes what it cost to `token_charges(id, run_id, payers, spent,
@@ -376,15 +380,14 @@ in. Design: Figma "review_archive / dashboard", on ev_lib's `uikit`. One holding
 `members:act_as` gets tabs: their own dashboard, and one per member picked from
 `GET /members` at `/act-as` (the panel's account menu links there), acting as them through
 `X-Member`; the open tabs outlive a full load of the page, per browser tab. Where it is is its URL — `/gmbs` (the
-overview), `/gmbs/{id}` (a GMB's board, a switch between its tracks, or a language to track it
-in), `/gmails/{id}`, `/settings`, under `/members/{id}` for a member's tab. The conductor's outline, beside it on
+overview), `/gmbs/{id}` (a GMB's board), `/gmails/{id}`, `/settings`, under `/members/{id}` for a member's tab. The conductor's outline, beside it on
 every page, is one selection of the person's GMBs, which the caller's own tab lists and totals, nothing else: the host
 tells it on `window` as `sa:gmbs` `{ids}` (the conductor's ids; `null` every GMB, `[]` none), again on `sa:gmbs-request`,
 and until then the tab waits. The tab's regex and facets narrow its selection and set it (`sa:gmbs-select` `{ids}`),
 Clear restores the one they narrowed, and a selection made elsewhere clears them; so does a pick in the overview's
 Grafana `gmbs` variable, which the tab steers to the selection. A member's tab draws its own list of that member's
-gmails, and its filters are its own. Adding a GMB is the conductor's home. A card under a GMB
-switched off at the conductor is dimmed, as one whose track is off. Standalone (`--dev-member`), the binary serves the same page at `/`, its own host, whose selection is every GMB.
+gmails, and its filters are its own. Adding a GMB is the conductor's home. A card names its GBP, and
+its state while verifying or suspended; one under a GMB switched off at the conductor is dimmed, as one whose track is off. Standalone (`--dev-member`), the binary serves the same page at `/`, its own host, whose selection is every GMB.
 The host's Grafana (the element's `grafana` attribute: its base) draws the overview and a place's
 board, or the legacy UI does: the element's `ui` attribute (`grafana` or `legacy`) is the host's
 default, and `?grafana=true` / `?grafana=false` on its URL overrides it for that browser tab. A host
