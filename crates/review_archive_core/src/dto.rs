@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-pub use sa_gbp::{Country, Managed, OnGoogle, Snapshot};
+pub use sa_core::gbp::{Country, Managed, OnGoogle, Snapshot};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 

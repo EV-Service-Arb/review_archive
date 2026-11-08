@@ -26,7 +26,7 @@ crates/review_archive/          the engine (features: maps, store)
   src/store/jobs.rs             the job queue (on-demand scans and ad-hoc captures)
   src/store/events.rs           events into the outbox (hooks) and the conductor's Alerts feed, in the scan's own transaction
   src/store/members.rs          per-member state: track switches, reinstatements
-  src/store/mirror.rs           the conductor's GMBs and balances as last told (`sa_gbp::Snapshot`), the tracks derived from them, and the charge feed
+  src/store/mirror.rs           the conductor's GMBs and balances as last told (`sa_core::gbp::Snapshot`), the tracks derived from them, and the charge feed
   src/store/people.rs           people by concierge `sub`; claiming an address's rows from before
   src/store/tokens.rs           what a member holds, who pays for a scan, the account's hourly limit
   src/store/layouts.rs          the board dock's published layouts, per dock and band, what fresh browsers start from
