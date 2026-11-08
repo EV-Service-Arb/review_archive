@@ -23,7 +23,7 @@ use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
 	ReviewId, TargetId,
 	dto::{
-		Board, CaptureRequest, Charges, DayStats, ErrorBody, EventPayload, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs, NewLayout,
+		Board, CaptureRequest, ChargePage, DayStats, ErrorBody, EventPayload, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs, NewLayout,
 		NewTarget, NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto,
 		TargetPatch, TrackPatch, WaitQuery, WebhookDto, stats_csv,
 	},
@@ -560,8 +560,8 @@ async fn apply_snapshot(State(s): State<AppState>, JsonBody(snap): JsonBody<Snap
 
 /// What walks cost, for the conductor to charge: the feed past `after`.
 #[utoipa::path(get, path = "/api/conductor/charges", tag = "conductor", params(FeedQuery),
-	responses((status = 200, body = Charges), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody)))]
-async fn charges(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<Charges>> {
+	responses((status = 200, body = ChargePage), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody)))]
+async fn charges(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<ChargePage>> {
 	Ok(Json(s.archive.charges(q.after, q.limit).await?))
 }
 

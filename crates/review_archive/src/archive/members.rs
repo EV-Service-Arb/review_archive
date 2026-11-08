@@ -5,7 +5,7 @@
 use jiff::Timestamp;
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, TargetId,
-	dto::{Board, Charges, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch},
+	dto::{Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch},
 	maps::cost,
 	parse_interval,
 };
@@ -151,7 +151,7 @@ impl Archive {
 	}
 
 	/// The charge feed past `after`, `limit` at most.
-	pub async fn charges(&self, after: i64, limit: u32) -> eyre::Result<Charges> {
+	pub async fn charges(&self, after: i64, limit: u32) -> eyre::Result<ChargePage> {
 		page(limit)?;
 		self.store()?.charges(after, limit).await
 	}

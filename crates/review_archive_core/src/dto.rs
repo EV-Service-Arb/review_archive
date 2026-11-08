@@ -5,7 +5,10 @@
 
 use std::fmt;
 
-pub use sa_core::gbp::{Country, Managed, OnGoogle, Snapshot};
+pub use sa_core::{
+	gbp::{Country, Managed, OnGoogle, Snapshot},
+	tokens::{Charge, ChargePage},
+};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
@@ -864,36 +867,6 @@ pub struct GmbReviews {
 	pub reinstating: u32,
 	/// An enabled track's latest finished non-ad-hoc run `failed` (a `partial` run still made a snapshot).
 	pub failing: bool,
-}
-
-/// What a walk cost, for the conductor to charge (`GET /api/conductor/charges`).
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct ChargeDto {
-	/// Ascending, never reused.
-	pub id: i64,
-	/// `run:<run id>`.
-	pub key: String,
-	/// Who pays, by `sub`; never empty.
-	pub payers: Vec<String>,
-	/// Tokens; more than 0.
-	pub spent: i64,
-	/// The run failed or met a failure: what each paid is owed back.
-	pub kick_back: bool,
-	/// The place, as the ledger names it.
-	pub label: String,
-	/// When the run ended.
-	pub at: String,
-}
-
-/// A page of the charge feed.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct Charges {
-	/// Ascending by id.
-	pub charges: Vec<ChargeDto>,
-	/// The last id of the page; `after` for an empty one.
-	pub next: i64,
 }
 
 /// A page of one of the conductor's feeds: `GET /api/conductor/charges`, `GET /api/conductor/notifications`.

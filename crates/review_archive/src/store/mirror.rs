@@ -7,7 +7,7 @@ use eyre::WrapErr;
 use jiff::Timestamp;
 use review_archive_core::{
 	Rejected, TargetId, TargetKind,
-	dto::{ChargeDto, Charges, Country, OnGoogle, Snapshot},
+	dto::{Charge, ChargePage, Country, OnGoogle, Snapshot},
 	fmt_ts,
 };
 use sqlx::SqliteConnection;
@@ -158,7 +158,7 @@ impl Store {
 	}
 
 	/// The feed past `after`, `limit` at most.
-	pub async fn charges(&self, after: i64, limit: u32) -> eyre::Result<Charges> {
+	pub async fn charges(&self, after: i64, limit: u32) -> eyre::Result<ChargePage> {
 		let rows: Vec<ChargeRow> = sqlx::query_as("SELECT id, run_id, payers, spent, kick_back, label, at FROM token_charges WHERE id > ? ORDER BY id LIMIT ?")
 			.bind(after)
 			.bind(limit)
@@ -168,18 +168,18 @@ impl Store {
 		let charges = rows
 			.into_iter()
 			.map(|r| {
-				Ok(ChargeDto {
-					payers: serde_json::from_str(&r.payers).wrap_err_with(|| format!("charge {}'s payers", r.id))?,
+				Ok(Charge {
+					payers: serde_json::from_str(&r.payers).wrap_err_with(|| format!("charge {}'s payers {:?}", r.id, r.payers))?,
 					id: r.id,
 					key: format!("run:{}", r.run_id),
 					spent: r.spent,
 					kick_back: r.kick_back,
 					label: r.label,
-					at: r.at,
+					at: r.at.parse().wrap_err_with(|| format!("charge {}'s time {:?}", r.id, r.at))?,
 				})
 			})
 			.collect::<eyre::Result<Vec<_>>>()?;
-		Ok(Charges {
+		Ok(ChargePage {
 			next: charges.last().map_or(after, |c| c.id),
 			charges,
 		})

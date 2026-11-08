@@ -11,7 +11,7 @@ use review_archive::{
 	config::Config,
 	core::{
 		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId, Warning,
-		dto::{ChargeDto, Country, LocationSummary, Managed, NewTarget, OnGoogle, ScanState, Snapshot},
+		dto::{Charge, Country, LocationSummary, Managed, NewTarget, OnGoogle, ScanState, Snapshot},
 		tokens::{Meter, Tokens},
 	},
 	record::Recorder,
@@ -223,7 +223,7 @@ async fn holds(archive: &Archive, sub: &str) -> i64 {
 	archive.store().unwrap().holdings(&[owner(sub).to_string()]).await.unwrap()
 }
 
-async fn feed(archive: &Archive) -> Vec<ChargeDto> {
+async fn feed(archive: &Archive) -> Vec<Charge> {
 	archive.charges(0, 500).await.unwrap().charges
 }
 
@@ -247,13 +247,7 @@ async fn trackers_split_a_walk_within_their_balances() {
 	let c = &charged[0];
 	assert_eq!(
 		(c.key.as_str(), c.payers.as_slice(), c.spent, c.kick_back, c.label.as_str()),
-		(
-			format!("run:{}", rec.run.0).as_str(),
-			[owner("poor").to_string(), owner("rich").to_string()].as_slice(),
-			20,
-			false,
-			t.place_id.as_str()
-		)
+		(format!("run:{}", rec.run.0).as_str(), [owner("poor"), owner("rich")].as_slice(), 20, false, t.place_id.as_str())
 	);
 	for (sub, left) in [("poor", 0), ("rich", 90)] {
 		assert_eq!(holds(&archive, sub).await, left, "{sub}");
@@ -312,7 +306,7 @@ async fn a_gmb_the_conductor_switched_off_neither_walks_nor_pays() {
 	conductor.switch(&archive, on_gmb, true).await;
 	assert_eq!(archive.due(now).await.unwrap().iter().map(|t| t.id).collect::<Vec<_>>(), [t.id]);
 	archive.record(&Spends(20), &t).await.unwrap();
-	assert_eq!(feed(&archive).await[0].payers, [owner("on").to_string()]);
+	assert_eq!(feed(&archive).await[0].payers, [owner("on")]);
 	assert_eq!(holds(&archive, "off").await, 100);
 }
 

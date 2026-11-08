@@ -313,8 +313,8 @@ scanned pay.
   met a failure (`Warning::Failure`; a `Warning::Limit` is none): the conductor owes each payer
   back what they paid. A run a stopped process left open writes none. The hour still counts
   the run. Purge leaves the feed alone (no foreign key to `runs`).
-- `GET /api/conductor/charges?after=&limit=` (1–500) is the feed, ascending, `next` the page's
-  last id. The conductor splits each charge within its balances, owes the kick-backs, and tells
+- `GET /api/conductor/charges?after=&limit=` (1–500) is the feed, an `sa_core::tokens::ChargePage`
+  (payers by `sub`, a UUID), ascending, `next` the page's last id. The conductor splits each charge within its balances, owes the kick-backs, and tells
   the archive the cursor in its next snapshot; a `charges_through` behind the stored one or past
   the feed is a 409.
 - A place held for tokens shows "out of tokens" on its card (`held`).
