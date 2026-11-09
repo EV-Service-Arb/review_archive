@@ -118,8 +118,8 @@ blob dir. Everything under one data dir (`/data` in the container).
   failed ("interrupted") on the next start of `serve` — a hand-run `scan` still going at
   that moment included; its run is marked ended again, with its real outcome, when it
   finishes.
-- Places answers are not here: every one is kept in the conductor's answers store (`sa_places`,
-  `SA_ANSWERS_URL` with an `answers` key): details for good, a search a day; re-linking asks afresh.
+- Places answers are not here: every one is kept in the conductor's queries cache (`sa_places`,
+  the config's `queries_cache`): details for good, a search a day; re-linking asks afresh.
 - Blobs: `<data>/blobs/<sha256[0..2]>/<sha256>.webp`, lossy (quality 80). Exif carries the provenance:
   capture time (`DateTimeOriginal`, `OffsetTimeOriginal` `+00:00`), page URL (`DocumentName`),
   target label (`ImageDescription`), source review id (`ImageUniqueID`), scanner version

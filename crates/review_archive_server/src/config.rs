@@ -39,6 +39,9 @@ pub struct AppConfig {
 	#[serde(default)]
 	#[settings(flatten)]
 	pub http: HttpConfig,
+	/// The conductor's queries cache, `<origin>/api/queries_cache`, where every Places answer is
+	/// kept for everyone; in the cluster, the contract's `consumes` sets it. Asking Places needs it.
+	pub queries_cache: Option<String>,
 }
 
 impl AppConfig {
@@ -69,6 +72,7 @@ impl AppConfig {
 			tokens: self.tokens.clone(),
 			webhooks: self.webhooks.clone(),
 			secrets,
+			queries_cache: self.queries_cache.clone(),
 		}
 	}
 }

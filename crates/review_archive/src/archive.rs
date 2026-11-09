@@ -234,7 +234,7 @@ impl Archive {
 		let store = match (config.db_path(), config.blob_dir()) {
 			(Some(db), Some(blobs)) => {
 				let stored = Stored {
-					google: sa_places::Google::try_new(sa_places::Keys::new(config.secrets.google_maps_keys.clone()), answers(config.secrets.answers.as_ref())?)?,
+					google: sa_places::Google::try_new(sa_places::Keys::new(config.secrets.google_maps_keys.clone()), queries_cache(config.queries_cache.as_deref())?)?,
 					store: Store::open(&db, config.defaults.interval).await?,
 					blobs: BlobStore::new(blobs),
 				};
@@ -983,40 +983,40 @@ impl ReviewSource for NoGbpCredentials {
 	}
 }
 
-/// The conductor's answers store, else one that refuses every Places answer for want of it: asking
+/// The conductor's queries cache, else one that refuses every Places answer for want of it: asking
 /// Places is the one thing that needs it.
 #[cfg(feature = "store")]
-fn answers(key: Option<&crate::config::AnswersKey>) -> eyre::Result<std::sync::Arc<dyn sa_places::Answers>> {
+fn queries_cache(url: Option<&str>) -> eyre::Result<std::sync::Arc<dyn sa_places::QueriesCache>> {
 	#[derive(Debug)]
 	struct Unset;
 	impl Unset {
 		fn refuse<T: Send + 'static>(&self) -> sa_places::Pending<'_, T> {
 			Box::pin(async {
-				Err(sa_places::Error::Store(
-					"asking Places needs SA_ANSWERS_URL, SA_ANSWERS_KEY_ID and SA_ANSWERS_SECRET: the conductor's answers store".into(),
+				Err(sa_places::Error::QueriesCache(
+					"asking Places needs `queries_cache` in the config: the conductor's `<origin>/api/queries_cache`".into(),
 				))
 			})
 		}
 	}
-	impl sa_places::Answers for Unset {
-		fn get(&self, _: sa_core::answers::Key) -> sa_places::Pending<'_, Option<sa_core::answers::Stored>> {
+	impl sa_places::QueriesCache for Unset {
+		fn get(&self, _: sa_core::queries_cache::Key) -> sa_places::Pending<'_, Option<sa_core::queries_cache::Stored>> {
 			self.refuse()
 		}
 
-		fn claim(&self, _: sa_core::answers::Key, _: Option<jiff::Timestamp>) -> sa_places::Pending<'_, sa_core::answers::Claim> {
+		fn claim(&self, _: sa_core::queries_cache::Key, _: Option<jiff::Timestamp>) -> sa_places::Pending<'_, sa_core::queries_cache::Claim> {
 			self.refuse()
 		}
 
-		fn put(&self, _: sa_core::answers::Key, _: sa_core::answers::Put) -> sa_places::Pending<'_, ()> {
+		fn put(&self, _: sa_core::queries_cache::Key, _: sa_core::queries_cache::Put) -> sa_places::Pending<'_, ()> {
 			self.refuse()
 		}
 
-		fn release(&self, _: sa_core::answers::Key) -> sa_places::Pending<'_, ()> {
+		fn release(&self, _: sa_core::queries_cache::Key) -> sa_places::Pending<'_, ()> {
 			self.refuse()
 		}
 	}
-	Ok(match key {
-		Some(k) => std::sync::Arc::new(sa_places::Remote::try_new(&k.url, k.key_id.clone(), k.secret.clone().into())?),
+	Ok(match url {
+		Some(url) => std::sync::Arc::new(sa_places::Remote::try_new(url)?),
 		None => std::sync::Arc::new(Unset),
 	})
 }

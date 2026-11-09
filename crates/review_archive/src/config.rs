@@ -27,6 +27,9 @@ pub struct Config {
 	pub webhooks: WebhookConfig,
 	/// API keys and tokens.
 	pub secrets: Secrets,
+	/// The conductor's queries cache, `<origin>/api/queries_cache`, where every Places answer is
+	/// kept for everyone: asking Places needs it.
+	pub queries_cache: Option<String>,
 }
 
 impl Config {
@@ -204,31 +207,16 @@ pub struct Secrets {
 	/// Places API keys in rotation order, free ones first (`GOOGLE_MAPS_KEYS`): naming a place,
 	/// and resolving a Maps URL that carries no place id.
 	pub google_maps_keys: Vec<String>,
-	/// The conductor's answers store, where every Places answer is kept (`SA_ANSWERS_URL`,
-	/// `SA_ANSWERS_KEY_ID`, `SA_ANSWERS_SECRET`): asking Places needs it.
-	pub answers: Option<AnswersKey>,
 	/// OAuth credentials for `gbp` targets (`GBP_CLIENT_ID`, `GBP_CLIENT_SECRET`,
 	/// `GBP_REFRESH_TOKEN`).
 	#[cfg(feature = "maps")]
 	pub gbp: Option<crate::sources::gbp::Credentials>,
 }
 
-/// An `answers` source key of the conductor's, and the store's URL (`<origin>/api/answers`).
-#[derive(Clone)]
-pub struct AnswersKey {
-	/// `<origin>/api/answers`.
-	pub url: String,
-	/// The key's id at the conductor.
-	pub key_id: String,
-	/// Its HMAC secret.
-	pub secret: String,
-}
-
 impl std::fmt::Debug for Secrets {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let mut d = f.debug_struct("Secrets");
 		d.field("google_maps_keys", &self.google_maps_keys.iter().map(|_| "***").collect::<Vec<_>>());
-		d.field("answers", &self.answers.as_ref().map(|a| (&a.url, &a.key_id, "***")));
 		#[cfg(feature = "maps")]
 		d.field("gbp", &self.gbp.as_ref().map(|_| "***"));
 		d.finish()

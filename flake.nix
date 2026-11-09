@@ -324,10 +324,10 @@
         } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux containerStd.packages;
 
         # Linux-only: the image carries Chromium, which nixpkgs does not build for Darwin.
-        # SA_ANSWERS_URL: the conductor's answers store, where every Places answer is kept; its key
-        # (SA_ANSWERS_KEY_ID, SA_ANSWERS_SECRET) comes from the deploy's Secret
+        # the conductor's queries cache, where every Places answer is kept: the config's
+        # `queries_cache`, set through the settings' environment
         containers = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux (
-          lib.mapAttrs (_: c: c // { contract = c.contract // { consumes.SA_ANSWERS_URL = "panel.answers"; }; }) containerStd.containers
+          lib.mapAttrs (_: c: c // { contract = c.contract // { consumes.REVIEW_ARCHIVE_SERVER_QUERIES_CACHE = "panel.queries_cache"; }; }) containerStd.containers
         );
 
         devShells.default =

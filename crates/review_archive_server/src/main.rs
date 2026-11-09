@@ -168,7 +168,7 @@ fn main() -> eyre::Result<()> {
 	}
 	let alerts = match settings.alert_webhooks()? {
 		Some(webhooks) => Some(alerts::alerts(alerts::Config {
-			artifacts: alerts::Artifacts::open(config.archive(settings.secrets()?).artifacts_dir().expect("the server always has a data dir"))?,
+			artifacts: alerts::Artifacts::open(config.archive(settings.secrets()).artifacts_dir().expect("the server always has a data dir"))?,
 			webhooks,
 			service: "review_archive".to_owned(),
 		})),
@@ -238,7 +238,7 @@ async fn run(cli: Cli, config: AppConfig, settings: Settings) -> eyre::Result<()
 	if let Cmd::Serve(_) = cli.cmd {
 		eyre::ensure!(config.bind.is_some(), "serve needs a `bind`: the config's, or REVIEW_ARCHIVE_SERVER_BIND (the dev shell sets it)");
 	}
-	let archive = Archive::open(config.archive(settings.secrets()?)).await?;
+	let archive = Archive::open(config.archive(settings.secrets())).await?;
 
 	match cli.cmd {
 		Cmd::Config { .. } | Cmd::CheckBrowser => unreachable!("handled before the archive opens"),
