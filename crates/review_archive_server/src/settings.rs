@@ -1,7 +1,10 @@
 //! The environment: secrets and the deployment profile. Everything else — data dir, bind
 //! address, browser, defaults — is the TOML config (`--config`).
 
-use review_archive::{config::Secrets, sources::gbp::Credentials};
+use review_archive::{
+	config::{AnswersKey, Secrets},
+	sources::gbp::Credentials,
+};
 
 ev_lib::settings! {
 	/// Each secret is needed only by what uses it; a missing one fails that, with an error
@@ -16,6 +19,13 @@ ev_lib::settings! {
 		/// and resolving a Maps URL that carries no place id.
 		#[secret]
 		google_maps_keys: Option<String>,
+		/// The conductor's answers store, `<origin>/api/answers`, where every Places answer is
+		/// kept. With SA_ANSWERS_KEY_ID and SA_ANSWERS_SECRET, an `answers` key of the conductor's;
+		/// all three or none.
+		sa_answers_url: Option<String>,
+		sa_answers_key_id: Option<String>,
+		#[secret]
+		sa_answers_secret: Option<String>,
 		/// Business Profile OAuth client, for `gbp` targets. All three or none.
 		gbp_client_id: Option<String>,
 		#[secret]
@@ -36,7 +46,7 @@ ev_lib::settings! {
 
 impl Settings {
 	/// What the library needs of the environment.
-	pub fn secrets(&self) -> Secrets {
+	pub fn secrets(&self) -> eyre::Result<Secrets> {
 		let gbp = match (&self.gbp_client_id, &self.gbp_client_secret, &self.gbp_refresh_token) {
 			(Some(client_id), Some(client_secret), Some(refresh_token)) => Some(Credentials {
 				client_id: client_id.clone(),
@@ -45,7 +55,17 @@ impl Settings {
 			}),
 			_ => None,
 		};
-		Secrets {
+		let answers = match (&self.sa_answers_url, &self.sa_answers_key_id, &self.sa_answers_secret) {
+			(Some(url), Some(key_id), Some(secret)) => Some(AnswersKey {
+				url: url.clone(),
+				key_id: key_id.clone(),
+				secret: secret.clone(),
+			}),
+			(None, None, None) => None,
+			_ => eyre::bail!("SA_ANSWERS_URL, SA_ANSWERS_KEY_ID and SA_ANSWERS_SECRET go together: set all three, or none"),
+		};
+		Ok(Secrets {
+			answers,
 			google_maps_keys: self
 				.google_maps_keys
 				.as_deref()
@@ -56,7 +76,7 @@ impl Settings {
 				.map(str::to_owned)
 				.collect(),
 			gbp,
-		}
+		})
 	}
 
 	/// Where alerts go: `None` sends none.
@@ -108,6 +128,9 @@ mod tests {
 			[
 				"PANEL_ASSERTION_KEYS",
 				"GOOGLE_MAPS_KEYS",
+				"SA_ANSWERS_URL",
+				"SA_ANSWERS_KEY_ID",
+				"SA_ANSWERS_SECRET",
 				"GBP_CLIENT_ID",
 				"GBP_CLIENT_SECRET",
 				"GBP_REFRESH_TOKEN",
@@ -129,7 +152,7 @@ mod tests {
 	#[test]
 	fn secrets_are_lazy_and_named_when_missing() {
 		let s = from(&[("GBP_CLIENT_ID", "id")]).unwrap();
-		assert!(s.secrets().gbp.is_none(), "a partial GBP triple is none of it");
+		assert!(s.secrets().unwrap().gbp.is_none(), "a partial GBP triple is none of it");
 		assert_eq!(format!("{:#}", s.panel_keys().unwrap_err()), "PANEL_ASSERTION_KEYS must be set for serve");
 		assert!(from(&[("PANEL_ASSERTION_KEYS", "k1:short")]).unwrap().panel_keys().is_err());
 
@@ -138,6 +161,6 @@ mod tests {
 		// secrets never print
 		let s = from(&[("GOOGLE_MAPS_KEYS", "0123456789abcdef-xyzzy, second-plugh")]).unwrap();
 		assert!(!format!("{s:?}").contains("xyzzy"));
-		assert_eq!(s.secrets().google_maps_keys, ["0123456789abcdef-xyzzy", "second-plugh"]);
+		assert_eq!(s.secrets().unwrap().google_maps_keys, ["0123456789abcdef-xyzzy", "second-plugh"]);
 	}
 }

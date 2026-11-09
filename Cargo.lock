@@ -5054,6 +5054,7 @@ dependencies = [
  "reqwest 0.13.5",
  "review_archive_core",
  "sa_alerts",
+ "sa_core",
  "sa_places",
  "schemars",
  "serde",
@@ -5418,8 +5419,9 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "eyre",
- "hex",
+ "jiff",
  "reqwest 0.13.5",
+ "sa_core",
  "serde",
  "serde_json",
  "sha2 0.11.0",

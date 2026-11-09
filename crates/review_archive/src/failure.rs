@@ -280,15 +280,16 @@ pub enum PlacesError {
 	#[error("decoding a Places answer")]
 	#[diagnostic(code(review_archive::places::decode))]
 	Decode(serde_json::Error),
-	/// The on-disk cache of Places answers.
+	/// The conductor's answers store, where every Places answer is kept.
 	#[leaf]
-	#[error("the Places cache, at {}", .path.display())]
-	#[diagnostic(code(review_archive::places::cache), help("the data dir's google_cache must be readable and writable"))]
-	Cache {
-		/// The file or directory.
-		path: std::path::PathBuf,
-		#[source]
-		source: std::io::Error,
+	#[error("the answers store: {why}")]
+	#[diagnostic(
+		code(review_archive::places::store),
+		help("SA_ANSWERS_URL, SA_ANSWERS_KEY_ID and SA_ANSWERS_SECRET name the conductor's store, and an `answers` key of its")
+	)]
+	Store {
+		/// What it said, or why it did not answer.
+		why: String,
 	},
 }
 
@@ -301,7 +302,7 @@ pub(crate) fn places_error(e: sa_places::Error) -> eyre::Report {
 		sa_places::Error::Http(e) => PlacesError::from(e).into(),
 		sa_places::Error::Exhausted(spent) => PlacesError::new_exhausted(spent).into(),
 		sa_places::Error::Decode(e) => PlacesError::from(e).into(),
-		sa_places::Error::Cache(path, source) => PlacesError::new_cache(path, source).into(),
+		sa_places::Error::Store(why) => PlacesError::new_store(why).into(),
 	}
 }
 
