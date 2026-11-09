@@ -57,7 +57,12 @@ impl Archive {
 			return Err(Rejected::invalid("re-linking a place needs GOOGLE_MAPS_KEYS").into());
 		}
 		let t = store.target(target).await?;
-		let place = self.stored()?.google.details(&t.place_id, sa_places::Ask::Afresh).await.map_err(crate::failure::places_error)?;
+		let place = self
+			.stored()?
+			.google
+			.details(&t.place_id, sa_places::Ask::Afresh, &sa_places::Payer::house())
+			.await
+			.map_err(crate::failure::places_error)?;
 		if place.place_id != t.place_id
 			&& let Some(other) = store.find_target(&place.place_id, &t.lang, t.gbp.as_ref()).await?
 		{

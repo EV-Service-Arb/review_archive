@@ -346,7 +346,7 @@ impl Archive {
 			.ok_or_else(|| Rejected::invalid("name the place: `place` or `maps_url`"))?;
 		let interval = req.interval.as_deref().map(parse_interval).transpose()?;
 		let gbp = req.gbp.as_deref().map(str::parse::<GbpLocation>).transpose()?;
-		let (place_id, resolved) = self.stored()?.google.resolve(place).await.map_err(crate::failure::places_error)?;
+		let (place_id, resolved) = self.stored()?.google.resolve(place, &sa_places::Payer::house()).await.map_err(crate::failure::places_error)?;
 		Ok(Added {
 			target: self.insert_target(place_id, resolved.as_ref(), req.label.clone(), req.lang.clone(), interval, gbp, true).await?,
 			resolved,
@@ -743,7 +743,7 @@ impl Archive {
 		}
 		let lang = req.lang.clone().unwrap_or_else(|| self.inner.defaults.lang.clone());
 		check_lang(&lang)?;
-		let (place_id, resolved) = self.stored()?.google.resolve(place).await.map_err(crate::failure::places_error)?;
+		let (place_id, resolved) = self.stored()?.google.resolve(place, &sa_places::Payer::house()).await.map_err(crate::failure::places_error)?;
 		let target = match store.find_target(&place_id, &lang, None).await? {
 			Some(t) => t,
 			None => self.insert_target(place_id, resolved.as_ref(), None, Some(lang), None, None, false).await?,
