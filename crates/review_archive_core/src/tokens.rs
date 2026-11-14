@@ -75,6 +75,7 @@ pub struct Meter {
 	tariff: Tariff,
 	allowance: i64,
 	spent: i64,
+	steps: BTreeMap<WalkStep, i64>,
 }
 
 #[derive(Debug)]
@@ -93,6 +94,7 @@ impl Meter {
 			tariff: Tariff::Priced(prices),
 			allowance,
 			spent: 0,
+			steps: BTreeMap::new(),
 		}
 	}
 
@@ -102,6 +104,7 @@ impl Meter {
 			tariff: Tariff::Shut,
 			allowance: 0,
 			spent: 0,
+			steps: BTreeMap::new(),
 		}
 	}
 
@@ -111,6 +114,7 @@ impl Meter {
 			tariff: Tariff::Uncounted,
 			allowance: i64::MAX,
 			spent: 0,
+			steps: BTreeMap::new(),
 		}
 	}
 
@@ -125,6 +129,7 @@ impl Meter {
 	/// Spends `step`'s price, whatever is left: the steps a walk cannot do without.
 	pub fn spend(&mut self, step: WalkStep) {
 		self.spent += self.cost(step);
+		*self.steps.entry(step).or_default() += 1;
 	}
 
 	/// Spends `step`'s price if it fits; `false`: the walk is at its budget.
@@ -133,6 +138,7 @@ impl Meter {
 		let fits = self.spent + cost <= self.allowance;
 		if fits {
 			self.spent += cost;
+			*self.steps.entry(step).or_default() += 1;
 		}
 		fits
 	}
@@ -149,5 +155,10 @@ impl Meter {
 	/// Spent so far.
 	pub fn spent(&self) -> i64 {
 		self.spent
+	}
+
+	/// How many times each step was done so far, priced or free.
+	pub fn steps(&self) -> &BTreeMap<WalkStep, i64> {
+		&self.steps
 	}
 }

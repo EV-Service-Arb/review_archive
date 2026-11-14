@@ -5,7 +5,7 @@
 use jiff::Timestamp;
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, TargetId,
-	dto::{Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch},
+	dto::{Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch, UsagePage},
 	parse_interval,
 };
 use sa_alerts::NotePage;
@@ -162,6 +162,12 @@ impl Archive {
 	pub async fn charges(&self, after: i64, limit: u32) -> eyre::Result<ChargePage> {
 		page(limit)?;
 		self.store()?.charges(after, limit).await
+	}
+
+	/// The usage feed past `after`, `limit` at most: every run's steps, whoever paid.
+	pub async fn usage(&self, after: i64, limit: u32) -> eyre::Result<UsagePage> {
+		page(limit)?;
+		self.store()?.usage(after, limit).await
 	}
 
 	/// The Alerts feed past `after`, `limit` at most; its notes kept a day.

@@ -33,6 +33,7 @@ use review_archive_core::{
 	fmt_ts, parse_interval,
 	reconcile::Plan,
 	schedule::{Breaker, LastRun, Schedule},
+	tokens::Meter,
 };
 use sqlx::{
 	FromRow, SqliteConnection, Transaction,
@@ -116,8 +117,8 @@ pub struct RunEnd<'a> {
 	pub error: Option<&'a str>,
 	/// The job whose run this is.
 	pub job: Option<i64>,
-	/// What its walk spent; a failed one too, Google saw it all the same.
-	pub tokens: i64,
+	/// What its walk spent and did; a failed one too, Google saw it all the same.
+	pub meter: &'a Meter,
 	/// Who pays for it: [`Bill::payers`].
 	pub payers: &'a [String],
 	/// Its charges go back to its payers: it failed, or met a [`review_archive_core::Warning::Failure`].
@@ -1133,13 +1134,14 @@ async fn finish(tx: &mut SqliteConnection, end: RunEnd<'_>, counts: Counts, seen
 		.bind(counts.new)
 		.bind(counts.changed)
 		.bind(counts.gone)
-		.bind(end.tokens)
+		.bind(end.meter.spent())
 		.bind(end.run.0)
 		.execute(&mut *tx)
 		.await
 		.wrap_err("recording run end")?;
 	assert!(end.kick_back || end.status != RunStatus::Failed, "a failed run is ours, not its payers'");
 	mirror::charge(tx, &end, now).await?;
+	mirror::used(tx, &end, now).await?;
 	if let Some(job) = end.job {
 		let failed = end.status == RunStatus::Failed;
 		let status = if failed { JobStatus::Failed } else { JobStatus::Done };

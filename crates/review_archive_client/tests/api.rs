@@ -593,6 +593,7 @@ async fn every_route_but_health_and_openapi_wants_an_assertion() {
 		("DELETE", "/me/gmbs/1/reinstatements/1"),
 		("PUT", "/api/conductor/gmbs"),
 		("GET", "/api/conductor/charges"),
+		("GET", "/api/conductor/usage"),
 		("GET", "/api/conductor/notifications"),
 		("GET", &format!("/api/conductor/captures/{}.png", "0".repeat(64))),
 		("GET", "/dashboards"),

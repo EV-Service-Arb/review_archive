@@ -12,6 +12,7 @@ use review_archive::{
 	core::{
 		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId, Warning,
 		dto::{Charge, Country, LocationSummary, Managed, NewTarget, OnGoogle, ScanState, Snapshot},
+		fmt_ts,
 		tokens::{Meter, Tokens, WalkStep},
 	},
 	record::Recorder,
@@ -64,6 +65,18 @@ impl ReviewSource for BreaksAfter {
 	async fn scan(&self, _: &Target, _: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
 		scrolls(meter, self.0);
 		eyre::bail!("the page went away")
+	}
+}
+
+/// A walk that opens the place, its reviews and their sort, then scrolls `.0` times.
+struct Opens(i64);
+
+impl ReviewSource for Opens {
+	async fn scan(&self, target: &Target, known: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
+		for s in [WalkStep::Open, WalkStep::Reviews, WalkStep::Sort] {
+			meter.spend(s);
+		}
+		Spends(self.0).scan(target, known, meter).await
 	}
 }
 
@@ -455,6 +468,51 @@ async fn a_purged_places_charges_stay_in_the_feed() {
 	assert!(archive.store().unwrap().targets().await.unwrap().is_empty());
 	assert_eq!(feed(&archive).await.iter().map(|c| c.spent).collect::<Vec<_>>(), [20]);
 	assert_eq!(holds(&archive, "a").await, 80);
+}
+
+/// The browser's work is in the usage feed once per run, whoever pays, a failed run's too.
+#[tokio::test]
+async fn every_walk_is_used_whoever_pays() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
+	let paid = target(&archive, "ChIJtokenstest000000paid").await;
+	let operators = target(&archive, "ChIJtokenstest00operator").await;
+	person(archive.store().unwrap(), "a").await;
+	conductor.tracks(&archive, "a", &paid).await;
+	conductor.set(&archive, "a", 100).await;
+
+	archive.record(&Opens(3), &paid).await.unwrap();
+	archive.record(&BreaksAfter(2), &operators).await.unwrap();
+	archive.record(&Fails, &operators).await.unwrap();
+	assert_eq!(feed(&archive).await.len(), 1, "only the paid walk is charged");
+
+	let used = archive.usage(0, 500).await.unwrap();
+	let rows: Vec<_> = used.used.iter().map(|u| (u.item, u.units)).collect();
+	let walk = |s| Item::Walk(s);
+	assert_eq!(
+		rows,
+		[
+			(walk(WalkStep::Open), 1),
+			(walk(WalkStep::Reviews), 1),
+			(walk(WalkStep::Sort), 1),
+			(walk(WalkStep::Step), 3),
+			(walk(WalkStep::Step), 2)
+		]
+	);
+	let ended: Vec<_> = archive.runs(paid.id, &Default::default()).await.unwrap().iter().map(|r| r.finished_at.clone()).collect();
+	assert_eq!(
+		used.used[..4].iter().map(|u| Some(fmt_ts(u.at))).collect::<Vec<_>>(),
+		vec![ended[0].clone(); 4],
+		"dated at the run's end"
+	);
+
+	let first = archive.usage(0, 4).await.unwrap();
+	assert_eq!((first.used.as_slice(), first.next), (&used.used[..4], used.used[3].id));
+	let rest = archive.usage(first.next, 4).await.unwrap();
+	assert_eq!((rest.used.as_slice(), rest.next), (&used.used[4..], used.used[4].id));
+	let none = archive.usage(rest.next, 4).await.unwrap();
+	assert_eq!((none.used.len(), none.next), (0, rest.next));
 }
 
 #[tokio::test]

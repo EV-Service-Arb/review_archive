@@ -1,5 +1,5 @@
-//! The conductor's GMBs, balances and walk prices, as its last snapshot told them, and the feed of what
-//! walks cost, which it charges from.
+//! The conductor's GMBs, balances and walk prices, as its last snapshot told them, the feed of what
+//! walks cost, which it charges from, and the feed of what they did, whoever paid.
 
 use std::collections::HashMap;
 
@@ -7,7 +7,7 @@ use eyre::WrapErr;
 use jiff::Timestamp;
 use review_archive_core::{
 	Rejected, TargetId, TargetKind,
-	dto::{Charge, ChargePage, Country, OnGoogle, Snapshot},
+	dto::{Charge, ChargePage, Country, OnGoogle, Snapshot, UsagePage, Used},
 	fmt_ts,
 };
 use sa_core::prices::Item;
@@ -198,25 +198,66 @@ impl Store {
 			charges,
 		})
 	}
+
+	/// The usage feed past `after`, `limit` at most.
+	pub async fn usage(&self, after: i64, limit: u32) -> eyre::Result<UsagePage> {
+		let rows: Vec<(i64, String, i64, String)> = sqlx::query_as("SELECT id, item, units, at FROM walk_usage WHERE id > ? ORDER BY id LIMIT ?")
+			.bind(after)
+			.bind(limit)
+			.fetch_all(&self.pool)
+			.await
+			.wrap_err("reading the usage feed")?;
+		let used = rows
+			.into_iter()
+			.map(|(id, item, units, at)| {
+				Ok(Used {
+					item: item.parse().wrap_err_with(|| format!("usage {id}'s item"))?,
+					at: at.parse().wrap_err_with(|| format!("usage {id}'s time {at:?}"))?,
+					id,
+					units,
+				})
+			})
+			.collect::<eyre::Result<Vec<_>>>()?;
+		Ok(UsagePage {
+			next: used.last().map_or(after, |u| u.id),
+			used,
+		})
+	}
 }
 
 /// What the run's walk cost its payers, into the feed with the run's end.
 pub(super) async fn charge(tx: &mut SqliteConnection, end: &RunEnd<'_>, now: Timestamp) -> eyre::Result<()> {
-	if end.payers.is_empty() || end.tokens == 0 {
+	let spent = end.meter.spent();
+	if end.payers.is_empty() || spent == 0 {
 		return Ok(());
 	}
-	assert!(end.tokens > 0, "a walk spends, never earns");
+	assert!(spent > 0, "a walk spends, never earns");
 	sqlx::query(
 		"INSERT INTO token_charges (run_id, payers, spent, kick_back, label, at)
 		 SELECT r.id, ?, ?, ?, COALESCE(t.label, t.name, t.place_id), ? FROM runs r JOIN targets t ON t.id = r.target_id WHERE r.id = ?",
 	)
 	.bind(serde_json::to_string(end.payers)?)
-	.bind(end.tokens)
+	.bind(spent)
 	.bind(end.kick_back)
 	.bind(fmt_ts(now))
 	.bind(end.run.0)
 	.execute(&mut *tx)
 	.await
 	.wrap_err("charging a run")?;
+	Ok(())
+}
+
+/// What the run's walk did, a row per step, into the usage feed with the run's end.
+pub(super) async fn used(tx: &mut SqliteConnection, end: &RunEnd<'_>, now: Timestamp) -> eyre::Result<()> {
+	for (&step, &units) in end.meter.steps() {
+		sqlx::query("INSERT INTO walk_usage (run_id, item, units, at) VALUES (?, ?, ?, ?)")
+			.bind(end.run.0)
+			.bind(Item::Walk(step).to_string())
+			.bind(units)
+			.bind(fmt_ts(now))
+			.execute(&mut *tx)
+			.await
+			.wrap_err("recording a run's usage")?;
+	}
 	Ok(())
 }

@@ -10,7 +10,7 @@ crates/review_archive_core/     no I/O: no browser, database, network or clock
                                 what callers type in (intervals, langs, dates) and Rejected
   src/reconcile.rs              a scan against what is stored → new / changed / unchanged / gone / reappeared
   src/schedule.rs               when a target is next due: interval, jitter, backoff
-  src/tokens.rs                 the account's hourly limit, a walk's steps at the conductor's prices, and the walk's meter
+  src/tokens.rs                 the account's hourly limit, a walk's steps at the conductor's prices, and the walk's meter (what it spent, and each step done)
   src/relative_date.rs          "il y a 3 semaines" → an estimated timestamp, and its earliest bound
   src/maps/selectors.rs         every assumption about Google's markup, and the in-page scripts
   src/maps/parse.rs             cards out of HTML (tested on tests/fixtures/, insta snapshots)
@@ -26,7 +26,7 @@ crates/review_archive/          the engine (features: maps, store)
   src/store/jobs.rs             the job queue (on-demand scans and ad-hoc captures)
   src/store/events.rs           events into the outbox (hooks) and the conductor's Alerts feed, in the scan's own transaction
   src/store/members.rs          per-member state: track switches, reinstatements
-  src/store/mirror.rs           the conductor's GMBs, balances and walk prices as last told (`sa_core::gbp::Snapshot`), the tracks derived from them, and the charge feed
+  src/store/mirror.rs           the conductor's GMBs, balances and walk prices as last told (`sa_core::gbp::Snapshot`), the tracks derived from them, the charge feed and the usage feed
   src/store/people.rs           people by concierge `sub`; claiming an address's rows from before
   src/store/tokens.rs           what a member holds, who pays for a scan, the account's hourly limit
   src/store/layouts.rs          the board dock's published layouts, per dock and band, what fresh browsers start from
@@ -130,7 +130,7 @@ with its own platform implements `sources::ReviewSource` and records through
 - **History is append-only, while anyone tracks it.** Reviews and captures are never deleted; `review_versions` gets a
   row per distinct content, the first sighting included. `gone_at` is set and cleared, never a
   deletion. A place whose last track went is off the schedule, and `defaults.untracked_retention`
-  later it is deleted with its archive and runs; the charge feed keeps its rows. A target never
+  later it is deleted with its archive and runs; the charge and usage feeds keep their rows. A target never
   tracked is the operator's, and is never purged.
 - **A walk that stops short leaves no hole.** A scan stops at a screen of archived cards
   only once it is past the last card a previous walk was cut short at
@@ -165,7 +165,7 @@ with its own platform implements `sources::ReviewSource` and records through
   them to 404, 400 and 429, and anything else to a logged 500.
 - **One write lock per transaction.** A write that reads first begins `IMMEDIATE`, so `serve`'s
   worker, its HTTP side and a hand-run `scan` never fail on each other's writes. A scan's
-  reviews, events, cut, run end, job end and its charge row commit together; so does a
+  reviews, events, cut, run end, job end, its charge row and its usage rows commit together; so does a
   conductor's snapshot, whole.
 - **One `serve` per data dir does the background work.** `serve.lock` in the data dir, held
   for the process's life, gates the worker, the deliverer and the blob conversion; a second
@@ -208,8 +208,10 @@ with its own platform implements `sources::ReviewSource` and records through
   starts while a step has no price (so none before the first snapshot) or a first screen
   costs more than the hour: Maps is closed, and says which. A tracked place whose members are out of
   tokens is not walked; a GMB the conductor switched off, or not verified, pays for nothing. A scan a member asks for is theirs alone to pay; the operator's jobs
-  and ad-hoc looks are no one's. The archive never calls the conductor: the conductor reads
-  the feeds and pushes the snapshot, under a Conductor assertion.
+  and ad-hoc looks are no one's. Every run, whoever pays and failed or not, also puts what its
+  walk did into the usage feed (`GET /api/conductor/usage`, `sa_core::usage`): a row per
+  `walk.*` step it did, its count, at the run's end, from the same meter. The archive never calls
+  the conductor: the conductor reads the feeds and pushes the snapshot, under a Conductor assertion.
 - **Events are an outbox.** `review.new/changed/gone/reappeared` and `run.failed` are written
   to `webhook_deliveries` in the same transaction as what they report, a row per hook, and
   delivered from there, retried

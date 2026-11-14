@@ -8,6 +8,7 @@ use std::fmt;
 pub use sa_core::{
 	gbp::{Country, Managed, OnGoogle, Snapshot},
 	tokens::{Charge, ChargePage},
+	usage::{UsagePage, Used},
 };
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;

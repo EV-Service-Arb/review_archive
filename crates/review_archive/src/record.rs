@@ -85,7 +85,7 @@ impl Recorder<'_> {
 					status: RunStatus::Failed,
 					error: Some(&error),
 					job,
-					tokens: meter.spent(),
+					meter: &meter,
 					payers: &payers,
 					kick_back: true,
 				};
@@ -131,7 +131,7 @@ impl Recorder<'_> {
 					status: summary.status,
 					error: summary.error.as_deref(),
 					job,
-					tokens: meter.spent(),
+					meter: &meter,
 					payers: &payers,
 					kick_back: warnings.iter().any(|w| matches!(w, Warning::Failure(_))),
 				};
