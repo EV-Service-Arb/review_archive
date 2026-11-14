@@ -42,6 +42,7 @@ jobs:
         with:
           name: modified-cargo-files
       - run: rm -f "$GITHUB_WORKSPACE/.cargo/config.toml" "$GITHUB_WORKSPACE/.cargo/config"
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -Dwarnings
     timeout-minutes: 45
   rust-doc:
@@ -60,6 +61,7 @@ jobs:
           name: modified-cargo-files
       - uses: dtolnay/install@cargo-docs-rs
       - run: rm -f "$GITHUB_WORKSPACE/.cargo/config.toml" "$GITHUB_WORKSPACE/.cargo/config"
+      - uses: Swatinem/rust-cache@v2
       - run: |
           for p in $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select([.targets[].kind[]] | any(. == "lib" or . == "proc-macro")) | .name'); do
             cargo docs-rs -p "$p"

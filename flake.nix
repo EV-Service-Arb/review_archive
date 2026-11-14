@@ -51,7 +51,7 @@
           inherit pkgs rust;
           build.workspace = {
             "./crates/review_archive" = [ "git_version" ];
-            "./crates/review_archive_server" = [ "git_version" "log_directives" ];
+            "./crates/review_archive_server" = [ "git_version" "log_directives" "api_docs" ];
           };
         };
         github = v_flakes.github {

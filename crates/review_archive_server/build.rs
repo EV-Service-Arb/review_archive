@@ -1,6 +1,7 @@
 fn main() {
 	git_version();
 	log_directives();
+	ev_lib::api::docs::write();
 }
 
 fn git_version() {

@@ -11,12 +11,17 @@ use axum::{
 	middleware::Next,
 	response::{IntoResponse, Response},
 };
+use ev_lib::api::{
+	GenContext, OperationInput,
+	openapi::{HeaderStyle, Operation, Parameter, ParameterData, ParameterSchemaOrContent, ReferenceOr, SchemaObject},
+	schemars::json_schema,
+};
 use review_archive::store::people::{Claim, Seen};
 use review_archive_core::{
 	PersonId,
 	dto::{ErrorBody, MEMBER_HEADER},
 };
-use sa_auth::{Permission, PermissionSet, Service};
+use sa_auth::{PermissionSet, Service};
 
 use crate::http::AppState;
 
@@ -44,7 +49,19 @@ fn unauthorized() -> Response {
 	refuse(StatusCode::UNAUTHORIZED, "unauthorized")
 }
 
-/// Every authenticated route: puts the [`Caller`] in the request.
+/// The panel's assertion on `req`, checked; a refusal is answered 401.
+fn asserted(keys: &sa_auth::Keys, req: &Request) -> Result<sa_auth::Assertion, Response> {
+	let Some(token) = req.headers().get(sa_auth::HEADER).and_then(|v| v.to_str().ok()) else {
+		return Err(unauthorized());
+	};
+	let now = jiff::Timestamp::now().as_second();
+	sa_auth::verify(keys, token, Service::ReviewArchive, req.method().as_str(), req.uri().path(), None, now).map_err(|e| {
+		tracing::warn!(%e, "an assertion refused");
+		unauthorized()
+	})
+}
+
+/// Every operation: puts the [`Caller`] in the request.
 pub async fn authenticate(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
 	let seen = match &*state.auth {
 		Auth::Dev { person, email, permissions } => {
@@ -55,26 +72,17 @@ pub async fn authenticate(State(state): State<AppState>, mut req: Request, next:
 			});
 			return next.run(req).await;
 		}
-		Auth::Panel(keys) => {
-			let Some(token) = req.headers().get(sa_auth::HEADER).and_then(|v| v.to_str().ok()) else {
+		Auth::Panel(keys) => match asserted(keys, &req) {
+			Ok(sa_auth::Assertion {
+				principal: sa_auth::Principal::User(user),
+				..
+			}) => user,
+			Ok(a) => {
+				tracing::warn!(principal = ?a.principal, "an assertion names no user");
 				return unauthorized();
-			};
-			let now = jiff::Timestamp::now().as_second();
-			match sa_auth::verify(keys, token, Service::ReviewArchive, req.method().as_str(), req.uri().path(), None, now) {
-				Ok(sa_auth::Assertion {
-					principal: sa_auth::Principal::User(user),
-					..
-				}) => user,
-				Ok(a) => {
-					tracing::warn!(principal = ?a.principal, "an assertion names no user");
-					return unauthorized();
-				}
-				Err(e) => {
-					tracing::warn!(%e, "an assertion refused");
-					return unauthorized();
-				}
 			}
-		}
+			Err(refused) => return refused,
+		},
 	};
 	let claim = state
 		.archive
@@ -104,46 +112,60 @@ pub async fn authenticate(State(state): State<AppState>, mut req: Request, next:
 	next.run(req).await
 }
 
-async fn require(p: impl Permission, req: Request, next: Next) -> Response {
-	match req.extensions().get::<Caller>().expect("layered under authenticate").permissions.may(p) {
-		true => next.run(req).await,
-		false => refuse(StatusCode::FORBIDDEN, &format!("this route needs {}", p.as_str())),
+/// What an operation's caller holds beyond a sign-in.
+#[derive(Clone, Copy, Debug)]
+pub enum Section {
+	/// The archive's own: targets, scans, captures, hooks, stats, export.
+	Operate,
+	/// The members' list: whom one may act as.
+	ActAs,
+}
+
+impl Section {
+	pub fn permission(self) -> &'static str {
+		match self {
+			Self::Operate => sa_auth::Archive::Operate.as_str(),
+			Self::ActAs => sa_auth::Members::ActAs.as_str(),
+		}
 	}
 }
 
-/// The archive's own routes: targets, scans, captures, hooks, stats, export.
-pub async fn operates_archive(req: Request, next: Next) -> Response {
-	require(sa_auth::Archive::Operate, req, next).await
+/// Layered under [`authenticate`]: the caller holds the section's permission.
+pub async fn require(State(section): State<Section>, req: Request, next: Next) -> Response {
+	let p = section.permission();
+	let held = req.extensions().get::<Caller>().expect("layered under authenticate").permissions.iter().any(|held| held == p);
+	match held {
+		true => next.run(req).await,
+		false => refuse(StatusCode::FORBIDDEN, &format!("this route needs {p}")),
+	}
 }
 
-/// The members' list: whom one may act as.
-pub async fn acts_as(req: Request, next: Next) -> Response {
-	require(sa_auth::Members::ActAs, req, next).await
-}
-
-/// `/api/conductor/*`: the conductor's own assertion, and nobody else's.
-pub async fn conductor(State(state): State<AppState>, req: Request, next: Next) -> Response {
+/// Who the assertion is from, when only `admits` may call.
+async fn principal(state: &AppState, admits: fn(&sa_auth::Principal) -> bool, req: Request, next: Next) -> Response {
 	let Auth::Panel(keys) = &*state.auth else {
 		return unauthorized(); // `--dev-member` has no conductor to hear from
 	};
-	let Some(token) = req.headers().get(sa_auth::HEADER).and_then(|v| v.to_str().ok()) else {
-		return unauthorized();
-	};
-	let now = jiff::Timestamp::now().as_second();
-	match sa_auth::verify(keys, token, Service::ReviewArchive, req.method().as_str(), req.uri().path(), None, now) {
-		Ok(sa_auth::Assertion {
-			principal: sa_auth::Principal::Conductor,
-			..
-		}) => next.run(req).await,
+	match asserted(keys, &req) {
+		Ok(a) if admits(&a.principal) => next.run(req).await,
 		Ok(a) => {
-			tracing::warn!(principal = ?a.principal, "a conductor route asked by someone else");
+			tracing::warn!(principal = ?a.principal, path = req.uri().path(), "a route asked by someone it does not admit");
 			unauthorized()
 		}
-		Err(e) => {
-			tracing::warn!(%e, "an assertion refused");
-			unauthorized()
-		}
+		Err(refused) => refused,
 	}
+}
+
+/// `/api/conductor/*` and `/dashboards`: the conductor's own assertion, and nobody else's.
+pub async fn conductor(State(state): State<AppState>, req: Request, next: Next) -> Response {
+	principal(&state, |p| matches!(p, sa_auth::Principal::Conductor), req, next).await
+}
+
+/// `/openapi.json`: the conductor's pull, or anyone signed in.
+pub async fn conductor_or_user(State(state): State<AppState>, req: Request, next: Next) -> Response {
+	if let Auth::Dev { .. } = &*state.auth {
+		return next.run(req).await;
+	}
+	principal(&state, |p| matches!(p, sa_auth::Principal::Conductor | sa_auth::Principal::User(_)), req, next).await
 }
 
 /// Whose `/me` this is: the caller, or the person `X-Member` names: the caller again, or anyone
@@ -174,6 +196,31 @@ impl FromRequestParts<AppState> for Member {
 		Ok(Self(id))
 	}
 }
+
+impl OperationInput for Member {
+	fn operation_input(_: &mut GenContext, op: &mut Operation) {
+		op.parameters.push(ReferenceOr::Item(Parameter::Header {
+			parameter_data: ParameterData {
+				name: MEMBER_HEADER.into(),
+				description: Some("The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.".into()),
+				required: false,
+				deprecated: None,
+				format: ParameterSchemaOrContent::Schema(SchemaObject {
+					json_schema: json_schema!({ "type": "integer" }),
+					example: None,
+					external_docs: None,
+				}),
+				example: None,
+				examples: Default::default(),
+				explode: None,
+				extensions: Default::default(),
+			},
+			style: HeaderStyle::Simple,
+		}));
+	}
+}
+
+impl OperationInput for Caller {}
 
 impl<S: Send + Sync> FromRequestParts<S> for Caller {
 	type Rejection = std::convert::Infallible;

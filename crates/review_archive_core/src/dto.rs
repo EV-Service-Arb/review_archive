@@ -16,7 +16,7 @@ use crate::{Target, TargetKind, fmt_ts};
 
 /// A watched place.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct TargetDto {
 	/// Its id in the archive.
 	pub id: i64,
@@ -64,7 +64,7 @@ impl From<Target> for TargetDto {
 
 /// A review as archived.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct ReviewDto {
 	/// Its id in the archive.
 	pub id: i64,
@@ -114,7 +114,7 @@ pub fn capture_url(sha256: &str) -> String {
 
 /// One target's activity on one UTC day.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct DayStats {
 	/// The target.
 	pub target_id: i64,
@@ -134,7 +134,7 @@ pub struct DayStats {
 
 /// How a scan went. Stored as its lowercase name.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, strum::AsRefStr, strum::EnumString)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum RunStatus {
@@ -148,7 +148,7 @@ pub enum RunStatus {
 
 /// What one scan did to the archive.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct Counts {
 	/// Distinct reviews listed.
 	pub seen: u32,
@@ -162,7 +162,7 @@ pub struct Counts {
 
 /// One scan of one target, as reported.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct RunSummary {
 	/// The target.
 	pub target: i64,
@@ -206,7 +206,7 @@ impl fmt::Display for RunSummary {
 /// `POST /targets`: watch a place. One of `place` and `maps_url`.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct NewTarget {
 	/// A place id (or a Maps URL; either field takes both).
@@ -226,7 +226,7 @@ pub struct NewTarget {
 /// `PATCH /targets/{id}`: what to change; absent fields stay.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct TargetPatch {
 	/// New label.
@@ -241,7 +241,7 @@ pub struct TargetPatch {
 
 /// A target with how it is doing.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct TargetDetail {
 	/// The target.
 	#[serde(flatten)]
@@ -260,7 +260,7 @@ pub struct TargetDetail {
 
 /// A run of a scan.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct RunDto {
 	/// Its id.
 	pub id: i64,
@@ -283,7 +283,7 @@ pub struct RunDto {
 
 /// What a job does. Stored as its lowercase name.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, strum::AsRefStr, strum::Display, strum::EnumString)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum JobKind {
@@ -295,7 +295,7 @@ pub enum JobKind {
 
 /// Where a job is. Stored as its lowercase name.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, strum::AsRefStr, strum::Display, strum::EnumString)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum JobStatus {
@@ -318,7 +318,7 @@ impl JobStatus {
 
 /// `202`: the job was queued.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct JobAccepted {
 	/// Poll `GET /jobs/{job_id}`.
 	pub job_id: i64,
@@ -326,7 +326,7 @@ pub struct JobAccepted {
 
 /// A job and, once done, what it saw.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct JobDto {
 	/// Its id.
 	pub id: i64,
@@ -354,7 +354,7 @@ pub struct JobDto {
 /// What an ad-hoc capture reads.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct CaptureLimits {
 	/// Cards read at most; the per-scan default when unset, `defaults.max_reviews_initial`
@@ -367,7 +367,7 @@ pub struct CaptureLimits {
 /// `POST /captures`: capture a place without registering it. One of `place` and `maps_url`.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct CaptureRequest {
 	/// A place id (or a Maps URL).
@@ -383,7 +383,7 @@ pub struct CaptureRequest {
 
 /// One version of a review's content.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct VersionDto {
 	/// When this content was first seen.
 	pub seen_at: String,
@@ -399,7 +399,7 @@ pub struct VersionDto {
 
 /// A stored screenshot.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct CaptureDto {
 	/// Its hash, and its name in the blob store.
 	pub sha256: String,
@@ -421,7 +421,7 @@ pub struct CaptureDto {
 
 /// A review with its full history.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct ReviewDetail {
 	/// The review as last seen.
 	#[serde(flatten)]
@@ -434,7 +434,7 @@ pub struct ReviewDetail {
 
 /// What a webhook can subscribe to. Stored and sent (`X-Event`) under its dotted name.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, strum::AsRefStr, strum::EnumString)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub enum Event {
 	/// A review archived for the first time.
 	#[serde(rename = "review.new")]
@@ -460,7 +460,7 @@ pub enum Event {
 
 /// `POST /webhooks`.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct NewWebhook {
 	/// Where deliveries are POSTed; `http` or `https`, to a host the archive allows.
 	pub url: String,
@@ -473,7 +473,7 @@ pub struct NewWebhook {
 
 /// A dock layout published as the one fresh browsers start from: `GET /layouts/{dock}`.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct LayoutDto {
 	/// `sm`, `md` or `xl`: the dock's width band.
 	pub band: String,
@@ -483,7 +483,7 @@ pub struct LayoutDto {
 
 /// `PUT /layouts/{dock}/{band}`.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct NewLayout {
 	/// The dock's own layout JSON.
 	pub layout: String,
@@ -491,7 +491,7 @@ pub struct NewLayout {
 
 /// A webhook, without its secret.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct WebhookDto {
 	/// Its id.
 	pub id: i64,
@@ -505,7 +505,7 @@ pub struct WebhookDto {
 
 /// The body of a webhook delivery.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct EventPayload {
 	/// What happened.
 	pub event: Event,
@@ -521,7 +521,7 @@ pub struct EventPayload {
 
 /// An error response.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct ErrorBody {
 	/// What went wrong; `internal error` for a 5xx, whose details stay in the server log.
 	pub error: String,
@@ -530,7 +530,7 @@ pub struct ErrorBody {
 /// `GET /targets/{id}/reviews`.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct ReviewsQuery {
 	/// `YYYY-MM-DD` or RFC 3339: first seen at or after.
@@ -542,7 +542,7 @@ pub struct ReviewsQuery {
 /// `GET /targets/{id}/runs`.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct RunsQuery {
 	/// At most this many, newest first (default 20, at most 500).
@@ -552,7 +552,7 @@ pub struct RunsQuery {
 /// `GET /targets/{id}/export.zip`.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct ExportQuery {
 	/// `YYYY-MM-DD` or RFC 3339: reviews first seen at or after.
@@ -562,7 +562,7 @@ pub struct ExportQuery {
 /// `POST /captures`.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct WaitQuery {
 	/// Hold the request up to this many seconds (at most 120) and answer with the finished
@@ -573,7 +573,7 @@ pub struct WaitQuery {
 /// `GET /stats`.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct StatsQuery {
 	/// One target; every target when unset.
@@ -606,7 +606,7 @@ pub fn stats_csv(rows: &[DayStats]) -> eyre::Result<String> {
 /// A managing gmail: the Google manager account a member's GMBs are attached to, as the
 /// conductor last told of it.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct GmailDto {
 	/// The conductor's id.
 	pub id: i64,
@@ -617,7 +617,7 @@ pub struct GmailDto {
 /// `PATCH /me/gmbs/{gmb}/tracks/{target}`: what to change; absent fields stay.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct TrackPatch {
 	/// Switch the track on or off.
@@ -628,7 +628,7 @@ pub struct TrackPatch {
 
 /// A tracked place, as the member's overview shows it.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct LocationSummary {
 	/// The place.
 	pub target: TargetDto,
@@ -682,7 +682,7 @@ pub struct LocationSummary {
 
 /// A scan of a place under way or waiting.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum ScanState {
 	/// Waiting for the browser.
@@ -701,7 +701,7 @@ pub enum ScanState {
 
 /// A post by a place's owner.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct PostDto {
 	/// Line breaks kept.
 	pub text: String,
@@ -713,7 +713,7 @@ pub struct PostDto {
 
 /// A GMB: one place a gmail manages, and the archive's track of it.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct GmbSummary {
 	/// The conductor's id.
 	pub id: i64,
@@ -731,7 +731,7 @@ pub struct GmbSummary {
 
 /// A gmail and its GMBs.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct GmailOverview {
 	/// The gmail.
 	#[serde(flatten)]
@@ -742,7 +742,7 @@ pub struct GmailOverview {
 
 /// An appeal of a removed review.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct ReinstatementDto {
 	/// When it was requested.
 	pub requested_at: String,
@@ -752,7 +752,7 @@ pub struct ReinstatementDto {
 
 /// A review on a board, with this GMB's latest appeal of it that was not withdrawn.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct BoardCard {
 	/// The review.
 	pub review: ReviewDto,
@@ -762,7 +762,7 @@ pub struct BoardCard {
 
 /// One tracked place's reviews in three columns.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct Board {
 	/// Listed now, newest first sighting first; a reinstated one carries its appeal.
 	pub snapshotted: Vec<BoardCard>,
@@ -776,7 +776,7 @@ pub struct Board {
 
 /// `GET /me/settings`: what the member chose, each beside what they get without choosing.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct Settings {
 	/// Seconds between scans of each place the member pays for; a place several pay for goes by
 	/// the shortest.
@@ -785,7 +785,7 @@ pub struct Settings {
 
 /// One of [`Settings`].
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct Setting<T> {
 	/// `null`: never chosen, or reset.
 	pub chosen: Option<T>,
@@ -803,7 +803,7 @@ impl<T: Copy> Setting<T> {
 /// `PATCH /me/settings`: absent fields stay; `DELETE /me/settings` resets them all.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct SettingsPatch {
 	/// `6h`, `1d`, or seconds; at least `schedule.min_interval`.
@@ -812,7 +812,7 @@ pub struct SettingsPatch {
 
 /// `GET /me`: who is signed in.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct Me {
 	/// Their person id, what `X-Member` and `/members/{id}` name.
 	pub id: i64,
@@ -826,7 +826,7 @@ pub struct Me {
 
 /// `GET /members`: someone who signed in here, or an address from before people had ids.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct MemberDto {
 	/// Their person id.
 	pub id: i64,
@@ -843,7 +843,7 @@ pub struct MemberDto {
 
 /// `GET /me/gmbs`: the archive's tag on each of the member's GMBs, for the conductor's page.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct MyGmbs {
 	/// By GMB id; removed GMBs are left out.
 	pub gmbs: std::collections::BTreeMap<i64, GmbReviews>,
@@ -853,7 +853,7 @@ pub struct MyGmbs {
 
 /// A GMB's reviews, as [`MyGmbs`] tells them.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct GmbReviews {
 	/// It is verified and switched on, and its track is on.
 	pub tracked: bool,
@@ -871,7 +871,7 @@ pub struct GmbReviews {
 
 /// A page of one of the conductor's feeds: `GET /api/conductor/charges`, `GET /api/conductor/notifications`.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams), into_params(parameter_in = Query))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct FeedQuery {
 	/// Rows past this id.
 	pub after: i64,

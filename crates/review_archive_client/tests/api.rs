@@ -468,7 +468,7 @@ async fn scans_and_captures_are_jobs_with_their_reviews() {
 }
 
 #[tokio::test]
-async fn webhooks_and_the_openapi_document() {
+async fn webhooks() {
 	let e = env().await;
 	let hook = e
 		.client
@@ -496,27 +496,6 @@ async fn webhooks_and_the_openapi_document() {
 	e.client.delete_webhook(hook.id).await.unwrap();
 	assert_eq!(e.client.delete_webhook(hook.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 
-	// the document is public and names every route the router serves
-	let doc: serde_json::Value = reqwest::get(format!("{}/openapi.json", e.base)).await.unwrap().json().await.unwrap();
-	let paths: Vec<&str> = doc["paths"].as_object().unwrap().keys().map(String::as_str).collect();
-	for p in [
-		"/targets",
-		"/targets/{id}",
-		"/targets/{id}/reviews",
-		"/targets/{id}/runs",
-		"/targets/{id}/scan",
-		"/targets/{id}/export.zip",
-		"/captures",
-		"/captures/{sha256}.webp",
-		"/jobs/{id}",
-		"/reviews/{id}",
-		"/stats",
-		"/webhooks",
-		"/webhooks/{id}",
-	] {
-		assert!(paths.contains(&p), "{p} missing from {paths:?}");
-	}
-	assert!(doc["components"]["securitySchemes"]["panel_assertion"].is_object());
 	e.server.abort();
 }
 
@@ -557,7 +536,7 @@ async fn record(e: &Env, target: i64, reviews: Vec<Observed>) {
 }
 
 #[tokio::test]
-async fn every_route_but_health_and_openapi_wants_an_assertion() {
+async fn every_route_but_health_wants_an_assertion() {
 	let e = env().await;
 	let http = reqwest::Client::new();
 	let routes = [
@@ -591,6 +570,7 @@ async fn every_route_but_health_and_openapi_wants_an_assertion() {
 		("GET", "/api/conductor/notifications"),
 		("GET", &format!("/api/conductor/captures/{}.png", "0".repeat(64))),
 		("GET", "/dashboards"),
+		("GET", "/openapi.json"),
 	];
 	for (method, path) in routes {
 		let resp = http
@@ -602,7 +582,6 @@ async fn every_route_but_health_and_openapi_wants_an_assertion() {
 		assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{method} {path}");
 	}
 	assert_eq!(reqwest::get(format!("{}/health", e.base)).await.unwrap().status(), StatusCode::OK);
-	assert_eq!(reqwest::get(format!("{}/openapi.json", e.base)).await.unwrap().status(), StatusCode::OK);
 	e.server.abort();
 }
 
@@ -1151,6 +1130,51 @@ async fn the_conductor_alone_is_served_every_dashboard() {
 	let again = get(conductor(), Some(&etag)).await;
 	assert_eq!(again.status(), StatusCode::NOT_MODIFIED);
 	assert_eq!(get(None, Some(&etag)).await.status(), StatusCode::UNAUTHORIZED, "the tag tells no one else anything");
+	e.server.abort();
+}
+
+/// `/openapi.json` is the conductor's to pull, conditionally, as it pulls `/dashboards`; a person
+/// signed in reads it too.
+#[tokio::test]
+async fn the_conductor_pulls_the_document_and_a_member_may_read_it() {
+	let e = env().await;
+	let url = format!("{}/openapi.json", e.base);
+	let get = async |token: Option<String>, etag: Option<&str>| {
+		let mut r = reqwest::Client::new().get(&url);
+		if let Some(t) = token {
+			r = r.header(sa_auth::HEADER, t);
+		}
+		if let Some(t) = etag {
+			r = r.header("if-none-match", t);
+		}
+		r.send().await.unwrap()
+	};
+	let conductor = || {
+		Some(e.signer.sign(&sa_auth::Assertion {
+			aud: sa_auth::Service::ReviewArchive,
+			principal: sa_auth::Principal::Conductor,
+			method: "GET".into(),
+			path: "/openapi.json".into(),
+			exp: alive(),
+		}))
+	};
+
+	assert_eq!(get(None, None).await.status(), StatusCode::UNAUTHORIZED);
+	let served = get(conductor(), None).await;
+	assert_eq!(served.status(), StatusCode::OK);
+	let etag = served.headers()["etag"].to_str().unwrap().to_owned();
+	assert!(etag.starts_with('"'), "a strong tag: {etag}");
+	let doc: serde_json::Value = served.json().await.unwrap();
+	assert_eq!(doc["servers"][0]["url"], "/", "the conductor finds its forward by the base");
+	let scan = &doc["paths"]["/me/gmbs/{gmb}/tracks/{target}/scan"]["post"];
+	assert_eq!(scan["operationId"], "scan_track");
+	assert_eq!(scan["x-spends"], true);
+	assert_eq!(doc["paths"]["/targets"]["get"]["x-permission"], sa_auth::Archive::Operate.as_str());
+	assert!(doc["paths"].get("/api/conductor/charges").is_none(), "the conductor's own calls are no operation");
+
+	assert_eq!(get(conductor(), Some(&etag)).await.status(), StatusCode::NOT_MODIFIED);
+	let member = get(Some(sign(&e.signer, &Who::member(ALICE), "GET", "/openapi.json", alive())), None).await;
+	assert_eq!(member.status(), StatusCode::OK);
 	e.server.abort();
 }
 

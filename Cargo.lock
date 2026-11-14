@@ -186,6 +186,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "aide"
+version = "0.16.0-alpha.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "390515b47251185fa076ac92a7a582d9d383b03e13cef0c801e7670cf928229b"
+dependencies = [
+ "axum",
+ "bytes",
+ "cfg-if",
+ "http 1.5.0",
+ "indexmap",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_qs 1.1.3",
+ "thiserror 2.0.21",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1652,7 +1673,7 @@ dependencies = [
  "send_wrapper",
  "serde",
  "serde_json",
- "serde_qs",
+ "serde_qs 0.15.0",
  "serde_urlencoded",
  "thiserror 2.0.21",
  "tokio-util",
@@ -2160,12 +2181,12 @@ dependencies = [
 
 [[package]]
 name = "ev_lib"
-version = "0.29.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2f18a7290d12ed234cc17f7a542208aa3b7bb7f3a3cf2db23ab5fec46e7a3d4"
+version = "0.32.0"
 dependencies = [
+ "aide",
+ "axum",
  "dioxus",
- "ev_lib_classes 0.17.0",
+ "ev_lib_classes 0.19.0",
  "inventory",
  "jiff",
  "js-sys",
@@ -2175,10 +2196,12 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "reqwest 0.13.5",
+ "schemars",
  "sentry",
  "serde",
  "serde_json",
  "strum",
+ "syn 2.0.119",
  "tailwind_fuse",
  "tokio",
  "tonic 0.13.1",
@@ -2206,6 +2229,14 @@ name = "ev_lib_classes"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64b3af05b4aa18799bea5908073bb22aa680c049398eb36b400d9fa3b893a409"
+dependencies = [
+ "strum",
+ "tailwind_fuse",
+]
+
+[[package]]
+name = "ev_lib_classes"
+version = "0.19.0"
 dependencies = [
  "strum",
  "tailwind_fuse",
@@ -5117,7 +5148,6 @@ dependencies = [
  "strum",
  "thiserror 2.0.21",
  "url",
- "utoipa",
  "v_utils",
 ]
 
@@ -5130,7 +5160,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "concierge_iam",
- "ev_lib 0.29.2",
+ "ev_lib 0.32.0",
  "eyre",
  "jiff",
  "miette",
@@ -5154,7 +5184,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "utoipa",
  "v_utils",
 ]
 
@@ -5163,7 +5192,7 @@ name = "review_archive_web"
 version = "0.1.0"
 dependencies = [
  "dioxus",
- "ev_lib 0.29.2",
+ "ev_lib 0.32.0",
  "ev_lib_classes 0.17.0",
  "getrandom 0.3.4",
  "jiff",
@@ -5374,6 +5403,7 @@ version = "0.1.0"
 dependencies = [
  "jiff",
  "sa_auth",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -5388,6 +5418,7 @@ dependencies = [
  "concierge_iam",
  "ed25519-dalek",
  "hex",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -5403,13 +5434,14 @@ dependencies = [
  "jiff",
  "sa_alerts",
  "sa_auth",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "strum",
  "subtle",
  "thiserror 2.0.21",
  "url",
- "utoipa",
  "uuid",
 ]
 
@@ -5422,6 +5454,7 @@ dependencies = [
  "jiff",
  "reqwest 0.13.5",
  "sa_core",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -5466,10 +5499,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "687274d293b6cdc6e73e0fee520bf2049650090d7164f87672d212a3c530cf4a"
 dependencies = [
  "dyn-clone",
+ "indexmap",
+ "jiff",
  "ref-cast",
  "schemars_derive",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -5797,6 +5833,19 @@ dependencies = [
  "percent-encoding",
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "serde_qs"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "475b9310e272827d34113bf8679b6dfb7fa0023ee049764ba003f8f984e8b5d1"
+dependencies = [
+ "axum",
+ "itoa",
+ "percent-encoding",
+ "ryu",
+ "serde",
 ]
 
 [[package]]
@@ -7242,30 +7291,6 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
-
-[[package]]
-name = "utoipa"
-version = "5.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bde15df68e80b16c7d16b9616e80770ad158988daa56a27dccd1e55558b0160"
-dependencies = [
- "indexmap",
- "serde",
- "serde_json",
- "utoipa-gen",
-]
-
-[[package]]
-name = "utoipa-gen"
-version = "5.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ba0b99ee52df3028635d93840c797102da61f8a7bb3cf751032455895b52ef8"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
- "uuid",
-]
 
 [[package]]
 name = "uuid"

@@ -1,6 +1,8 @@
 # review_archive
 ![Minimum Supported Rust Version](https://img.shields.io/badge/nightly-1.100+-ab6000.svg)
 ![Lines Of Code](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/valeratrades/b48e6f02c61942200e7d1e3eeabf9bcb/raw/review_archive-loc.json)
+![Build time](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/valeratrades/b48e6f02c61942200e7d1e3eeabf9bcb/raw/review_archive-build.json)
+![Test time](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/valeratrades/b48e6f02c61942200e7d1e3eeabf9bcb/raw/review_archive-test.json)
 <br>
 [<img alt="ci errors" src="https://img.shields.io/github/actions/workflow/status/EV-Service-Arb/review_archive/errors.yml?branch=main&style=for-the-badge&style=flat-square&label=errors&labelColor=420d09" height="20">](https://github.com/EV-Service-Arb/review_archive/actions?query=branch%3Amain) <!--NB: Won't find it if repo is private-->
 [<img alt="ci warnings" src="https://img.shields.io/github/actions/workflow/status/EV-Service-Arb/review_archive/warnings.yml?branch=main&style=for-the-badge&style=flat-square&label=warnings&labelColor=d16002" height="20">](https://github.com/EV-Service-Arb/review_archive/actions?query=branch%3Amain) <!--NB: Won't find it if repo is private-->
@@ -78,13 +80,8 @@ max_reviews_initial = 2000
 
 ## HTTP
 
-| Route | |
-|---|---|
-| `GET /health` | no auth |
-| `GET /targets` | |
-| `GET /targets/{id}/reviews?since=&gone=` | `since`: date or RFC 3339, on first sighting |
-| `GET /captures/{sha256}.webp` | only hashes the archive recorded |
-| `GET /stats?target=&from=&to=` | per target and day; `Accept: text/csv` for CSV |
+`GET /health` answers without auth; the operations are in [ARCHITECTURE.md § The API](docs/ARCHITECTURE.md#the-api),
+described in full by `GET /openapi.json`.
 
 ## When Maps changes
 
@@ -97,9 +94,11 @@ The live test is `cargo test --test live -- --ignored`; it needs a browser and t
 
 <br>
 
-<sup>
-	This repository follows <a href="https://github.com/valeratrades/.github/tree/master/best_practices">my best practices</a> and <a href="https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md">Tiger Style</a> (except "proper capitalization for acronyms": (VsrState, not VSRState) and formatting). For project's architecture, see <a href="./docs/ARCHITECTURE.md">ARCHITECTURE.md</a>.
-</sup>
+<sup>Links for devs:</sup>
+- <sup><a href="./docs/ARCHITECTURE.md">architecture</a></sup>
+- <sup><a href="https://github.com/EV-Main/.github/blob/main/code/STYLE.md">style</a></sup>
+- <sup><a href="https://github.com/EV-Main/.github/tree/main/code/conventions">conventions</a></sup>
+- <sup><a href="https://github.com/EV-Main/.github/blob/main/code/conventions/git">contributing</a></sup>
 
 #### License
 

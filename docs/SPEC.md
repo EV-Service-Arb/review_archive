@@ -167,15 +167,8 @@ CLI (`clap`):
 - `review_archive export --target <id> [--since <date>] --out <dir|file.zip>` — captures (WebP) + `manifest.json`.
 
 HTTP (axum), behind the Service-Arb panel's assertion (see Auth), binds `127.0.0.1` unless
-configured:
-
-- `GET /health` (no auth)
-- `GET /targets`
-- `GET /targets/{id}/reviews?since=&gone=`
-- `GET /captures/{sha256}.webp`
-- `GET /stats?target=&from=&to=` — per target and per day: new, changed, gone,
-  mean rating, rating histogram. `Accept: text/csv` → CSV. `gone` counts what the runs
-  of that day marked gone, whether or not it came back later.
+configured: `GET /health` (no auth), and the operations of [ARCHITECTURE.md § The API](ARCHITECTURE.md#the-api),
+described in full by `GET /openapi.json`.
 
 Errors are JSON (`{"error": …}`) with 400 for input the archive cannot use (a body or a
 query it cannot read included), 404 for what does not exist, 429 when the job queue is
@@ -191,44 +184,19 @@ pacing (`[schedule]`, `[worker]`, `[http]`, `[webhooks]`, `[browser]`, `[tokens]
 
 Everything the CLI can do is reachable over HTTP, so other services drive the
 archive without shelling into its container. JSON in and out; DTOs live in the
-library (below) and are shared with the client crate. OpenAPI document at
-`GET /openapi.json` (utoipa, as in concierge).
+library (below) and are shared with the client crate. Each operation's request, answer and
+description are in `GET /openapi.json`, derived from the route table (ev_lib `api`).
 
-Targets:
-
-- `POST /targets` `{place | maps_url, label?, lang?, interval?, gbp?}` → `201`
-  with the target. Same resolution as `target add`.
-- `PATCH /targets/{id}` `{label?, lang?, interval?, enabled?}`
-- `DELETE /targets/{id}` — disables; archived data is never deleted.
-- `GET /targets/{id}` — target with last run, counts, next scheduled scan.
-
-Jobs (one browser, one queue; on-demand jobs go ahead of scheduled scans):
-
-- `POST /targets/{id}/scan` → `202 {job_id}` — scan now.
-- `POST /captures` `{place | maps_url, lang?, max_reviews?, review_ids?}` →
-  `202 {job_id}` — ad-hoc capture of a place **without** registering a target;
-  results are stored under an implicit, disabled target so nothing is lost.
-  `?wait=<secs>` (cap 120) blocks and returns the result directly if done.
-  `max_reviews` and the number of `review_ids` are at most `max_reviews_initial`.
-- The queue holds `max_queued_jobs` (default 20) at most: past that, `429`. Asking again
-  for a job already queued (same target, kind and limits) returns its id. After three
-  jobs in a row, an overdue scheduled scan goes first.
-- `GET /jobs/{id}` → `queued | running | done | failed`, and on `done` the
-  reviews with their capture URLs — for a capture of `review_ids`, those of them it
-  found.
-- `GET /targets/{id}/runs?limit=`
-
-Reviews and captures:
-
-- `GET /reviews/{id}` — review with versions and captures.
-- `GET /targets/{id}/export.zip?since=` — same archive as `export`.
-
-Events:
-
-- `POST /webhooks` `{url, events: [review.new, review.changed, review.gone, review.reappeared, run.failed], secret}`,
-    `GET /webhooks`, `DELETE /webhooks/{id}`. Deliveries are signed
-  (`X-Signature: sha256=<hmac of body>`), retried with backoff, recorded in an
-  outbox table so a restart does not drop them.
+- Targets: added by place id or Maps URL as `target add` resolves them; `DELETE` disables,
+  archived data is never deleted.
+- Jobs (one browser, one queue; on-demand jobs go ahead of scheduled scans): a scan now, or an
+  ad-hoc capture of a place **without** registering a target, its results stored under an
+  implicit, disabled target so nothing is lost. The queue holds `max_queued_jobs` (default 20)
+  at most: past that, `429`. Asking again for a job already queued (same target, kind and
+  limits) returns its id. After three jobs in a row, an overdue scheduled scan goes first.
+- Events: webhooks for `review.new`, `review.changed`, `review.gone`, `review.reappeared`,
+  `run.failed`. Deliveries are signed (`X-Signature: sha256=<hmac of body>`), retried with
+  backoff, recorded in an outbox table so a restart does not drop them.
 - A webhook URL is `http(s)`; with `[webhooks] allowed_hosts` empty it may not name a
   loopback, private, link-local, carrier-grade-NAT or otherwise local address, and a
   host name is refused at delivery when it resolves only to such addresses. A non-empty
@@ -342,6 +310,7 @@ the service.
 - `GET /dashboards` is the conductor's (an assertion naming `Principal::Conductor`), and no one
   else's: a JSON array of the dashboards in `grafana/` (written by `examples/grafana_*.py`), each with its
   `uid`, for its Grafana; strong `ETag`, `304` on `If-None-Match`.
+- `GET /openapi.json` the same way, to the conductor (which pulls it) and to anyone signed in.
 - `serve --dev-member <alias | permissions | none>` (loopback, outside production): every
   request is one person holding that, without the panel, for a local dashboard
   (`nix run .#dev-mfe`): the owner of a mirrored GMB, so it shows what the worker scans; with

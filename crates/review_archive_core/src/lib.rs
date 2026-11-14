@@ -113,7 +113,7 @@ impl Rejected {
 /// Where a target's reviews are read from: `maps` or `gbp`, as stored and as the API
 /// spells it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, strum::AsRefStr, serde::Deserialize, strum::EnumString, serde::Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum TargetKind {

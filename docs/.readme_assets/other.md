@@ -1,12 +1,7 @@
 ## HTTP
 
-| Route | |
-|---|---|
-| `GET /health` | no auth |
-| `GET /targets` | |
-| `GET /targets/{id}/reviews?since=&gone=` | `since`: date or RFC 3339, on first sighting |
-| `GET /captures/{sha256}.webp` | only hashes the archive recorded |
-| `GET /stats?target=&from=&to=` | per target and day; `Accept: text/csv` for CSV |
+`GET /health` answers without auth; the operations are in [ARCHITECTURE.md § The API](docs/ARCHITECTURE.md#the-api),
+described in full by `GET /openapi.json`.
 
 ## When Maps changes
 
