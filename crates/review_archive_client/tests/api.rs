@@ -4,7 +4,7 @@
 
 use std::{io::Read, sync::Arc, time::Duration};
 
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use reqwest::StatusCode;
 use review_archive::{
 	Archive,
@@ -15,10 +15,15 @@ use review_archive::{
 			CaptureRequest, Country, Event, JobStatus, LocationSummary, Managed, Me, MemberDto, NewTarget, NewWebhook, OnGoogle, Setting, Settings, SettingsPatch, Snapshot, TargetPatch,
 			TrackPatch,
 		},
-		tokens::Meter,
+		schedule::Schedule,
+		tokens::{Meter, Tokens},
 	},
+	record::Recorder,
 	sources::ReviewSource,
-	store::people::{Claim, Seen},
+	store::{
+		blobs::BlobStore,
+		people::{Claim, Seen},
+	},
 };
 use review_archive_client::{Captured, Client};
 use review_archive_server::{
@@ -1413,6 +1418,37 @@ async fn my_gmbs_tags_what_needs_the_operator() {
 	assert_eq!((failed.suspended, failed.reinstating, failed.failing), (1, 1, true));
 	let nothing = tag(quiet).await;
 	assert_eq!((nothing.suspended, nothing.reinstating, nothing.failing), (0, 0, false));
+	e.server.abort();
+}
+
+/// A GMB's row draws its place's live reviews by day: a day no walk collected is empty, not zero.
+#[tokio::test]
+async fn my_gmbs_draws_live_reviews_by_collected_day() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let g = e.gmb(ALICE, "a@gmail.com", PLACE).await;
+	let target = e.archive.target(review_archive::core::TargetId(track_of(&alice, g).await.id)).await.unwrap();
+	let blobs = BlobStore::new(e.dir.path().join("blobs"));
+	let walk = async |now: fn() -> Timestamp, reviews: Vec<Observed>| {
+		Recorder {
+			store: e.archive.store().unwrap(),
+			blobs: &blobs,
+			now,
+			schedule: &Schedule::default(),
+			tokens: &Tokens::default(),
+		}
+		.run(&Listed(reviews), &target)
+		.await
+		.unwrap();
+	};
+	walk(|| Timestamp::now() - SignedDuration::from_hours(72), vec![review("a"), review("b"), review("c")]).await;
+	walk(|| Timestamp::now() - SignedDuration::from_hours(24), vec![review("a"), review("b")]).await;
+	walk(Timestamp::now, vec![review("a"), review("b"), review("d")]).await;
+
+	let days = alice.my_gmbs().await.unwrap().gmbs[&g].live_30d.clone();
+	assert_eq!(days.len(), 30, "today last");
+	let collected: Vec<_> = days.iter().enumerate().filter_map(|(i, d)| d.map(|d| (i, d.live, d.lost))).collect();
+	assert_eq!(collected, vec![(26, 3, 0), (28, 2, 1), (29, 3, 0)]);
 	e.server.abort();
 }
 

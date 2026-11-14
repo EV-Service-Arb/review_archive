@@ -8,7 +8,7 @@ use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, Target, TargetId,
-	dto::{Board, BoardCard, GmailDto, GmailOverview, GmbReviews, GmbSummary, LocationSummary, MyGmbs, PostDto, ReinstatementDto, ReviewDto, ScanState, TrackPatch},
+	dto::{Board, BoardCard, DayReviews, GmailDto, GmailOverview, GmbReviews, GmbSummary, LocationSummary, MyGmbs, PostDto, ReinstatementDto, ReviewDto, ScanState, TrackPatch},
 	fmt_ts,
 	maps::cost,
 };
@@ -328,10 +328,11 @@ impl Store {
 	}
 
 	/// The member's GMBs' tags for the conductor's page.
-	pub async fn my_gmbs(&self, member: PersonId) -> eyre::Result<MyGmbs> {
-		type Row = (i64, bool, Option<f64>, Option<i64>, u32, u32, bool);
+	pub async fn my_gmbs(&self, member: PersonId, now: Timestamp) -> eyre::Result<MyGmbs> {
+		type Row = (i64, Option<i64>, bool, Option<f64>, Option<i64>, u32, u32, bool);
+		let mut tx = self.pool.begin().await.wrap_err("starting a read")?;
 		let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-			"SELECT m.id,
+			"SELECT m.id, w.id,
 			        m.enabled AND m.state = 'verified' AND EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled),
 			        w.rating, w.listed,
 			        (SELECT COUNT(*) FROM tracks k JOIN reviews r ON r.target_id = k.target_id
@@ -344,28 +345,53 @@ impl Store {
 			        EXISTS (SELECT 1 FROM tracks k WHERE k.gmb_id = m.id AND k.enabled
 			          AND (SELECT status FROM runs WHERE target_id = k.target_id AND ad_hoc = 0 AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1) = 'failed')
 			 FROM gmb_mirror m
-			 LEFT JOIN targets w ON w.id = (
-			     SELECT k.target_id FROM tracks k JOIN runs r ON r.target_id = k.target_id
-			     WHERE k.gmb_id = m.id AND r.status IN ('ok', 'partial') AND r.ad_hoc = 0
-			     ORDER BY r.finished_at DESC, r.id DESC LIMIT 1)
+			 LEFT JOIN targets w ON w.id = ({WORKING})
 			 WHERE m.id IN ({MEMBERS_GMBS})"
 		)))
 		.bind(member.0)
-		.fetch_all(&self.pool)
+		.fetch_all(&mut *tx)
 		.await
 		.wrap_err("tagging a member's GMBs")?;
+		let today = now.to_zoned(jiff::tz::TimeZone::UTC).date();
+		let first = today - SignedDuration::from_hours(24 * (LIVE_DAYS - 1) as i64);
+		let tomorrow = today.tomorrow().wrap_err("a date past 9999")?;
+		// a day's `live` is what its end had listed: first seen before it, not gone by it
+		let days: Vec<(i64, String, u32, u32)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+			"WITH d AS (
+			   SELECT r.target_id, date(r.finished_at) AS day, SUM(r.n_gone) AS lost FROM runs r
+			   WHERE r.target_id IN (SELECT ({WORKING}) FROM gmb_mirror m WHERE m.id IN ({MEMBERS_GMBS}))
+			     AND r.status IN ('ok', 'partial') AND r.ad_hoc = 0 AND r.finished_at >= ?2 AND r.finished_at < ?3
+			   GROUP BY r.target_id, day)
+			 SELECT d.target_id, d.day,
+			        (SELECT COUNT(*) FROM reviews v WHERE v.target_id = d.target_id
+			          AND v.first_seen < date(d.day, '+1 day') AND (v.gone_at IS NULL OR v.gone_at >= date(d.day, '+1 day'))),
+			        d.lost
+			 FROM d"
+		)))
+		.bind(member.0)
+		.bind(first.to_string())
+		.bind(tomorrow.to_string())
+		.fetch_all(&mut *tx)
+		.await
+		.wrap_err("counting a member's places' live reviews by day")?;
+		let mut live_30d: HashMap<i64, Vec<Option<DayReviews>>> = HashMap::new();
+		for (target, day, live, lost) in days {
+			let day: jiff::civil::Date = day.parse().wrap_err("SQLite's date()")?;
+			let i = usize::try_from(first.until(day).wrap_err("days between dates")?.get_days()).expect("runs from `first` on");
+			live_30d.entry(target).or_insert_with(|| vec![None; LIVE_DAYS])[i] = Some(DayReviews { live, lost });
+		}
 		let places_tracked: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
 			"SELECT COUNT(DISTINCT k.target_id) FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id
 			 WHERE k.enabled AND m.enabled AND m.state = 'verified' AND k.gmb_id IN ({MEMBERS_GMBS})"
 		)))
 		.bind(member.0)
-		.fetch_one(&self.pool)
+		.fetch_one(&mut *tx)
 		.await
 		.wrap_err("counting a member's tracked places")?;
 		Ok(MyGmbs {
 			gmbs: rows
 				.into_iter()
-				.map(|(id, tracked, rating, reviews, suspended, reinstating, failing)| {
+				.map(|(id, working, tracked, rating, reviews, suspended, reinstating, failing)| {
 					(
 						id,
 						GmbReviews {
@@ -375,6 +401,7 @@ impl Store {
 							suspended,
 							reinstating,
 							failing,
+							live_30d: working.and_then(|w| live_30d.get(&w).cloned()).unwrap_or_else(|| vec![None; LIVE_DAYS]), // no run in the window: nothing collected
 						},
 					)
 				})
@@ -414,6 +441,15 @@ impl Store {
 		Ok(())
 	}
 }
+
+/// Days in [`GmbReviews::live_30d`].
+const LIVE_DAYS: usize = 30;
+
+/// The target GMB `m`'s figures are from: its most recently walked tracked one. A GMB's
+/// tracks in other languages list the same reviews, so its figures are never summed over them.
+const WORKING: &str = "SELECT k.target_id FROM tracks k JOIN runs r ON r.target_id = k.target_id
+	 WHERE k.gmb_id = m.id AND r.status IN ('ok', 'partial') AND r.ad_hoc = 0
+	 ORDER BY r.finished_at DESC, r.id DESC LIMIT 1";
 
 /// The ids of the GMBs of person `?1`, not removed.
 const MEMBERS_GMBS: &str = "SELECT m.id FROM gmb_mirror m JOIN people p ON p.sub = m.owner WHERE p.id = ?1 AND NOT m.removed";

@@ -283,7 +283,7 @@ The archive keeps a mirror of them and annotates them; it adds and removes none.
   out; a card's `non-5-star` and `responded` tags open it with that one ruled out.
 - `GET /me/gmbs` answers per GMB not removed `{tracked, rating, reviews, suspended, reinstating, failing}` (`tracked`: its track is live) (the place's figures
   from its last walk; `suspended` and `reinstating` the overview's counts while its track is on;
-  `failing`: its track is on and its latest finished non-ad-hoc run is `failed`, a `partial` one is not) and `places_tracked`: what the conductor's `/gmbs` page
+  `failing`: its track is on and its latest finished non-ad-hoc run is `failed`, a `partial` one is not; `live_30d`: 30 UTC days to today of `{live, lost}` on the target `rating` is from, `null` on a day no finished `ok`/`partial` non-ad-hoc run collected, `live` the reviews listed at the day's end and `lost` the day's runs' gone) and `places_tracked`: what the conductor's `/gmbs` page
   tags a GMB with.
 
 ### Tokens

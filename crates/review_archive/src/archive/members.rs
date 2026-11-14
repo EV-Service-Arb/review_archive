@@ -79,7 +79,7 @@ impl Archive {
 
 	/// The member's GMBs' tags for the conductor's page.
 	pub async fn my_gmbs(&self, member: PersonId) -> eyre::Result<MyGmbs> {
-		self.store()?.my_gmbs(member).await
+		self.store()?.my_gmbs(member, Timestamp::now()).await
 	}
 
 	/// Queues a scan of a place the member's GMB tracks, on top of its schedule; the member
