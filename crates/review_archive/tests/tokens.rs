@@ -12,7 +12,7 @@ use review_archive::{
 	core::{
 		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId, Warning,
 		dto::{Charge, Country, LocationSummary, Managed, NewTarget, OnGoogle, ScanState, Snapshot},
-		tokens::{Meter, Tokens},
+		tokens::{Meter, Tokens, WalkStep},
 	},
 	record::Recorder,
 	sources::ReviewSource,
@@ -22,10 +22,20 @@ use review_archive::{
 		people::{Claim, Seen},
 	},
 };
+use sa_core::prices::Item;
 use uuid::Uuid;
 
-/// A walk that costs `.0` tokens.
+#[path = "support/priced.rs"]
+mod priced;
+
+/// A walk that costs `.0` tokens: that many scrolls, at [`priced::snapshot`]'s prices.
 struct Spends(i64);
+
+fn scrolls(meter: &mut Meter, n: i64) {
+	for _ in 0..n {
+		meter.spend(WalkStep::Step);
+	}
+}
 
 /// A walk Google stops.
 struct Fails;
@@ -52,7 +62,7 @@ struct BreaksAfter(i64);
 
 impl ReviewSource for BreaksAfter {
 	async fn scan(&self, _: &Target, _: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
-		meter.spend(self.0);
+		scrolls(meter, self.0);
 		eyre::bail!("the page went away")
 	}
 }
@@ -95,7 +105,7 @@ fn recorder<'a>(archive: &'a Archive, blobs: &'a BlobStore) -> Recorder<'a> {
 
 impl ReviewSource for Spends {
 	async fn scan(&self, _: &Target, _: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
-		meter.spend(self.0);
+		scrolls(meter, self.0);
 		Ok(Scan {
 			reviews: vec![],
 			coverage: Coverage::DownTo(None),
@@ -155,11 +165,7 @@ struct Conductor(RefCell<Snapshot>);
 
 impl Conductor {
 	fn new() -> Self {
-		Self(RefCell::new(Snapshot {
-			gmbs: vec![],
-			balances: Default::default(),
-			charges_through: 0,
-		}))
+		Self(RefCell::new(priced::snapshot()))
 	}
 
 	async fn push(&self, archive: &Archive) {
@@ -316,6 +322,7 @@ async fn the_hour_closes_maps_whoever_pays() {
 	let archive = open(dir.path()).await;
 	let spent = target(&archive, "ChIJtokenstest00000spent").await;
 	let waiting = target(&archive, "ChIJtokenstest0000waiting").await;
+	Conductor::new().push(&archive).await;
 	archive.record(&Spends(Tokens::default().per_hour), &spent).await.unwrap();
 	let now = Timestamp::now();
 	assert!(archive.due(now).await.unwrap().is_empty());
@@ -448,4 +455,37 @@ async fn a_purged_places_charges_stay_in_the_feed() {
 	assert!(archive.store().unwrap().targets().await.unwrap().is_empty());
 	assert_eq!(feed(&archive).await.iter().map(|c| c.spent).collect::<Vec<_>>(), [20]);
 	assert_eq!(holds(&archive, "a").await, 80);
+}
+
+#[tokio::test]
+async fn nothing_walks_unpriced_nor_past_the_hour() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
+	let t = target(&archive, "ChIJtokenstest00unpriced").await;
+	let m = person(archive.store().unwrap(), "m").await;
+	let now = Timestamp::now();
+	let closed = |e: eyre::Report| match e.downcast_ref::<Rejected>() {
+		Some(Rejected::Busy(why)) => why.clone(),
+		_ => panic!("{e:#}"),
+	};
+	assert!(archive.due(now).await.unwrap().is_empty(), "before the first snapshot nothing is priced");
+	assert!(closed(archive.enqueue_scan(t.id).await.unwrap_err()).contains("not priced"));
+
+	conductor.0.borrow_mut().prices.remove(&Item::Walk(WalkStep::SortRetry));
+	let g = conductor.tracks(&archive, "m", &t).await;
+	conductor.set(&archive, "m", 100).await;
+	assert!(archive.due(now).await.unwrap().is_empty());
+	assert!(closed(archive.scan_tracked(m, g, t.id).await.unwrap_err()).contains("\"Sort, again\" has no price"));
+	assert_eq!(card(&archive, m, t.id).await.scan_cost, None);
+
+	conductor.0.borrow_mut().prices = priced::snapshot().prices;
+	conductor.push(&archive).await;
+	assert_eq!(archive.due(now).await.unwrap().iter().map(|t| t.id).collect::<Vec<_>>(), [t.id]);
+	assert_eq!(card(&archive, m, t.id).await.scan_cost, Some(15), "a place never walked costs its first screen");
+
+	conductor.0.borrow_mut().prices.insert(WalkStep::Open.into(), Tokens::default().per_hour);
+	conductor.push(&archive).await;
+	assert!(archive.due(now).await.unwrap().is_empty());
+	assert!(closed(archive.enqueue_scan(t.id).await.unwrap_err()).contains("more than tokens.per_hour"));
 }

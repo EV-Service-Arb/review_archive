@@ -10,6 +10,9 @@ use review_archive::{
 	sources::ReviewSource,
 };
 
+#[path = "support/priced.rs"]
+mod priced;
+
 /// Google's "unusual traffic" page.
 struct Blocked;
 
@@ -40,12 +43,14 @@ impl ReviewSource for Served {
 }
 
 async fn open(dir: &Path) -> Archive {
-	Archive::open(Config {
+	let archive = Archive::open(Config {
 		data_dir: Some(dir.to_owned()),
 		..Config::default()
 	})
 	.await
-	.unwrap()
+	.unwrap();
+	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
+	archive
 }
 
 async fn due(archive: &Archive, at: Timestamp) -> Vec<TargetId> {
@@ -104,6 +109,7 @@ async fn a_scan_asked_for_probes_a_paused_maps() {
 	};
 	config.schedule.job_probe_gap = "1s".into();
 	let archive = Archive::open(config).await.unwrap();
+	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 	let mut targets = Vec::new();
 	for i in 0..4 {
 		let t = NewTarget {

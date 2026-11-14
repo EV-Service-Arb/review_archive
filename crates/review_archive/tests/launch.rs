@@ -13,6 +13,9 @@ use review_archive::{
 	sources::ReviewSource,
 };
 
+#[path = "support/priced.rs"]
+mod priced;
+
 struct SlowStart;
 
 impl ReviewSource for SlowStart {
@@ -63,12 +66,14 @@ impl ReviewSource for Served {
 }
 
 async fn open(dir: &Path) -> Archive {
-	Archive::open(Config {
+	let archive = Archive::open(Config {
 		data_dir: Some(dir.to_owned()),
 		..Config::default()
 	})
 	.await
-	.unwrap()
+	.unwrap();
+	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
+	archive
 }
 
 async fn due(archive: &Archive, at: Timestamp) -> Vec<TargetId> {

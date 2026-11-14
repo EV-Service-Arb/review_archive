@@ -1,4 +1,4 @@
-//! The conductor's GMBs and balances, as its last snapshot told them, and the feed of what
+//! The conductor's GMBs, balances and walk prices, as its last snapshot told them, and the feed of what
 //! walks cost, which it charges from.
 
 use std::collections::HashMap;
@@ -10,6 +10,7 @@ use review_archive_core::{
 	dto::{Charge, ChargePage, Country, OnGoogle, Snapshot},
 	fmt_ts,
 };
+use sa_core::prices::Item;
 use sqlx::SqliteConnection;
 
 use super::{InsertTarget, RunEnd, Store, insert_target, members::left_untracked, target_on};
@@ -32,6 +33,10 @@ impl Store {
 	pub async fn apply_snapshot(&self, snap: &Snapshot, now: Timestamp) -> eyre::Result<()> {
 		if let Some((sub, b)) = snap.balances.iter().find(|(_, b)| **b < 0) {
 			return Err(Rejected::invalid(format!("{sub}'s balance is {b}; balances are 0 or more")).into());
+		}
+		let walk_prices: Vec<_> = snap.prices.iter().filter(|(i, _)| matches!(i, Item::Walk(_))).collect();
+		if let Some((item, p)) = walk_prices.iter().find(|(_, p)| **p < 0) {
+			return Err(Rejected::invalid(format!("{item}'s price is {p}; prices are 0 or more")).into());
 		}
 		if let Some(g) = snap.gmbs.iter().find(|g| !g.removed && g.country.is_none()) {
 			return Err(Rejected::invalid(format!("GMB {} is not removed and has no country", g.id)).into());
@@ -137,6 +142,15 @@ impl Store {
 				.execute(&mut *tx)
 				.await
 				.wrap_err("mirroring a balance")?;
+		}
+		sqlx::query("DELETE FROM mirror_prices").execute(&mut *tx).await.wrap_err("dropping the old prices")?;
+		for (item, price) in walk_prices {
+			sqlx::query("INSERT INTO mirror_prices (item, price) VALUES (?, ?)")
+				.bind(item.to_string())
+				.bind(price)
+				.execute(&mut *tx)
+				.await
+				.wrap_err("mirroring a price")?;
 		}
 		sqlx::query("UPDATE mirror_cursor SET charges_through = ?")
 			.bind(snap.charges_through)

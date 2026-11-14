@@ -135,6 +135,11 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 							span { title: "not scanned: every member tracking it is out of tokens", "out of tokens" }
 						}
 					}
+					if loc.scan_cost.is_none() {
+						Badge { tone: Tone::Warn,
+							span { title: "not scanned: walks are not priced, or cost more than the hour allows; ↻ says which", "no walks" }
+						}
+					}
 				}
 				div { class: "mt-auto flex items-center gap-2 border-t border-border pt-3 pr-28 text-[11px] text-ink-soft",
 					span { class: "flex items-center gap-2",
@@ -152,14 +157,20 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 			if loc.scan.is_some() {
 				Button { variant: ButtonVariant::Ghost, size: Size::Sm, icon: true, r#type: "button", disabled: true, Spinner {} }
 			} else {
-				TokenCost { tokens: loc.scan_cost,
-					Button {
-						variant: ButtonVariant::Ghost,
-						size: Size::Sm,
-						icon: true,
-						r#type: "button",
-						onclick: move |_| act(move |c| async move { c.scan_tracked(id, target).await.map(drop) }),
-						span { title: "scan now, on top of the schedule", "↻" }
+				{
+					let scan = rsx! {
+						Button {
+							variant: ButtonVariant::Ghost,
+							size: Size::Sm,
+							icon: true,
+							r#type: "button",
+							onclick: move |_| act(move |c| async move { c.scan_tracked(id, target).await.map(drop) }),
+							span { title: "scan now, on top of the schedule", "↻" }
+						}
+					};
+					match loc.scan_cost {
+						Some(tokens) => rsx! { TokenCost { tokens, {scan} } },
+						None => scan,
 					}
 				}
 			}

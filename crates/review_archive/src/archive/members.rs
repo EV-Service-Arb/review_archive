@@ -6,7 +6,6 @@ use jiff::Timestamp;
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, TargetId,
 	dto::{Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch},
-	maps::cost,
 	parse_interval,
 };
 use sa_alerts::NotePage;
@@ -74,7 +73,10 @@ impl Archive {
 
 	/// The member's gmails, their GMBs, and each one's places as tracked.
 	pub async fn overview(&self, member: PersonId) -> eyre::Result<Vec<GmailOverview>> {
-		self.store()?.overview(member, Timestamp::now()).await
+		let store = self.store()?;
+		// no walk starts: each place's scan_cost is null, and asking for a scan says why
+		let prices = store.walk_prices(&self.inner.tokens).await?.ok();
+		store.overview(member, prices.as_ref(), Timestamp::now()).await
 	}
 
 	/// The member's GMBs' tags for the conductor's page.
@@ -98,7 +100,8 @@ impl Archive {
 			return Err(Rejected::Busy(why).into());
 		}
 		let sub = store.person_by_id(member).await?.and_then(|p| p.sub).expect("check_track matched their GMB by their sub");
-		if store.holdings(&[sub]).await? < cost::FIRST_SCREEN {
+		let prices = store.walk_prices(&self.inner.tokens).await?.map_err(|no| Rejected::Busy(no.to_string()))?;
+		if store.holdings(&[sub]).await? < prices.first_screen() {
 			return Err(Rejected::Busy("you are out of tokens".into()).into());
 		}
 		store.enqueue_job(JobKind::Scan, target, None, Some(member), self.inner.defaults.max_queued_jobs, now).await

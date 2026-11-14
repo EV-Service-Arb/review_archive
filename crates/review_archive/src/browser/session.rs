@@ -9,10 +9,10 @@ use jiff::Timestamp;
 use review_archive_core::{
 	Capture, Warning,
 	maps::{
-		WalkEnd, WalkPolicy, Walked, WalkedCard, cost, parse,
+		WalkEnd, WalkPolicy, Walked, WalkedCard, parse,
 		selectors::{self as sel, js},
 	},
-	tokens::Meter,
+	tokens::{Meter, WalkStep},
 };
 use serde::Serialize;
 use v_utils::memory_lease::Lease;
@@ -242,7 +242,7 @@ impl Page<'_> {
 	pub(crate) async fn open_reviews(&mut self, place_id: &str, lang: &str, policy: &mut dyn WalkPolicy, meter: &mut Meter) -> Result<Result<Opened, Walked>, SessionError> {
 		let url = sel::place_url(place_id, lang);
 		self.tab.set_timeout(self.cfg.nav_timeout.duration()).await;
-		meter.spend(cost::OPEN);
+		meter.spend(WalkStep::Open);
 		self.tab.goto(&url).await?;
 		self.handle_interstitials().await?;
 
@@ -270,7 +270,7 @@ impl Page<'_> {
 			return Err(markup_changed("waiting for the reviews tab", sel::REVIEWS_TAB));
 		}
 		let name = name.ok_or_else(|| markup_changed("reading the place's name", sel::PLACE_TITLE))?;
-		meter.spend(cost::REVIEWS);
+		meter.spend(WalkStep::Reviews);
 		if !self.click_first(sel::REVIEWS_TAB).await? {
 			return Err(markup_changed("clicking the reviews tab", sel::REVIEWS_TAB));
 		}
@@ -320,7 +320,7 @@ impl Page<'_> {
 		let mut gated = 0;
 		// A click that lands while the list is still hydrating is swallowed; retry a few times.
 		for attempt in 0..4 {
-			meter.spend(if attempt == 0 { cost::SORT } else { cost::SORT_RETRY });
+			meter.spend(if attempt == 0 { WalkStep::Sort } else { WalkStep::SortRetry });
 			self.dismiss_promo().await?;
 			if !self.click_first(sel::SORT_BUTTON).await? {
 				return Err(markup_changed("clicking the sort button", sel::SORT_BUTTON));
@@ -442,7 +442,7 @@ impl Page<'_> {
 					return Ok(Some(WalkEnd::ReachedEnd));
 				}
 				self.check_not_blocked()?;
-				if !meter.try_spend(cost::STEP) {
+				if !meter.try_spend(WalkStep::Step) {
 					return Ok(Some(WalkEnd::Budget));
 				}
 				// A list short enough to fit the panel has nothing to scroll and nothing more to load; one still loading has no card yet.

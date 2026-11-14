@@ -10,7 +10,7 @@ crates/review_archive_core/     no I/O: no browser, database, network or clock
                                 what callers type in (intervals, langs, dates) and Rejected
   src/reconcile.rs              a scan against what is stored → new / changed / unchanged / gone / reappeared
   src/schedule.rs               when a target is next due: interval, jitter, backoff
-  src/tokens.rs                 the account's hourly limit, and the walk's meter
+  src/tokens.rs                 the account's hourly limit, a walk's steps at the conductor's prices, and the walk's meter
   src/relative_date.rs          "il y a 3 semaines" → an estimated timestamp, and its earliest bound
   src/maps/selectors.rs         every assumption about Google's markup, and the in-page scripts
   src/maps/parse.rs             cards out of HTML (tested on tests/fixtures/, insta snapshots)
@@ -26,7 +26,7 @@ crates/review_archive/          the engine (features: maps, store)
   src/store/jobs.rs             the job queue (on-demand scans and ad-hoc captures)
   src/store/events.rs           events into the outbox (hooks) and the conductor's Alerts feed, in the scan's own transaction
   src/store/members.rs          per-member state: track switches, reinstatements
-  src/store/mirror.rs           the conductor's GMBs and balances as last told (`sa_core::gbp::Snapshot`), the tracks derived from them, and the charge feed
+  src/store/mirror.rs           the conductor's GMBs, balances and walk prices as last told (`sa_core::gbp::Snapshot`), the tracks derived from them, and the charge feed
   src/store/people.rs           people by concierge `sub`; claiming an address's rows from before
   src/store/tokens.rs           what a member holds, who pays for a scan, the account's hourly limit
   src/store/layouts.rs          the board dock's published layouts, per dock and band, what fresh browsers start from
@@ -203,8 +203,10 @@ with its own platform implements `sources::ReviewSource` and records through
 - **Tokens are the conductor's.** A walk's allowance is its payers' mirrored balances less its
   charges past the conductor's cursor, and its charge is a feed row of its end transaction
   (`kick_back` when the run failed or met a failure; the conductor owes it back). It is
-  metered by `maps::cost` and stops at that allowance and the account's hour
-  (`tokens.per_hour`), which counts every walk. A tracked place whose members are out of
+  metered at the conductor's mirrored prices (`sa_core::prices::WalkStep`) and stops at that
+  allowance and the account's hour (`tokens.per_hour`), which counts every walk. No walk
+  starts while a step has no price (so none before the first snapshot) or a first screen
+  costs more than the hour: Maps is closed, and says which. A tracked place whose members are out of
   tokens is not walked; a GMB the conductor switched off, or not verified, pays for nothing. A scan a member asks for is theirs alone to pay; the operator's jobs
   and ad-hoc looks are no one's. The archive never calls the conductor: the conductor reads
   the feeds and pushes the snapshot, under a Conductor assertion.

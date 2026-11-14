@@ -59,8 +59,13 @@ impl Recorder<'_> {
 	/// with the run, in the same transaction. Who pays, in that transaction too, is [`Store::bill`]'s.
 	pub async fn record<S: ReviewSource>(&self, source: &S, target: &Target, job: Option<i64>) -> eyre::Result<Recorded> {
 		let known = self.store.known(target.id).await?;
-		let bill = self.store.bill(target.id, job, source.ad_hoc(), (self.now)(), self.tokens).await?;
-		let mut meter = Meter::new(bill.allowance);
+		let (payers, mut meter) = match self.store.walk_prices(self.tokens).await? {
+			Ok(prices) => {
+				let bill = self.store.bill(target.id, job, source.ad_hoc(), (self.now)(), self.tokens, &prices).await?;
+				(bill.payers, Meter::new(prices, bill.allowance))
+			}
+			Err(_) => (Vec::new(), Meter::shut()), // Maps is closed for it: this run walks nothing, so charges no one
+		};
 		let run = self.store.start_run(target.id, source.ad_hoc(), (self.now)()).await?;
 		let mut summary = RunSummary {
 			target: target.id.0,
@@ -81,7 +86,7 @@ impl Recorder<'_> {
 					error: Some(&error),
 					job,
 					tokens: meter.spent(),
-					payers: &bill.payers,
+					payers: &payers,
 					kick_back: true,
 				};
 				self.store.fail_run(end, (self.now)()).await?;
@@ -127,7 +132,7 @@ impl Recorder<'_> {
 					error: summary.error.as_deref(),
 					job,
 					tokens: meter.spent(),
-					payers: &bill.payers,
+					payers: &payers,
 					kick_back: warnings.iter().any(|w| matches!(w, Warning::Failure(_))),
 				};
 				let applied = match self.store.apply(target.id, write, end, (self.now)()).await {

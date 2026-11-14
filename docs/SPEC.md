@@ -292,10 +292,12 @@ Every Maps walk runs on the operator's signed-in Google account, and each action
 exposure for it. Tokens price that; they are the conductor's, and the members whose places are
 scanned pay.
 
-- A walk is metered in `maps::cost`: opening the place 7, the Reviews tab 1, sorting 7
-  (each retried click 2), each scroll of the feed 1 — the data requests each sends Google, a
-  scroll's ~9 being the unit. "More" and screenshots send none. An unchanged place costs 8;
-  a rescan 15 and 1 per screen of cards.
+- A walk is metered by step at the admin's prices, set at the conductor and mirrored from its
+  snapshot (`mirror_prices`): opening the place, the Reviews tab, sorting (each retried click
+  apart), each scroll of the feed. "More" and screenshots cost nothing. While a step has no
+  price — before the first snapshot too — or a first screen (open, Reviews, sort) costs more
+  than `tokens.per_hour`, no Maps walk starts: Maps is closed, and a scan asked for is refused
+  (`429`) saying which; a place's card shows "no walks".
 - What a member holds is their balance in the conductor's last snapshot (`mirror_balances`, by
   `sub`; none told is 0) less the equal shares (`ceil(spent / payers)`) of the charges past
   the snapshot's `charges_through` that name them, never below 0. No network is asked: a

@@ -677,7 +677,8 @@ pub struct LocationSummary {
 	/// A scan of it under way or waiting.
 	pub scan: Option<ScanState>,
 	/// What its latest scheduled walk spent; a first screen's worth for a place never walked.
-	pub scan_cost: i64,
+	/// `null` while no walk starts: walks unpriced, or a first screen past the hour's limit.
+	pub scan_cost: Option<i64>,
 }
 
 /// A scan of a place under way or waiting.

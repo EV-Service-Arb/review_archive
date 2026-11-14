@@ -10,7 +10,7 @@ use review_archive_core::{
 	PersonId, Rejected, ReviewId, Target, TargetId,
 	dto::{Board, BoardCard, DayReviews, GmailDto, GmailOverview, GmbReviews, GmbSummary, LocationSummary, MyGmbs, PostDto, ReinstatementDto, ReviewDto, ScanState, TrackPatch},
 	fmt_ts,
-	maps::cost,
+	tokens::WalkPrices,
 };
 use sqlx::{FromRow, SqliteConnection};
 
@@ -97,7 +97,7 @@ impl Store {
 	}
 
 	/// The member's gmails, each one's GMBs, and their places as tracked.
-	pub async fn overview(&self, member: PersonId, now: Timestamp) -> eyre::Result<Vec<GmailOverview>> {
+	pub async fn overview(&self, member: PersonId, prices: Option<&WalkPrices>, now: Timestamp) -> eyre::Result<Vec<GmailOverview>> {
 		let days_ago = |d: i64| fmt_ts(now - SignedDuration::from_hours(24 * d));
 		// one snapshot: every location row's GMB is among the GMBs read
 		let mut tx = self.pool.begin().await.wrap_err("starting a read")?;
@@ -160,7 +160,10 @@ impl Store {
 				.map(str::parse)
 				.transpose()
 				.wrap_err_with(|| format!("target {}'s last run has an unknown status", r.target.id))?;
-			let held = self.held(TargetId(r.target.id)).await?;
+			let held = match prices {
+				Some(p) => self.held(TargetId(r.target.id), p).await?,
+				None => false, // out of tokens is held at a price; with none, nothing walks
+			};
 			let track = LocationSummary {
 				target: Target::try_from(r.target)?.into(),
 				enabled: r.track_enabled,
@@ -197,7 +200,7 @@ impl Store {
 					(None, Some(since)) => Some(ScanState::Queued { since, ahead: r.queued_ahead }),
 					(None, None) => None,
 				},
-				scan_cost: r.scan_cost.unwrap_or(cost::FIRST_SCREEN), // a place never walked costs at least its first screen
+				scan_cost: prices.map(|p| r.scan_cost.unwrap_or(p.first_screen())), // a place never walked costs at least its first screen
 			};
 			assert!(tracks.insert(r.gmb_id, track).is_none(), "GMB {} tracks two places; a GMB tracks its one", r.gmb_id);
 		}
