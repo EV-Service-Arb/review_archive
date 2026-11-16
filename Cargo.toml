@@ -67,7 +67,7 @@ uuid = { version = "1", features = ["v4"] }
 v_utils = { version = "2.24.1", default-features = false, features = ["macros"] }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
-ev_lib_classes = "0.17.0"
+ev_lib_classes = "0.20.0"
 insta = { version = "1", features = ["yaml"] }
 png = "0.18"
 tempfile = "3"
