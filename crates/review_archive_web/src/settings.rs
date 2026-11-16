@@ -11,13 +11,13 @@ const INTERVALS: [u64; 6] = [3600, 6 * 3600, 12 * 3600, 86_400, 2 * 86_400, 7 * 
 
 #[component]
 pub fn Page() -> Element {
-	let Api(api) = use_context();
+	let Api(api, tab) = use_context();
 	let Refresh(refresh) = use_context();
 	let settings = use_resource(move || {
 		let api = api.clone();
 		async move {
 			refresh();
-			api.settings().await.map_err(shown)
+			api.my_settings(tab).await.map_err(shown)
 		}
 	});
 	let settings = match &*settings.read() {
@@ -36,7 +36,7 @@ pub fn Page() -> Element {
 					hint: "Every place under every gmail; a place another member tracks too goes by whichever of you wants it sooner. Each scan costs tokens.",
 					options: INTERVALS.to_vec(),
 					setting: settings.interval_secs,
-					on_choose: move |name: String| act(move |c| async move { c.patch_settings(&SettingsPatch { interval: Some(name) }).await.map(drop) }),
+					on_choose: move |name: String| act(move |c, tab| async move { c.patch_my_settings(tab, &SettingsPatch { interval: Some(name) }).await.map(drop) }),
 				}
 			}
 			div { class: "mt-4 max-w-xl",
@@ -44,7 +44,7 @@ pub fn Page() -> Element {
 					variant: ButtonVariant::Outline,
 					size: Size::Sm,
 					r#type: "button",
-					onclick: move |_| act(|c| async move { c.reset_settings().await.map(drop) }),
+					onclick: move |_| act(|c, tab| async move { c.reset_my_settings(tab).await.map(drop) }),
 					"Reset all to defaults"
 				}
 			}

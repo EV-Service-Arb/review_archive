@@ -240,9 +240,9 @@ fn ui() -> Ui {
 	host().ui
 }
 
-/// The API as this tab's member: the caller, or the member their tab acts as.
+/// The API, and whose tab it is for (`x-member`): the caller's own (`None`), or the member their tab acts as.
 #[derive(Clone)]
-struct Api(Client);
+struct Api(Client, Option<i64>);
 
 /// Bumped after a write, so what was read is read again.
 #[derive(Clone, Copy)]
@@ -411,12 +411,12 @@ fn shown(e: review_archive_client::Error) -> String {
 }
 
 /// Runs a write against the API, then reads everything again; a failure is shown.
-fn act<F: Future<Output = Result<(), review_archive_client::Error>> + 'static>(f: impl FnOnce(Client) -> F + 'static) {
-	let Api(api) = consume_context();
+fn act<F: Future<Output = Result<(), review_archive_client::Error>> + 'static>(f: impl FnOnce(Client, Option<i64>) -> F + 'static) {
+	let Api(api, tab) = consume_context();
 	let Refresh(mut refresh) = consume_context();
 	let Failure(mut failure) = consume_context();
 	spawn(async move {
-		match f(api).await {
+		match f(api, tab).await {
 			Ok(()) => failure.set(None),
 			Err(e) => failure.set(Some(shown(e))),
 		}
@@ -552,7 +552,7 @@ fn Admin(me: i64) -> Element {
 		let ids = opened().iter().map(i64::to_string).collect::<Vec<_>>().join(",");
 		session().set_item(TABS, &ids).expect("sessionStorage is writable");
 	});
-	let members = use_resource(|| async { api().members().await.map_err(shown) });
+	let members = use_resource(|| async { api().list_members().await.map_err(shown) });
 	let label = move |m: i64| match &*members.read() {
 		Some(Ok(all)) => match all.iter().find(|x| x.id == m) {
 			Some(x) if !x.name.is_empty() => x.name.clone(),
@@ -647,7 +647,7 @@ fn Admin(me: i64) -> Element {
 #[component]
 fn Picker(on_pick: EventHandler<MemberDto>, on_close: EventHandler<()>) -> Element {
 	let tr: Translator = use_context();
-	let members = use_resource(|| async { api().members().await.map_err(shown) });
+	let members = use_resource(|| async { api().list_members().await.map_err(shown) });
 	rsx! {
 		CommandDialog {
 			open: true,
@@ -692,12 +692,7 @@ fn Picker(on_pick: EventHandler<MemberDto>, on_close: EventHandler<()>) -> Eleme
 fn Workspace(view: Route) -> Element {
 	let tr: Translator = use_context();
 	let tab = view.member();
-	let Api(client) = use_context_provider(|| {
-		Api(match tab {
-			Some(m) => api().as_member(m),
-			None => api(),
-		})
-	});
+	let Api(client, _) = use_context_provider(|| Api(api(), tab));
 	let Selection(selection) = use_context();
 	let refresh = use_context_provider(|| Refresh(Signal::new(0)));
 	let mut filter = use_context_provider(|| Signal::new(filter::Filter::default()));
@@ -707,7 +702,7 @@ fn Workspace(view: Route) -> Element {
 		let client = client.clone();
 		async move {
 			refresh.0();
-			client.overview().await.map_err(shown)
+			client.my_overview(tab).await.map_err(shown)
 		}
 	});
 	// the own tab's filter row selects for the host: what it narrows (`base`: the selection as it was when it began),
@@ -786,7 +781,7 @@ fn Workspace(view: Route) -> Element {
 		async move {
 			let Some(m) = tab else { return Ok(None) };
 			let found = api()
-				.members()
+				.list_members()
 				.await
 				.map_err(shown)?
 				.into_iter()

@@ -4,7 +4,7 @@
 //!
 //! ```no_run
 //! # async fn demo() -> Result<(), review_archive_client::Error> {
-//! use review_archive_client::{Client, dto::{CaptureLimits, CaptureRequest}};
+//! use review_archive_client::{CapturePlace, Client, dto::{CaptureLimits, CaptureRequest}};
 //!
 //! let client = Client::ambient(reqwest::Client::new(), "https://sa.evinvest.ltd/api/review_archive")?;
 //! let req = CaptureRequest {
@@ -12,13 +12,13 @@
 //!     limits: CaptureLimits { max_reviews: Some(10), ..Default::default() },
 //!     ..Default::default()
 //! };
-//! match client.capture(&req, Some(60)).await? {
-//!     review_archive_client::Captured::Done(job) => {
+//! match client.capture_place(Some(60), &req).await? {
+//!     CapturePlace::Ok(job) => {
 //!         for r in job.reviews.unwrap_or_default() {
 //!             println!("{} {:?}", r.author, r.capture_url);
 //!         }
 //!     }
-//!     review_archive_client::Captured::Queued(id) => println!("still running: GET /jobs/{id}"),
+//!     CapturePlace::Accepted(queued) => println!("still running: GET /jobs/{}", queued.job_id),
 //! }
 //! # Ok(()) }
 //! ```
@@ -29,11 +29,6 @@ use std::fmt;
 
 use reqwest::{Method, RequestBuilder, StatusCode, Url};
 pub use review_archive_core::dto;
-use review_archive_core::dto::{
-	Board, CaptureRequest, DayStats, ExportQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, MEMBER_HEADER, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewWebhook, ReinstatementDto,
-	ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch, WaitQuery, WebhookDto,
-};
-use serde::de::DeserializeOwned;
 
 /// What went wrong with a call.
 #[derive(Debug, thiserror::Error)]
@@ -67,22 +62,11 @@ impl Error {
 	}
 }
 
-/// What `POST /captures` answered.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Captured {
-	/// It finished within the wait: the job, with its reviews when done.
-	Done(Box<JobDto>),
-	/// Still queued or running: poll [`Client::job`] with this id.
-	Queued(i64),
-}
-
 /// A running archive.
 #[derive(Clone)]
 pub struct Client {
 	http: reqwest::Client,
 	base: Url,
-	/// `/me` routes act as this person.
-	member: Option<i64>,
 }
 
 impl fmt::Debug for Client {
@@ -100,26 +84,14 @@ impl Client {
 			let path = format!("{}/", base.path());
 			base.set_path(&path);
 		}
-		Ok(Self { http, base, member: None })
+		Ok(Self { http, base })
 	}
 
-	/// The same caller, acting as person `member` on `/me` routes: what one holding
-	/// `sa:review_archive:members:act_as` sees and does on their behalf. Anyone else is refused (403).
-	pub fn as_member(self, member: i64) -> Self {
-		Self { member: Some(member), ..self }
-	}
-
-	/// A path that resolves to another origin (an absolute URL, `//host/…`) is refused.
+	/// `path` the document's, its params segment-encoded: under the base.
 	fn request(&self, method: Method, path: &str) -> Result<RequestBuilder, Error> {
 		let url = self.base.join(path.trim_start_matches('/')).map_err(|e| Error::Url(format!("{path:?}: {e}")))?;
-		if url.origin() != self.base.origin() {
-			return Err(Error::Url(format!("{path:?} is not on {}", self.base)));
-		}
-		let mut req = self.http.request(method, url);
-		if let Some(m) = self.member {
-			req = req.header(MEMBER_HEADER, m.to_string());
-		}
-		Ok(req)
+		assert_eq!(url.origin(), self.base.origin(), "{path}: an operation's path stays on the base");
+		Ok(self.http.request(method, url))
 	}
 
 	async fn send(req: RequestBuilder) -> Result<reqwest::Response, Error> {
@@ -136,208 +108,6 @@ impl Client {
 		let Refused { code, error } = resp.json().await?;
 		Err(Error::Api { status, code, message: error })
 	}
-
-	async fn json<T: DeserializeOwned>(req: RequestBuilder) -> Result<T, Error> {
-		Ok(Self::send(req).await?.json().await?)
-	}
-
-	/// `GET /targets`.
-	pub async fn targets(&self) -> Result<Vec<TargetDto>, Error> {
-		Self::json(self.request(Method::GET, "targets")?).await
-	}
-
-	/// `POST /targets`: watch a place.
-	pub async fn add_target(&self, req: &NewTarget) -> Result<TargetDto, Error> {
-		Self::json(self.request(Method::POST, "targets")?.json(req)).await
-	}
-
-	/// `GET /targets/{id}`.
-	pub async fn target(&self, id: i64) -> Result<TargetDetail, Error> {
-		Self::json(self.request(Method::GET, &format!("targets/{id}"))?).await
-	}
-
-	/// `PATCH /targets/{id}`.
-	pub async fn update_target(&self, id: i64, patch: &TargetPatch) -> Result<TargetDto, Error> {
-		Self::json(self.request(Method::PATCH, &format!("targets/{id}"))?.json(patch)).await
-	}
-
-	/// `DELETE /targets/{id}`: disables it; nothing archived is deleted.
-	pub async fn disable_target(&self, id: i64) -> Result<TargetDto, Error> {
-		Self::json(self.request(Method::DELETE, &format!("targets/{id}"))?).await
-	}
-
-	/// `GET /targets/{id}/reviews`.
-	pub async fn reviews(&self, target: i64, since: Option<&str>, gone: Option<bool>) -> Result<Vec<ReviewDto>, Error> {
-		let q = ReviewsQuery {
-			since: since.map(str::to_owned),
-			gone,
-		};
-		Self::json(self.request(Method::GET, &format!("targets/{target}/reviews"))?.query(&q)).await
-	}
-
-	/// `GET /targets/{id}/runs`, newest first.
-	pub async fn runs(&self, target: i64, limit: Option<u32>) -> Result<Vec<RunDto>, Error> {
-		Self::json(self.request(Method::GET, &format!("targets/{target}/runs"))?.query(&RunsQuery { limit })).await
-	}
-
-	/// `POST /targets/{id}/scan`: scan now. Returns the job id.
-	pub async fn scan(&self, target: i64) -> Result<i64, Error> {
-		let accepted: JobAccepted = Self::json(self.request(Method::POST, &format!("targets/{target}/scan"))?).await?;
-		Ok(accepted.job_id)
-	}
-
-	/// `POST /captures`: capture a place without registering it, waiting up to `wait`
-	/// seconds (at most 120) for the result.
-	pub async fn capture(&self, req: &CaptureRequest, wait: Option<u64>) -> Result<Captured, Error> {
-		let resp = Self::send(self.request(Method::POST, "captures")?.json(req).query(&WaitQuery { wait })).await?;
-		if resp.status() == StatusCode::ACCEPTED {
-			let accepted: JobAccepted = resp.json().await?;
-			return Ok(Captured::Queued(accepted.job_id));
-		}
-		Ok(Captured::Done(Box::new(resp.json().await?)))
-	}
-
-	/// `GET /jobs/{id}`.
-	pub async fn job(&self, id: i64) -> Result<JobDto, Error> {
-		Self::json(self.request(Method::GET, &format!("jobs/{id}"))?).await
-	}
-
-	/// `GET /reviews/{id}`: with every version and capture.
-	pub async fn review(&self, id: i64) -> Result<ReviewDetail, Error> {
-		Self::json(self.request(Method::GET, &format!("reviews/{id}"))?).await
-	}
-
-	/// A capture's WebP, by the `capture_url` (or `url`) the archive gave for it.
-	pub async fn capture_webp(&self, capture_url: &str) -> Result<Vec<u8>, Error> {
-		Ok(Self::send(self.request(Method::GET, capture_url)?).await?.bytes().await?.to_vec())
-	}
-
-	/// `GET /targets/{id}/export.zip`: `manifest.json` and the first capture of each review.
-	pub async fn export_zip(&self, target: i64, since: Option<&str>) -> Result<Vec<u8>, Error> {
-		let q = ExportQuery { since: since.map(str::to_owned) };
-		Ok(Self::send(self.request(Method::GET, &format!("targets/{target}/export.zip"))?.query(&q))
-			.await?
-			.bytes()
-			.await?
-			.to_vec())
-	}
-
-	/// `GET /stats`.
-	pub async fn stats(&self, target: Option<i64>, from: Option<&str>, to: Option<&str>) -> Result<Vec<DayStats>, Error> {
-		let q = StatsQuery {
-			target,
-			from: from.map(str::to_owned),
-			to: to.map(str::to_owned),
-		};
-		Self::json(self.request(Method::GET, "stats")?.query(&q)).await
-	}
-
-	/// `POST /webhooks`.
-	pub async fn add_webhook(&self, hook: &NewWebhook) -> Result<WebhookDto, Error> {
-		Self::json(self.request(Method::POST, "webhooks")?.json(hook)).await
-	}
-
-	/// `GET /webhooks`.
-	pub async fn webhooks(&self) -> Result<Vec<WebhookDto>, Error> {
-		Self::json(self.request(Method::GET, "webhooks")?).await
-	}
-
-	/// `DELETE /webhooks/{id}`.
-	pub async fn delete_webhook(&self, id: i64) -> Result<(), Error> {
-		Self::send(self.request(Method::DELETE, &format!("webhooks/{id}"))?).await?;
-		Ok(())
-	}
-
-	/// `GET /layouts/{dock}`.
-	pub async fn layouts(&self, dock: &str) -> Result<Vec<LayoutDto>, Error> {
-		Self::json(self.request(Method::GET, &format!("layouts/{dock}"))?).await
-	}
-
-	/// `PUT /layouts/{dock}/{band}`.
-	pub async fn publish_layout(&self, dock: &str, band: &str, layout: &NewLayout) -> Result<(), Error> {
-		Self::send(self.request(Method::PUT, &format!("layouts/{dock}/{band}"))?.json(layout)).await?;
-		Ok(())
-	}
-
-	/// `GET /me`: who is signed in.
-	pub async fn me(&self) -> Result<Me, Error> {
-		Self::json(self.request(Method::GET, "me")?).await
-	}
-
-	/// `GET /members`: everyone, with what they hold.
-	pub async fn members(&self) -> Result<Vec<MemberDto>, Error> {
-		Self::json(self.request(Method::GET, "members")?).await
-	}
-
-	/// `GET /me/overview`: the member's gmails, each with its GMBs and their places as tracked.
-	pub async fn overview(&self) -> Result<Vec<GmailOverview>, Error> {
-		Self::json(self.request(Method::GET, "me/overview")?).await
-	}
-
-	/// `GET /me/gmbs`: the archive's tag on each of the member's GMBs.
-	pub async fn my_gmbs(&self) -> Result<MyGmbs, Error> {
-		Self::json(self.request(Method::GET, "me/gmbs")?).await
-	}
-
-	/// `GET /me/settings`.
-	pub async fn settings(&self) -> Result<Settings, Error> {
-		Self::json(self.request(Method::GET, "me/settings")?).await
-	}
-
-	/// `PATCH /me/settings`.
-	pub async fn patch_settings(&self, patch: &SettingsPatch) -> Result<Settings, Error> {
-		Self::json(self.request(Method::PATCH, "me/settings")?.json(patch)).await
-	}
-
-	/// `DELETE /me/settings`: every setting back to its default.
-	pub async fn reset_settings(&self) -> Result<Settings, Error> {
-		Self::json(self.request(Method::DELETE, "me/settings")?).await
-	}
-
-	/// `PATCH /me/gmbs/{gmb}/tracks/{target}`: on or off, favorite or not.
-	pub async fn patch_track(&self, gmb: i64, target: i64, patch: &TrackPatch) -> Result<(), Error> {
-		Self::send(self.request(Method::PATCH, &format!("me/gmbs/{gmb}/tracks/{target}"))?.json(patch)).await?;
-		Ok(())
-	}
-
-	/// `POST /me/gmbs/{gmb}/tracks/{target}/relink`: the place as Google knows it now.
-	pub async fn relink(&self, gmb: i64, target: i64) -> Result<TargetDto, Error> {
-		Self::json(self.request(Method::POST, &format!("me/gmbs/{gmb}/tracks/{target}/relink"))?).await
-	}
-
-	/// `POST /me/gmbs/{gmb}/tracks/{target}/scan`: scan a tracked place now. Returns the job id.
-	pub async fn scan_tracked(&self, gmb: i64, target: i64) -> Result<i64, Error> {
-		let accepted: JobAccepted = Self::json(self.request(Method::POST, &format!("me/gmbs/{gmb}/tracks/{target}/scan"))?).await?;
-		Ok(accepted.job_id)
-	}
-
-	/// `GET /me/gmbs/{gmb}/tracks/{target}/board`.
-	pub async fn board(&self, gmb: i64, target: i64) -> Result<Board, Error> {
-		Self::json(self.request(Method::GET, &format!("me/gmbs/{gmb}/tracks/{target}/board"))?).await
-	}
-
-	/// `PUT /me/gmbs/{gmb}/reinstatements/{review}`: reinstatement asked of Google, now.
-	pub async fn reinstate(&self, gmb: i64, review: i64) -> Result<ReinstatementDto, Error> {
-		Self::json(self.request(Method::PUT, &format!("me/gmbs/{gmb}/reinstatements/{review}"))?).await
-	}
-
-	/// `DELETE /me/gmbs/{gmb}/reinstatements/{review}`: withdrawn, kept on record.
-	pub async fn withdraw_reinstatement(&self, gmb: i64, review: i64) -> Result<(), Error> {
-		Self::send(self.request(Method::DELETE, &format!("me/gmbs/{gmb}/reinstatements/{review}"))?).await?;
-		Ok(())
-	}
 }
 
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn requests_stay_on_the_archive() {
-		let c = Client::ambient(reqwest::Client::new(), "http://archive:59110/api").unwrap();
-		assert!(c.request(Method::GET, "/captures/x.webp").is_ok());
-		for elsewhere in ["https://evil.example/x.webp", "http://archive:59111/x"] {
-			assert!(matches!(c.request(Method::GET, elsewhere), Err(Error::Url(_))), "{elsewhere}");
-		}
-	}
-}
+include!("generated.rs");

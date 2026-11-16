@@ -169,7 +169,7 @@ pub fn Host(me: i64, children: Element) -> Element {
 					match tilers.as_str() {
 						"ready" => {
 							spawn(async move {
-								match crate::api().layouts(&uid).await {
+								match crate::api().list_layouts(&uid).await {
 									Ok(layouts) => {
 										let published = js_sys::Object::new();
 										for l in layouts {
@@ -319,10 +319,10 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 			reviews.set(Reviews::default());
 			navigator().push(Route::at(tab, review_archive_core::views::Board::Gmb { gmb }));
 		}
-		Up::Scan { gmb, target } => act(move |c| async move { c.scan_tracked(gmb, target).await.map(drop) }),
-		Up::Enable { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
-		Up::Favorite { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
-		Up::Relink { gmb, target } => act(move |c| async move { c.relink(gmb, target).await.map(drop) }),
+		Up::Scan { gmb, target } => act(move |c, tab| async move { c.scan_track(gmb, target, tab).await.map(drop) }),
+		Up::Enable { gmb, target, on } => act(move |c, tab| async move { c.patch_track(gmb, target, tab, &TrackPatch { enabled: Some(on), favorite: None }).await }),
+		Up::Favorite { gmb, target, on } => act(move |c, tab| async move { c.patch_track(gmb, target, tab, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
+		Up::Relink { gmb, target } => act(move |c, tab| async move { c.relink_track(gmb, target, tab).await.map(drop) }),
 		Up::Reinstate { .. } | Up::Withdraw { .. } => unreachable!("the overview has no lanes"),
 	};
 	rsx! {
@@ -347,8 +347,8 @@ pub fn Location(gmb: i64, target: i64, tab: Option<i64>) -> Element {
 		refresh()
 	);
 	let on = move |up: Up| match up {
-		Up::Reinstate { review } => act(move |c| async move { c.reinstate(gmb, review).await.map(drop) }),
-		Up::Withdraw { review } => act(move |c| async move { c.withdraw_reinstatement(gmb, review).await }),
+		Up::Reinstate { review } => act(move |c, tab| async move { c.reinstate(gmb, review, tab).await.map(drop) }),
+		Up::Withdraw { review } => act(move |c, tab| async move { c.withdraw_reinstatement(gmb, review, tab).await }),
 		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } | Up::Favorite { .. } | Up::Relink { .. } | Up::Select(_) => unreachable!("a board has no location cards nor gmbs"),
 	};
 	rsx! {

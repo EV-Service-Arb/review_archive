@@ -28,7 +28,7 @@ use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
 	ReviewId, TargetId,
 	dto::{
-		Board, CaptureRequest, ChargePage, DayStats, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewWebhook,
+		self, Board, CaptureRequest, ChargePage, DayStats, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewWebhook,
 		ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch,
 		UsagePage, WaitQuery, WebhookDto, stats_csv,
 	},
@@ -112,7 +112,7 @@ fn routes() -> Vec<ApiRoute> {
 			export_zip,
 		),
 		ApiRoute::new(M::POST, "/captures", operator, capture_place),
-		ApiRoute::new(M::GET, "/captures/{file}", user, capture_webp),
+		ApiRoute::new(M::GET, dto::CAPTURE, user, capture_webp),
 		ApiRoute::new(M::GET, "/jobs/{id}", operator, get_job),
 		ApiRoute::new(M::GET, "/reviews/{id}", operator, get_review),
 		ApiRoute::new(M::GET, "/stats", operator, stats),

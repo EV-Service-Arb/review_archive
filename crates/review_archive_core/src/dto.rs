@@ -108,9 +108,12 @@ pub struct ReviewDto {
 	pub capture_corrupted: Option<bool>,
 }
 
+/// The operation that serves a capture, its `file` `<sha256>.webp`: its route's path.
+pub const CAPTURE: &str = "/captures/{file}";
+
 /// Where the API serves a capture.
 pub fn capture_url(sha256: &str) -> String {
-	format!("/captures/{sha256}.webp")
+	CAPTURE.replace("{file}", &format!("{sha256}.webp"))
 }
 
 /// One target's activity on one UTC day.
