@@ -131,7 +131,7 @@ pub enum SessionError {
 	#[error("{step}: none of {selectors:?} on the page")]
 	#[diagnostic(
 		code(review_archive::maps::markup_changed),
-		help("the Maps markup changed: fix selectors.rs against fixtures refreshed with `scan --dump-html`; Maps stays halted until a restart")
+		help("the Maps markup changed: fix selectors.rs against fixtures refreshed with `serve --dump-html`; Maps stays halted until a restart")
 	)]
 	MarkupChanged { step: &'static str, selectors: Vec<String> },
 	#[leaf]

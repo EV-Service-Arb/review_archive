@@ -67,7 +67,7 @@
           jobs.default = true;
           lfs = false;
           gitignore.extra = ''
-            # the data dir of a local `serve` / `scan`: the database, the PNGs and the browser profile
+            # the data dir of a local `serve`: the database, the PNGs and the browser profile
             /data/
           '';
         };

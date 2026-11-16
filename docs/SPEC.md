@@ -87,7 +87,7 @@ Out — do not build, even as an option:
 
 ### Place id resolution
 
-`target add` resolves through `sa_places` (the conductor's crate, which its GMBs use too): a place id, a Google Maps URL, or a share link (`maps.app.goo.gl`, `share.google`, expanded to the Maps or Search URL behind it; a Search URL's `q` is the name). From a URL, take the id it carries
+A new target's place resolves through `sa_places` (the conductor's crate, which its GMBs use too): a place id, a Google Maps URL, or a share link (`maps.app.goo.gl`, `share.google`, expanded to the Maps or Search URL behind it; a Search URL's `q` is the name). From a URL, take the id it carries
 (`!1s0x…:0x…` in `data=` is the place id, re-encoded). A cid alone (`?cid=`, a Search viewer's `svid`) makes an id Places details answers with the place's own; otherwise search Places API (New)
 `places:searchText` (the config's `google` accounts' Places keys) for the URL's name. A place is never guessed: only
 hits bearing that exact name count, and when several do, the operator adds one by its id.
@@ -115,9 +115,7 @@ blob dir. Everything under one data dir (`/data` in the container).
   is not corrupted is the one shown.
 - `runs(id, target_id, started_at, finished_at, status[ok|partial|failed], error, n_seen, n_new, n_changed, n_gone, ad_hoc, tokens)`
   — `ad_hoc` marks the runs of ad-hoc captures; `tokens` is what its walk cost (see Tokens), a failed one's too. A run a stopped process left open is
-  failed ("interrupted") on the next start of `serve` — a hand-run `scan` still going at
-  that moment included; its run is marked ended again, with its real outcome, when it
-  finishes.
+  failed ("interrupted") on the next start of `serve`.
 - Places answers are not here: every one is kept in the conductor's queries cache (`sa_places`,
   the config's `queries_cache`): details for good, a search a day; re-linking asks afresh.
 - Blobs: `<data>/blobs/<sha256[0..2]>/<sha256>.webp`, lossy (quality 80). Exif carries the provenance:
@@ -152,19 +150,16 @@ deleted.
   the window, like the breaker.
 - Ad-hoc captures and jobs run on the same browser but are not the target's schedule: their
   runs neither delay the next scan nor count as failures.
-- A scan whose browser profile another process holds (a `scan` beside a running
-  `serve`) fails with that reason and records no run.
+- A scan whose browser profile another process holds fails with that reason and records no run.
 
 ## Interfaces
 
 CLI (`clap`):
 
-- `review_archive target add <place-id|maps-url> [--label] [--lang fr] [--interval 6h] [--gbp <account>/<location>]`
-- `review_archive target list | disable <id> | enable <id>`
-- `review_archive scan <target-id|--all>` — one pass now, prints a summary.
-- `review_archive serve` — scheduler + HTTP.
+- `review_archive serve` — scheduler + HTTP; everything the archive is asked to do is an operation of the API.
+  `--dump-html <dir>` saves every walk's cards, to refresh the parser fixtures.
 - `review_archive check-browser` — starts the configured Chromium as a walk does and shoots an element; the image's build runs it.
-- `review_archive export --target <id> [--since <date>] --out <dir|file.zip>` — captures (WebP) + `manifest.json`.
+- `review_archive config …` — the config's defaults, diff, JSON Schema and Nix module.
 
 HTTP (axum), behind the Service-Arb panel's assertion (see Auth), binds `127.0.0.1` unless
 configured: `GET /health` (no auth), and the operations of [ARCHITECTURE.md § The API](ARCHITECTURE.md#the-api),
@@ -187,7 +182,7 @@ archive without shelling into its container. JSON in and out; DTOs live in the
 library (below) and are shared with the client crate. Each operation's request, answer and
 description are in `GET /openapi.json`, derived from the route table (ev_lib `api`).
 
-- Targets: added by place id or Maps URL as `target add` resolves them; `DELETE` disables,
+- Targets: added by place id or Maps URL (`POST /targets`); `DELETE` disables,
   archived data is never deleted.
 - Jobs (one browser, one queue; on-demand jobs go ahead of scheduled scans): a scan now, or an
   ad-hoc capture of a place **without** registering a target, its results stored under an

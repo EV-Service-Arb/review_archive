@@ -485,7 +485,7 @@ async fn list_targets(State(s): State<AppState>) -> ApiResult<Json<Vec<TargetDto
 	Ok(Json(s.archive.targets().await?.into_iter().map(TargetDto::from).collect()))
 }
 
-/// Watches a place: a place id, or a Maps URL, as `target add` resolves them.
+/// Watches a place: a place id, or a Maps URL, resolved through Places.
 async fn add_target(State(s): State<AppState>, Body(req): Body<NewTarget>) -> ApiResult<Created<TargetDto>> {
 	Ok(Created(s.archive.add_target(&req).await?.target.into()))
 }
@@ -576,7 +576,7 @@ async fn capture_webp(State(s): State<AppState>, user: User, Caller(caller): Cal
 	}))
 }
 
-/// The same archive as `export`: `manifest.json` and the first capture of each review.
+/// The target's archive: `manifest.json` and the first capture of each review.
 async fn export_zip(State(s): State<AppState>, Ids(Id { id }): Ids<Id>, Params(q): Params<ExportQuery>) -> ApiResult<Zip> {
 	// An archive of thousands of captures does not belong in memory: it is written to a temp file
 	// with no name, which goes away with its last handle whatever happens to the request.

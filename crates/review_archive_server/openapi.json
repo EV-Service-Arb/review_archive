@@ -4551,7 +4551,7 @@
             "description": "`internal`"
           }
         },
-        "summary": "Watches a place: a place id, or a Maps URL, as `target add` resolves them.",
+        "summary": "Watches a place: a place id, or a Maps URL, resolved through Places.",
         "tags": [
           "http"
         ],
@@ -5037,7 +5037,7 @@
             "description": "`internal`"
           }
         },
-        "summary": "The same archive as `export`: `manifest.json` and the first capture of each review.",
+        "summary": "The target's archive: `manifest.json` and the first capture of each review.",
         "tags": [
           "http"
         ],

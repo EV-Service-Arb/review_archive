@@ -39,26 +39,14 @@ cargo install --path .
 # Everything lives under one data dir: `review_archive.db`, `blobs/` with the WebPs, and the
 # browser profile that remembers the consent answer. Set it, the bind address and the defaults in
 # a TOML file passed as `--config`; secrets only ever come from the environment.
-review_archive --config config.toml target add 'https://www.google.com/maps/place/?q=place_id:ChIJ...' --label cafe --lang fr
+# Scheduler + HTTP on 127.0.0.1:59110. The API wants the conductor's assertion
+# (`x-sa-assertion`, keys in PANEL_ASSERTION_KEYS; docs/SPEC.md, Auth): targets, scans, captures,
+# stats and exports are its operations, reached through the conductor (`/api/review_archive/*`).
+review_archive --config config.toml serve
 
-# A Maps URL without a place id is resolved through the Places API (needs an account in the config's `google` with a Places key, and the
-# config's `queries_cache`: the conductor's `<origin>/api/queries_cache`, where every answer is kept).
-review_archive target add 'https://www.google.com/maps/place/Le+Procope/@48.853,2.338,17z' --interval 12h
-
-# A profile we manage: the review list comes from the Business Profile API
-# (GBP_CLIENT_ID, GBP_CLIENT_SECRET, GBP_REFRESH_TOKEN), the screenshots from Maps.
-review_archive target add ChIJ... --gbp 1234567890/9876543210
-
-review_archive target list
-review_archive scan 1          # one pass now, prints a summary
-review_archive scan --all
-
-# Scheduler + HTTP on 127.0.0.1:59110. The API wants the Service-Arb panel's assertion
-# (`x-sa-assertion`, keys in PANEL_ASSERTION_KEYS; docs/SPEC.md, Auth).
-review_archive serve
-
-# WebP captures + manifest.json, to a directory or a .zip
-review_archive export --target 1 --since 2026-01-01 --out cafe.zip
+# Locally, without the conductor: every request signed in as one member holding `sa:admin`,
+# the dashboard at http://127.0.0.1:59110/ (`nix run .#dev-mfe` builds and serves it).
+review_archive --config config.toml serve --dev-member sa:admin
 ```
 
 ```toml
@@ -86,8 +74,9 @@ described in full by `GET /openapi.json`.
 ## When Maps changes
 
 Selectors live in `src/sources/maps/selectors.rs` and nowhere else. Refresh the fixtures with
-`review_archive scan <id> --dump-html tmp/dump` (a failing step also dumps the whole page and a
-screenshot there), fix the selectors, and `cargo insta review` the parser snapshots.
+`review_archive serve --dump-html tmp/dump` and a scan of the place (`POST /targets/{id}/scan`; a
+failing step also dumps the whole page and a screenshot there), fix the selectors, and
+`cargo insta review` the parser snapshots.
 
 The live test is `cargo test --test live -- --ignored`; it needs a browser and the network.
 

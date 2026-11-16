@@ -594,7 +594,7 @@ async fn a_checkpointed_walk_is_used_once_at_its_end() {
 	assert_eq!(usage_rows(&archive.usage(0, 500).await.unwrap()), opened_and_scrolled(5));
 }
 
-/// A hand-run walk still going when `serve` starts is counted as the start found it; its own end adds nothing to what was published.
+/// A walk in another process still going when `serve` starts is counted as the start found it; its own end adds nothing to what was published.
 #[tokio::test]
 async fn a_walk_that_outlives_the_sweep_is_used_once_as_swept() {
 	let dir = tempfile::tempdir().unwrap();

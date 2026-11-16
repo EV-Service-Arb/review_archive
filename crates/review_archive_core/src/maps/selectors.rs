@@ -1,7 +1,7 @@
 //! Every assumption about Google Maps' markup, in one place.
 //!
 //! The page changes without notice. When a scan starts failing or fields come back
-//! empty, this file is the fix: refresh the fixtures with `scan --dump-html <dir>`,
+//! empty, this file is the fix: refresh the fixtures with `serve --dump-html <dir>` and a scan,
 //! adjust the selectors here, and `cargo insta review` the parser snapshots.
 //!
 //! Where a selector can rest on something stable — an ARIA role, a `data-*` attribute,

@@ -206,11 +206,12 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
   `partial`.
 - **One process per browser profile.** `review_archive.lock` in each profile says so, taken
   before Chromium starts on it (`browser_manipulation`'s own lock, which clears stale `Singleton*`
-  files, is only taken at launch). The profile is claimed before a run is recorded, so a second `scan` while `serve`
-  holds it fails with that reason and leaves no run behind. A browser that failed under a walk
+  files, is only taken at launch). The profile is claimed before a run is recorded, so a second process walking on a profile
+  `serve` holds fails with that reason and leaves no run behind. A browser that failed under a walk
   is closed; the next walk starts a new one.
 - **Markup knowledge lives in `selectors.rs`.** A Maps change is fixed there, against fixtures
-  refreshed with `scan --dump-html`, and checked by `cargo insta review`.
+  refreshed with `serve --dump-html <dir>` and a scan of the place (`POST /targets/{id}/scan`), and
+  checked by `cargo insta review`.
 - **The core has no I/O.** Time comes in as an argument or through `Recorder::now` (a plain
   `fn`, pinned in tests); jitter is derived from the target and its last run, so asking twice
   gives one answer.
@@ -218,7 +219,7 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
   answers `NotFound`, `Invalid` or `Busy` for what the caller got wrong; the server only maps
   them to 404, 400 and 429, and anything else to a logged 500.
 - **One write lock per transaction.** A write that reads first begins `IMMEDIATE`, so `serve`'s
-  worker, its HTTP side and a hand-run `scan` never fail on each other's writes. A scan's
+  worker, its HTTP side and a rolling update's second `serve` never fail on each other's writes. A scan's
   reviews, events, cut, run end, job end, its charge row and its usage rows commit together; so does a
   conductor's snapshot, whole.
 - **One `serve` per data dir does the background work.** `serve.lock` in the data dir, held
@@ -230,8 +231,7 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
     (`POST /targets/{id}/scan`, `POST /captures`), oldest first — but no more than `worker.jobs_in_a_row`
   while a target is overdue — then the most overdue target, with a `schedule.pause_{min,max}` pause
   between any two. The queue is bounded (`defaults.max_queued_jobs`) and a job already queued is not
-  queued twice. Jobs live in SQLite; a restart keeps the queued ones and fails the job and the runs that were running — a
-  hand-run `scan` still going then included, until it records how it really ended. An ad-hoc capture is stored under the place's `maps` target for its
+  queued twice. Jobs live in SQLite; a restart keeps the queued ones and fails the job and the runs that were running. An ad-hoc capture is stored under the place's `maps` target for its
   language, or a new disabled one: nothing captured is lost, nothing extra gets scheduled, and
   its run does not count for the target's schedule. No job's run does: a scan a member asks
   for is extra, and never moves the schedule or adds to its backoff.
@@ -266,8 +266,7 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
   walk did into the usage feed (`GET /api/conductor/usage`, `sa_core::usage`): a row per
   `walk.*` step it did, its count, from the same meter. The steps are kept on the open run every
   10 s; a run a restart cut off is counted from them when the next start fails it. Rows are
-  written once, as the run ends, and never change: a hand-run `scan` that outlives that start
-  stays counted as it was found. The archive never calls
+  written once, as the run ends, and never change. The archive never calls
   the conductor: the conductor reads the feeds and pushes the snapshot, under a Conductor assertion.
 - **Events are an outbox.** `review.new/changed/gone/reappeared` and `run.failed` are written
   to `webhook_deliveries` in the same transaction as what they report, a row per hook, and

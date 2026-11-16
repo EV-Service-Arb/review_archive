@@ -267,7 +267,7 @@ impl Client {
 		Ok(res.json().await?)
 	}
 
-	/// Watches a place: a place id, or a Maps URL, as `target add` resolves them.
+	/// Watches a place: a place id, or a Maps URL, resolved through Places.
 	///
 	/// `POST /targets`
 	pub async fn add_target(&self, body: &review_archive_core::dto::NewTarget) -> Result<review_archive_core::dto::TargetDto, Error> {
@@ -303,7 +303,7 @@ impl Client {
 		Ok(res.json().await?)
 	}
 
-	/// The same archive as `export`: `manifest.json` and the first capture of each review.
+	/// The target's archive: `manifest.json` and the first capture of each review.
 	///
 	/// `GET /targets/{id}/export.zip`
 	pub async fn export_zip(&self, id: i64, since: Option<&str>) -> Result<Vec<u8>, Error> {

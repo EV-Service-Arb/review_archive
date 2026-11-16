@@ -1,5 +1,5 @@
 //! The Maps parser on saved pages. When Google changes the markup: refresh the fixtures
-//! with `review_archive scan <id> --dump-html <dir>`, fix `src/maps/selectors.rs`,
+//! with `review_archive serve --dump-html <dir>` and a scan, fix `src/maps/selectors.rs`,
 //! and `cargo insta review`.
 
 use review_archive_core::maps::parse::{self, Card};
