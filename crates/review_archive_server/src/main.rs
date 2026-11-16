@@ -230,12 +230,17 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 			.await
 			.wrap_err("HTTP server")
 	};
-	let signal = async move {
-		shutdown_signal().await;
-		tracing::info!("shutting down");
-		// every receiver is alive until both futures below end, so this cannot fail meaningfully
-		let _ = tx.send(true);
-		Ok::<_, eyre::Report>(())
+	let signal = {
+		let signals = signals.clone();
+		async move {
+			shutdown_signal().await;
+			tracing::info!("shutting down");
+			// the change feeds would hold the graceful shutdown open
+			signals.feeds_end.send_replace(());
+			// every receiver is alive until both futures below end, so this cannot fail meaningfully
+			let _ = tx.send(true);
+			Ok::<_, eyre::Report>(())
+		}
 	};
 	let mut leader_stop = rx.clone();
 	let deliver = worker::deliver(&archive, &config.worker, rx.clone());
@@ -280,6 +285,7 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		}
 		if logged {
 			tracing::info!("took over the data dir");
+			signals.feeds_end.send_replace(());
 		}
 		if !args.no_login_check {
 			match archive.check_signed_in(jiff::Timestamp::now()).await {

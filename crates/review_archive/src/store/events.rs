@@ -10,7 +10,7 @@ use review_archive_core::{
 	dto::{Event, EventPayload},
 	fmt_ts,
 };
-use sa_alerts::{Note, NotePage, NoteText, Origin, Rule};
+use sa_alerts::{Note, NotePage, NoteText, Rule};
 use sqlx::SqliteConnection;
 use uuid::Uuid;
 
@@ -149,7 +149,7 @@ fn render(p: &EventPayload, label: &str) -> (NoteText, Option<String>) {
 		text.push_str(&format!("\n{e}"));
 	}
 	let photo = match (p.event, p.review.as_ref().and_then(|r| r.capture_sha256.as_deref())) {
-		(Event::ReviewGone, Some(sha)) => Some(format!("/api/conductor/captures/{sha}.png")),
+		(Event::ReviewGone, Some(sha)) => Some(format!("{}/{sha}.png", sa_core::feeds::CAPTURES)),
 		_ => None,
 	};
 	let text = truncate(text, if photo.is_some() { CAPTION_MAX } else { MESSAGE_MAX });
@@ -199,7 +199,7 @@ impl Store {
 					gmbs: serde_json::from_str(&gmbs).wrap_err_with(|| format!("note {seq}'s GMBs"))?,
 					photo,
 				};
-				note.check(Origin::ReviewArchive)?;
+				note.check(sa_auth::Service::ReviewArchive)?;
 				Ok(note)
 			})
 			.collect::<eyre::Result<Vec<_>>>()?;

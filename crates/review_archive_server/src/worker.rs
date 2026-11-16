@@ -42,6 +42,9 @@ pub struct Signals {
 	pub job_queued: Notify,
 	/// Bumped each time a job ends: `?wait=` requests re-check.
 	pub job_finished: watch::Sender<u64>,
+	/// Ends every open change feed, so its reader reconnects and reads all again: at shutdown, and
+	/// when this process takes the data dir over from another, whose writes its feed did not tell.
+	pub feeds_end: watch::Sender<()>,
 }
 
 impl Default for Signals {
@@ -49,6 +52,7 @@ impl Default for Signals {
 		Self {
 			job_queued: Notify::new(),
 			job_finished: watch::Sender::new(0),
+			feeds_end: watch::Sender::new(()),
 		}
 	}
 }

@@ -879,7 +879,7 @@ pub struct DayReviews {
 	pub lost: u32,
 }
 
-/// A page of one of the conductor's feeds: `GET /api/conductor/charges`, `GET /api/conductor/notifications`.
+/// A page of one of the conductor's feeds (`sa_core::feeds`): charges, usage, notifications.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct FeedQuery {

@@ -38,7 +38,9 @@ crates/review_archive/          the engine (features: maps, store)
 crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, background loops; thin over `Archive`
   src/http.rs                   the API's operations, one table (ev_lib `api`), and the document derived from it, its views
                                 the core's; `/mfe/`, the page (`--dev-member`) at every path a view parses,
-                                `GET /dashboards`: `grafana/dashboards/`, compiled in, for the conductor's Grafana
+                                `GET /dashboards`: `grafana/dashboards/`, compiled in, for the conductor's Grafana;
+                                the conductor's own calls at `sa_core::feeds`' paths, the change feed among them
+                                (`review_archive.<table>` per committed write, ended at shutdown and at a takeover)
   src/auth.rs                   who is calling: the conductor's assertion (`sa_auth`'s gate, its `Vouch` claiming the person
                                 by `sub`); whose `/me` it is (`X-Member`); `--dev-member`'s signer
   src/worker.rs                 the browser's worker (queued jobs, then due targets) and the deliverer

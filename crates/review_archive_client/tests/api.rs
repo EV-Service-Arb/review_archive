@@ -583,6 +583,7 @@ async fn every_route_but_health_wants_an_assertion() {
 		("GET", "/api/conductor/charges"),
 		("GET", "/api/conductor/usage"),
 		("GET", "/api/conductor/notifications"),
+		("GET", "/api/conductor/changes"),
 		("GET", &format!("/api/conductor/captures/{}.png", "0".repeat(64))),
 		("GET", "/dashboards"),
 		("GET", "/openapi.json"),
@@ -894,6 +895,54 @@ async fn archive_routes_need_archive_operate() {
 		assert_eq!(c.export_zip(1, None).await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 	}
 	assert_eq!(e.client.list_targets().await.unwrap(), vec![]);
+	e.server.abort();
+}
+
+/// The conductor's change feed tells a write by the tables it committed to, and a read names the
+/// tables it read: a write through the API refreshes the reads of what it touched, and only those.
+#[tokio::test]
+async fn a_write_is_told_on_the_feed_by_the_tables_a_read_names() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let g = e.gmb(ALICE, "alice@gmail.com", PLACE).await;
+	let t = track_of(&alice, g).await.id;
+	let board = http_as(&Who::member(ALICE)).get(format!("{}/me/gmbs/{g}/tracks/{t}/board", e.base)).send().await.unwrap();
+	let read: Vec<String> = board.headers()["x-sa-reads"].to_str().unwrap().split(", ").map(str::to_owned).collect();
+	assert!(read.iter().any(|r| r == "review_archive.tracks"), "{read:?}");
+
+	let feed = sa_core::feeds::CHANGES;
+	let conductor = e.signer.sign(&sa_auth::Assertion {
+		aud: sa_auth::Service::ReviewArchive,
+		principal: sa_auth::Principal::Conductor,
+		method: "GET".into(),
+		path: feed.into(),
+		exp: alive(),
+	});
+	let mut feed = reqwest::Client::new().get(format!("{}{feed}", e.base)).header(sa_auth::HEADER, conductor).send().await.unwrap();
+	assert_eq!(feed.status(), StatusCode::OK);
+	let mut lines = String::new();
+	let mut next = async || {
+		while !lines.contains('\n') {
+			lines.push_str(std::str::from_utf8(&feed.chunk().await.unwrap().expect("the feed stays open")).unwrap());
+		}
+		let (line, rest) = lines.split_once('\n').unwrap();
+		let line: sa_core::feeds::Line = serde_json::from_str(line).unwrap();
+		lines = rest.to_owned();
+		line
+	};
+	assert_eq!(next().await, sa_core::feeds::Line::Resync, "a reader reads all first");
+
+	let favorite = TrackPatch {
+		favorite: Some(true),
+		..Default::default()
+	};
+	alice.patch_track(g, t, None, &favorite).await.unwrap();
+	let mut told = std::collections::BTreeSet::new();
+	while let Ok(line) = tokio::time::timeout(Duration::from_millis(500), next()).await {
+		let sa_core::feeds::Line::Changed { topic } = line else { panic!("{line:?} amid a write") };
+		told.insert(topic);
+	}
+	assert_eq!(told, ["review_archive.tracks".to_owned()].into(), "the write's tables, and only those");
 	e.server.abort();
 }
 
@@ -1634,7 +1683,7 @@ async fn as_conductor(e: &Env, path_and_query: &str) -> reqwest::Response {
 async fn notes(e: &Env, after: i64, limit: u32) -> sa_alerts::NotePage {
 	let page: sa_alerts::NotePage = as_conductor(e, &format!("/api/conductor/notifications?after={after}&limit={limit}")).await.json().await.unwrap();
 	for n in &page.notes {
-		n.check(sa_alerts::Origin::ReviewArchive).unwrap();
+		n.check(sa_auth::Service::ReviewArchive).unwrap();
 	}
 	page
 }

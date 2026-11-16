@@ -35,7 +35,10 @@ use review_archive_core::{
 	views::View,
 };
 use sa_auth::{Conductor, Denied, User, Verifier};
-use sa_core::prices::{Spends, WalkStep};
+use sa_core::{
+	feeds,
+	prices::{Spends, WalkStep},
+};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use tower::limit::GlobalConcurrencyLimitLayer;
@@ -168,12 +171,14 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, dev: Option<Dev>) 
 		.merge(
 			// the conductor's own calls, each taking `Conductor`
 			Router::new()
-				.route("/api/conductor/gmbs", axum::routing::put(apply_snapshot))
-				.route("/api/conductor/charges", get(charges))
-				.route("/api/conductor/usage", get(usage))
-				.route("/api/conductor/notifications", get(notifications))
-				.route("/api/conductor/captures/{file}", get(capture_png))
-				.layer(timeout),
+				.route(feeds::GMBS, axum::routing::put(apply_snapshot))
+				.route(feeds::CHARGES, get(charges))
+				.route(feeds::USAGE, get(usage))
+				.route(feeds::NOTIFICATIONS, get(notifications))
+				.route(&format!("{}/{{file}}", feeds::CAPTURES), get(capture_png))
+				.layer(timeout)
+				// open as long as the process: no timeout
+				.route(feeds::CHANGES, get(changes)),
 		);
 	if let Some(dir) = mfe {
 		let bundle = Router::new()
@@ -713,6 +718,16 @@ async fn reinstate(State(s): State<AppState>, Member(m): Member, Ids(Appeal { gm
 async fn withdraw_reinstatement(State(s): State<AppState>, Member(m): Member, Ids(Appeal { gmb, review }): Ids<Appeal>) -> ApiResult<NoContent> {
 	s.archive.withdraw_reinstatement(m, gmb, ReviewId(review)).await?;
 	Ok(NoContent)
+}
+
+/// What the archive commits, as it commits: `review_archive.<table>` per table written.
+async fn changes(_: Conductor, State(s): State<AppState>) -> ApiResult<Response> {
+	let mut end = s.signals.feeds_end.subscribe();
+	let topics = s.archive.store()?.changes();
+	Ok(feeds::changes(topics, async move {
+		// a dropped sender is the process going away: an end as well
+		let _ = end.changed().await;
+	}))
 }
 
 /// The conductor's GMBs and balances, taken whole or not at all.

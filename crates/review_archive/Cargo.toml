@@ -24,6 +24,7 @@ store = [
     "dep:futures",
     "dep:hmac",
     "dep:sa_alerts",
+    "dep:sa_auth",
     "dep:sa_core",
     "dep:sa_places",
     "dep:sqlx",
@@ -48,6 +49,7 @@ playwright-rs = { workspace = true, optional = true }
 reqwest.workspace = true
 review_archive_core.workspace = true
 sa_alerts = { workspace = true, optional = true }
+sa_auth = { workspace = true, optional = true }
 sa_core = { workspace = true, optional = true }
 sa_places = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
