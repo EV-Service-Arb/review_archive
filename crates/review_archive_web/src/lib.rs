@@ -143,7 +143,11 @@ struct Based {
 impl Based {
 	fn new(base: &str) -> Self {
 		let web = dioxus::web::WebHistory::new(Some(base.to_owned()), true);
-		let base = format!("/{}", base.trim_matches('/'));
+		// a page at the origin's root (`--dev-member`'s) has the empty base: every path is under it
+		let base = match base.trim_matches('/') {
+			"" => String::new(),
+			b => format!("/{b}"),
+		};
 		let based = Self {
 			last: std::cell::RefCell::new(String::new()),
 			web,
