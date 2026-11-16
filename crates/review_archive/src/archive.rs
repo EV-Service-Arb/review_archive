@@ -234,7 +234,11 @@ impl Archive {
 		let store = match (config.db_path(), config.blob_dir()) {
 			(Some(db), Some(blobs)) => {
 				let stored = Stored {
-					google: sa_places::Google::try_new(sa_places::Keys::new(config.secrets.google_maps_keys.clone()), queries_cache(config.queries_cache.as_deref())?)?,
+					google: sa_places::Google::try_new(
+						sa_places::Keys::new(config.google.iter().filter_map(|a| Some((a.name.clone(), a.places.clone()?))).collect()),
+						Arc::new(sa_places::InOrder),
+						queries_cache(config.queries_cache.as_deref())?,
+					)?,
 					store: Store::open(&db, config.defaults.interval).await?,
 					blobs: BlobStore::new(blobs),
 				};
@@ -335,7 +339,7 @@ impl Archive {
 	}
 
 	/// Watches a place: a place id, or a Google Maps URL (resolved with the Places API when
-	/// it has no id, which needs `google_maps_keys`). A `gbp` location makes it a `gbp`
+	/// it has no id, which needs an account's Places key). A `gbp` location makes it a `gbp`
 	/// target.
 	pub async fn add_target(&self, req: &NewTarget) -> eyre::Result<Added> {
 		let place = req

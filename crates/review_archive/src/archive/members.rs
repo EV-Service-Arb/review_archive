@@ -52,9 +52,6 @@ impl Archive {
 	pub async fn relink(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<TargetDto> {
 		let store = self.store()?;
 		store.check_track(member, gmb, target).await?;
-		if self.inner.secrets.google_maps_keys.is_empty() {
-			return Err(Rejected::invalid("re-linking a place needs GOOGLE_MAPS_KEYS").into());
-		}
 		let t = store.target(target).await?;
 		let place = self
 			.stored()?

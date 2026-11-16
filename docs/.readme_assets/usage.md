@@ -4,7 +4,7 @@
 # a TOML file passed as `--config`; secrets only ever come from the environment.
 review_archive --config config.toml target add 'https://www.google.com/maps/place/?q=place_id:ChIJ...' --label cafe --lang fr
 
-# A Maps URL without a place id is resolved through the Places API (needs GOOGLE_MAPS_KEYS, and the
+# A Maps URL without a place id is resolved through the Places API (needs an account in the config's `google` with a Places key, and the
 # config's `queries_cache`: the conductor's `<origin>/api/queries_cache`, where every answer is kept).
 review_archive target add 'https://www.google.com/maps/place/Le+Procope/@48.853,2.338,17z' --interval 12h
 

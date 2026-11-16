@@ -89,7 +89,7 @@ Out — do not build, even as an option:
 
 `target add` resolves through `sa_places` (the conductor's crate, which its GMBs use too): a place id, a Google Maps URL, or a share link (`maps.app.goo.gl`, `share.google`, expanded to the Maps or Search URL behind it; a Search URL's `q` is the name). From a URL, take the id it carries
 (`!1s0x…:0x…` in `data=` is the place id, re-encoded). A cid alone (`?cid=`, a Search viewer's `svid`) makes an id Places details answers with the place's own; otherwise search Places API (New)
-`places:searchText` (`GOOGLE_MAPS_KEYS`) for the URL's name. A place is never guessed: only
+`places:searchText` (the config's `google` accounts' Places keys) for the URL's name. A place is never guessed: only
 hits bearing that exact name count, and when several do, the operator adds one by its id.
 
 ## Storage
