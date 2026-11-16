@@ -876,7 +876,7 @@ pub struct GmbReviews {
 
 /// One collected day of a place's reviews, as [`GmbReviews::live_30d`] tells it.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct DayReviews {
 	/// Reviews listed at the day's end.
 	pub live: u32,

@@ -789,8 +789,6 @@ async fn charges(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiRe
 }
 
 /// What walks did, whoever paid, for the conductor's costs: the feed past `after`.
-#[utoipa::path(get, path = "/api/conductor/usage", tag = "conductor", params(FeedQuery),
-	responses((status = 200, body = UsagePage), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody)))]
 async fn usage(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<UsagePage>> {
 	Ok(Json(s.archive.usage(q.after, q.limit).await?))
 }
