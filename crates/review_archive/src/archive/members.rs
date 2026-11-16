@@ -9,6 +9,7 @@ use review_archive_core::{
 	parse_interval,
 };
 use sa_alerts::NotePage;
+use sa_core::prices::{Spender, WalkStep};
 
 use super::Archive;
 use crate::store::people::{Claim, Seen};
@@ -83,7 +84,8 @@ impl Archive {
 
 	/// Queues a scan of a place the member's GMB tracks, on top of its schedule; the member
 	/// pays for it. Returns the job id.
-	pub async fn scan_tracked(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<i64> {
+	pub async fn scan_tracked(&self, by: Spender<WalkStep, PersonId>, gmb: i64, target: TargetId) -> eyre::Result<i64> {
+		let member = by.user();
 		let store = self.store()?;
 		store.check_track(member, gmb, target).await?;
 		match store.gmb_switch(gmb).await? {

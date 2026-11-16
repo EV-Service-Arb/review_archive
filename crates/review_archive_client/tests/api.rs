@@ -1175,7 +1175,7 @@ async fn the_conductor_pulls_the_document_and_a_member_may_read_it() {
 	assert_eq!(doc["servers"][0]["url"], "/", "the conductor finds its forward by the base");
 	let scan = &doc["paths"]["/me/gmbs/{gmb}/tracks/{target}/scan"]["post"];
 	assert_eq!(scan["operationId"], "scan_track");
-	assert_eq!(scan["x-spends"], true);
+	assert_eq!(scan["x-spends"], serde_json::json!(["walk.open", "walk.reviews", "walk.sort", "walk.sort_retry", "walk.step"]));
 	assert_eq!(doc["paths"]["/targets"]["get"]["x-permission"], sa_auth::Archive::Operate.as_str());
 	assert!(doc["paths"].get("/api/conductor/charges").is_none(), "the conductor's own calls are no operation");
 

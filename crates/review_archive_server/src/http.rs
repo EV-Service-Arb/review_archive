@@ -34,6 +34,7 @@ use review_archive_core::{
 		TrackPatch, UsagePage, WaitQuery, WebhookDto, stats_csv,
 	},
 };
+use sa_core::prices::{Spends, WalkStep};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use tower::limit::GlobalConcurrencyLimitLayer;
@@ -146,7 +147,7 @@ fn routes() -> Vec<ApiRoute> {
 		ApiRoute::new(M::DELETE, "/me/settings", user, reset_my_settings),
 		ApiRoute::new(M::PATCH, "/me/gmbs/{gmb}/tracks/{target}", user, patch_track),
 		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/relink", user, relink_track),
-		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/scan", user, scan_track).spends(),
+		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/scan", user, scan_track),
 		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/tracks/{target}/board", user, track_board),
 		ApiRoute::new(M::PUT, "/me/gmbs/{gmb}/reinstatements/{review}", user, reinstate),
 		ApiRoute::new(M::DELETE, "/me/gmbs/{gmb}/reinstatements/{review}", user, withdraw_reinstatement),
@@ -753,8 +754,8 @@ async fn relink_track(State(s): State<AppState>, Member(m): Member, Path(Track {
 ///
 /// 429 when the GMB is switched off or not verified, Maps is paused, the member is out of
 /// tokens, or the queue is full.
-async fn scan_track(State(s): State<AppState>, Member(m): Member, Path(Track { gmb, target }): Path<Track>) -> ApiResult<Accepted<JobAccepted>> {
-	let job_id = s.archive.scan_tracked(m, gmb, TargetId(target)).await?;
+async fn scan_track(State(s): State<AppState>, Spends(_, by): Spends<WalkStep, Member>, Path(Track { gmb, target }): Path<Track>) -> ApiResult<Accepted<JobAccepted>> {
+	let job_id = s.archive.scan_tracked(by, gmb, TargetId(target)).await?;
 	s.signals.job_queued.notify_one();
 	Ok(Accepted(JobAccepted { job_id }))
 }

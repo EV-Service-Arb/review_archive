@@ -30,6 +30,7 @@ review_archive = { workspace = true, features = ["maps", "settings", "store"] }
 review_archive_core = { workspace = true, features = ["openapi"] }
 sa_alerts.workspace = true
 sa_auth = { workspace = true, features = ["catalog"] }
+sa_core = { workspace = true, features = ["api"] }
 sa_places = { workspace = true, features = ["settings"] }
 schemars.workspace = true
 serde.workspace = true

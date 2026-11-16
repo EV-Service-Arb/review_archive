@@ -23,7 +23,7 @@ use review_archive::{
 		people::{Claim, Seen},
 	},
 };
-use sa_core::prices::Item;
+use sa_core::prices::{Item, Spender};
 use tokio::sync::Notify;
 use uuid::Uuid;
 
@@ -339,7 +339,7 @@ async fn a_gmb_the_conductor_switched_off_neither_walks_nor_pays() {
 	let now = Timestamp::now();
 	assert!(archive.due(now).await.unwrap().is_empty());
 	assert_eq!(archive.next_due(now).await.unwrap(), None);
-	let refused = archive.scan_tracked(off, off_gmb, t.id).await.unwrap_err();
+	let refused = archive.scan_tracked(Spender::new(off), off_gmb, t.id).await.unwrap_err();
 	assert!(matches!(refused.downcast_ref::<Rejected>(), Some(Rejected::Busy(_))), "{refused:#}");
 	let gmb = archive.overview(off).await.unwrap().into_iter().flat_map(|g| g.gmbs).find(|b| b.id == off_gmb).unwrap();
 	assert!(!gmb.enabled);
@@ -381,7 +381,7 @@ async fn a_scan_a_member_asks_for_is_theirs_alone_to_pay() {
 	conductor.set(&archive, "a", 100).await;
 	conductor.set(&archive, "b", 100).await;
 
-	let job = archive.scan_tracked(a, g, t.id).await.unwrap();
+	let job = archive.scan_tracked(Spender::new(a), g, t.id).await.unwrap();
 	assert_eq!(archive.store().unwrap().claim_job(Timestamp::now()).await.unwrap().unwrap().id, job);
 	let blobs = BlobStore::new(dir.path().join("blobs"));
 	recorder(&archive, &blobs).record(&Spends(10), &t, Some(job)).await.unwrap();
@@ -398,7 +398,7 @@ async fn a_member_out_of_tokens_cannot_ask_for_a_scan() {
 	let broke = person(archive.store().unwrap(), "broke").await;
 	let g = conductor.tracks(&archive, "broke", &t).await;
 	conductor.set(&archive, "broke", 0).await;
-	let refused = archive.scan_tracked(broke, g, t.id).await.unwrap_err();
+	let refused = archive.scan_tracked(Spender::new(broke), g, t.id).await.unwrap_err();
 	assert!(matches!(refused.downcast_ref::<Rejected>(), Some(Rejected::Busy(_))), "{refused:#}");
 }
 
@@ -416,12 +416,12 @@ async fn a_scan_a_member_asks_for_leaves_the_schedule_alone() {
 
 	let blobs = BlobStore::new(dir.path().join("blobs"));
 	let store = archive.store().unwrap();
-	let job = archive.scan_tracked(m, g, t.id).await.unwrap();
+	let job = archive.scan_tracked(Spender::new(m), g, t.id).await.unwrap();
 	store.claim_job(Timestamp::now()).await.unwrap().unwrap();
 	recorder(&archive, &blobs).record(&Spends(5), &t, Some(job)).await.unwrap();
 	assert_eq!(archive.due_at(&t).await.unwrap(), Some(due), "a scan-now is not the schedule's run");
 
-	let job = archive.scan_tracked(m, g, t.id).await.unwrap();
+	let job = archive.scan_tracked(Spender::new(m), g, t.id).await.unwrap();
 	store.claim_job(Timestamp::now()).await.unwrap().unwrap();
 	recorder(&archive, &blobs).record(&Fails, &t, Some(job)).await.unwrap();
 	assert_eq!(archive.due_at(&t).await.unwrap(), Some(due), "nor is its failure the schedule's backoff");
@@ -440,7 +440,7 @@ async fn the_card_shows_a_scan_queued_then_running_then_gone() {
 	assert_eq!(card(&archive, m, t.id).await.scan, None);
 
 	archive.enqueue_scan(other.id).await.unwrap();
-	let job = archive.scan_tracked(m, g, t.id).await.unwrap();
+	let job = archive.scan_tracked(Spender::new(m), g, t.id).await.unwrap();
 	assert!(matches!(card(&archive, m, t.id).await.scan, Some(ScanState::Queued { ahead: 1, .. })));
 
 	let store = archive.store().unwrap();
@@ -637,7 +637,7 @@ async fn nothing_walks_unpriced_nor_past_the_hour() {
 	let g = conductor.tracks(&archive, "m", &t).await;
 	conductor.set(&archive, "m", 100).await;
 	assert!(archive.due(now).await.unwrap().is_empty());
-	assert!(closed(archive.scan_tracked(m, g, t.id).await.unwrap_err()).contains("\"Sort, again\" has no price"));
+	assert!(closed(archive.scan_tracked(Spender::new(m), g, t.id).await.unwrap_err()).contains("\"Sort, again\" has no price"));
 	assert_eq!(card(&archive, m, t.id).await.scan_cost, None);
 
 	conductor.0.borrow_mut().prices = priced::snapshot().prices;

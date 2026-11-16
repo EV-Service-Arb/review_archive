@@ -197,6 +197,14 @@ impl FromRequestParts<AppState> for Member {
 	}
 }
 
+impl sa_core::prices::Payer for Member {
+	type Who = PersonId;
+
+	fn payer(&self) -> PersonId {
+		self.0
+	}
+}
+
 impl OperationInput for Member {
 	fn operation_input(_: &mut GenContext, op: &mut Operation) {
 		op.parameters.push(ReferenceOr::Item(Parameter::Header {
