@@ -30,8 +30,8 @@ use std::fmt;
 use reqwest::{Method, RequestBuilder, StatusCode, Url};
 pub use review_archive_core::dto;
 use review_archive_core::dto::{
-	Board, CaptureRequest, DayStats, ErrorBody, ExportQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, MEMBER_HEADER, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewWebhook,
-	ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch, WaitQuery, WebhookDto,
+	Board, CaptureRequest, DayStats, ExportQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, MEMBER_HEADER, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewWebhook, ReinstatementDto,
+	ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch, WaitQuery, WebhookDto,
 };
 use serde::de::DeserializeOwned;
 
@@ -44,12 +44,14 @@ pub enum Error {
 	/// The base URL is unusable, or a path leads off it.
 	#[error("review_archive URL: {0}")]
 	Url(String),
-	/// The archive answered with an error status.
-	#[error("review_archive answered {status}: {message}")]
+	/// The archive refused the request.
+	#[error("review_archive answered {status} {code}: {message}")]
 	Api {
 		/// The status.
 		status: StatusCode,
-		/// Its `error` message.
+		/// The refusal's word (`not_found`, `busy`, …).
+		code: String,
+		/// Its `error`, for a person.
 		message: String,
 	},
 }
@@ -126,9 +128,13 @@ impl Client {
 		if status.is_success() {
 			return Ok(resp);
 		}
-		let body = resp.text().await.unwrap_or_default();
-		let message = serde_json::from_str::<ErrorBody>(&body).map(|b| b.error).unwrap_or(body);
-		Err(Error::Api { status, message })
+		#[derive(serde::Deserialize)]
+		struct Refused {
+			code: String,
+			error: String,
+		}
+		let Refused { code, error } = resp.json().await?;
+		Err(Error::Api { status, code, message: error })
 	}
 
 	async fn json<T: DeserializeOwned>(req: RequestBuilder) -> Result<T, Error> {

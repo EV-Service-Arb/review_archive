@@ -520,14 +520,6 @@ pub struct EventPayload {
 	pub run: Option<RunDto>,
 }
 
-/// An error response.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
-pub struct ErrorBody {
-	/// What went wrong; `internal error` for a 5xx, whose details stay in the server log.
-	pub error: String,
-}
-
 /// `GET /targets/{id}/reviews`.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]

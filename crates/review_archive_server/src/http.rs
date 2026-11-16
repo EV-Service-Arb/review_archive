@@ -1,39 +1,36 @@
-//! The HTTP API: everything the CLI does, for other services, and `/me` for members; at `/`,
-//! the dashboard's page. The operations are one table ([`routes`]): the router is built from it
-//! and its OpenAPI document ([`document`]) derived from it. Every operation wants a caller (see
-//! [`crate::auth`]); the conductor's own calls (`/api/conductor/*`, `/dashboards`) are outside the
-//! table, and `/openapi.json` is the conductor's or anyone's signed in.
-//! JSON in and out — errors included, the ones axum's extractors raise too — with the
-//! DTOs of `review_archive_core::dto`. Every handler only translates: what to do, and
-//! what the caller got wrong, is the facade's.
+//! The HTTP API: the archive's operations, and `/me` for members; at `/`, the dashboard's page.
+//! The operations are one table ([`routes`]): the router is built from it and its OpenAPI
+//! document ([`document`]) derived from it. Every row's gate is `sa_auth`'s (see [`crate::auth`]);
+//! the conductor's own calls (`/api/conductor/*`, `/dashboards`) are outside the table, and
+//! `/openapi.json` is the conductor's or anyone's signed in.
+//! JSON in and out, refusals `{code, error}`, with the DTOs of `review_archive_core::dto`. Every
+//! handler only translates: what to do, and what the caller got wrong, is the facade's.
 
 use std::{io::Seek, sync::Arc, time::Duration};
 
 use axum::{
 	Json, Router,
-	body::Bytes,
-	extract::{
-		FromRequest, FromRequestParts, State,
-		rejection::{JsonRejection, PathRejection, QueryRejection},
-	},
+	extract::{FromRequestParts, State},
 	http::{Method, StatusCode, header, request::Parts},
 	middleware,
 	response::{IntoResponse, NoContent, Response},
 	routing::get,
 };
 use ev_lib::api::{
-	Created, GenContext, Guard, JsonSchema, OpenApi, OperationInput, OperationOutput, Route,
+	Body, Created, ErrorCode, GenContext, Ids, JsonSchema, OpenApi, OperationInput, OperationOutput, Params, Refusal, Refuses, Route,
 	openapi::{MediaType, Operation, Response as Answer, StatusCode as Status},
+	serve,
 };
 use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
 	ReviewId, TargetId,
 	dto::{
-		Board, CaptureRequest, ChargePage, DayStats, ErrorBody, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs, NewLayout, NewTarget,
-		NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto, TargetPatch,
-		TrackPatch, UsagePage, WaitQuery, WebhookDto, stats_csv,
+		Board, CaptureRequest, ChargePage, DayStats, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewWebhook,
+		ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch,
+		UsagePage, WaitQuery, WebhookDto, stats_csv,
 	},
 };
+use sa_auth::{Conductor, Denied, User, Verifier};
 use sa_core::prices::{Spends, WalkStep};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
@@ -42,7 +39,7 @@ use tower_http::{services::ServeDir, timeout::TimeoutLayer};
 use v_utils::{Timeframe, macros::SettingsNested};
 
 use crate::{
-	auth::{Auth, Caller, Member, Section, authenticate, conductor, conductor_or_user, require},
+	auth::{Caller, Dev, Member},
 	worker::Signals,
 };
 
@@ -65,59 +62,36 @@ pub struct HttpConfig {
 #[derive(Clone)]
 pub struct AppState {
 	pub archive: Archive,
-	pub auth: Arc<Auth>,
+	/// The conductor's keys; no `FromRef`, so the gate is [`crate::auth`]'s own `Vouch`.
+	pub verifier: Verifier,
 	pub signals: Arc<Signals>,
 	pub cfg: Arc<HttpConfig>,
 }
 
 impl AppState {
-	pub fn new(archive: Archive, auth: Auth, signals: Arc<Signals>, cfg: HttpConfig) -> Self {
+	pub fn new(archive: Archive, verifier: Verifier, signals: Arc<Signals>, cfg: HttpConfig) -> Self {
 		Self {
 			archive,
-			auth: Arc::new(auth),
+			verifier,
 			signals,
 			cfg: Arc::new(cfg),
 		}
 	}
 }
 
-/// Who passes an operation's gate.
+/// Within `http.request_timeout`: all but an export, which streams as long as it takes.
 #[derive(Clone, Copy, Debug)]
-pub struct Gate {
-	/// `None`: everyone signed in.
-	section: Option<Section>,
-	/// Within `http.request_timeout`: all but an export, which streams as long as it takes.
-	timed: bool,
-}
+pub struct Timed(bool);
 
-impl Gate {
-	const USER: Self = Self { section: None, timed: true };
-
-	const fn section(section: Section) -> Self {
-		Self {
-			section: Some(section),
-			..Self::USER
-		}
-	}
-
-	const fn untimed(self) -> Self {
-		Self { timed: false, ..self }
-	}
-}
-
-impl Guard for Gate {
-	fn permission(&self) -> Option<String> {
-		self.section.map(|s| s.permission().to_owned())
-	}
-}
+type Gate = sa_auth::Gate<Timed>;
 
 /// One API operation: what a person reaches through the conductor's forward.
 type ApiRoute = Route<AppState, Gate>;
 
 fn routes() -> Vec<ApiRoute> {
 	use Method as M;
-	let user = Gate::USER;
-	let operator = Gate::section(Section::Operate);
+	let user = sa_auth::Gate::USER.with(Timed(true));
+	let operator = user.needs(sa_auth::Archive::Operate);
 	vec![
 		ApiRoute::new(M::GET, "/targets", operator, list_targets),
 		ApiRoute::new(M::POST, "/targets", operator, add_target),
@@ -127,7 +101,12 @@ fn routes() -> Vec<ApiRoute> {
 		ApiRoute::new(M::GET, "/targets/{id}/reviews", operator, list_reviews),
 		ApiRoute::new(M::GET, "/targets/{id}/runs", operator, list_runs),
 		ApiRoute::new(M::POST, "/targets/{id}/scan", operator, scan_target),
-		ApiRoute::new(M::GET, "/targets/{id}/export.zip", operator.untimed(), export_zip),
+		ApiRoute::new(
+			M::GET,
+			"/targets/{id}/export.zip",
+			sa_auth::Gate::USER.with(Timed(false)).needs(sa_auth::Archive::Operate),
+			export_zip,
+		),
 		ApiRoute::new(M::POST, "/captures", operator, capture_place),
 		ApiRoute::new(M::GET, "/captures/{file}", user, capture_webp),
 		ApiRoute::new(M::GET, "/jobs/{id}", operator, get_job),
@@ -138,7 +117,7 @@ fn routes() -> Vec<ApiRoute> {
 		ApiRoute::new(M::DELETE, "/webhooks/{id}", operator, delete_webhook),
 		ApiRoute::new(M::GET, "/layouts/{dock}", user, list_layouts),
 		ApiRoute::new(M::PUT, "/layouts/{dock}/{band}", operator, publish_layout),
-		ApiRoute::new(M::GET, "/members", Gate::section(Section::ActAs), list_members),
+		ApiRoute::new(M::GET, "/members", user.needs(sa_auth::Members::ActAs), list_members),
 		ApiRoute::new(M::GET, "/me", user, me),
 		ApiRoute::new(M::GET, "/me/overview", user, my_overview),
 		ApiRoute::new(M::GET, "/me/gmbs", user, my_gmbs),
@@ -156,58 +135,49 @@ fn routes() -> Vec<ApiRoute> {
 
 /// The operations as an OpenAPI document, served under `/`: the conductor puts it under its forward.
 pub fn document() -> OpenApi {
-	let mut doc = ev_lib::api::document("review_archive", env!("CARGO_PKG_VERSION"), "/", &routes(), ev_lib::api_docs!());
+	let mut doc = ev_lib::api::document("review_archive", env!("CARGO_PKG_VERSION"), "/", &routes(), ev_lib::api_docs!(), None);
 	doc.info.description = Some("Archive of public place reviews: a WebP screenshot of every review as it first appears, plus data for statistics.".into());
 	doc
 }
 
-/// `mfe`: the built dashboard bundle, served under `/mfe/`. `sign_in`: where the page sends a
-/// browser on a 401; with both, `/` is the dashboard's page.
-pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&str>) -> Router {
+/// `mfe`: the built dashboard bundle, served under `/mfe/`; with `dev` too, `/` is the dashboard's
+/// page, its sign-in `/` itself.
+pub fn router(state: AppState, mfe: Option<&std::path::Path>, dev: Option<Dev>) -> Router {
 	let timeout = TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, state.cfg.request_timeout.duration());
 	let api = routes()
 		.into_iter()
 		.fold(Router::new(), |api, r| {
 			let route = Router::new().route(r.path, r.handler());
-			let route = match r.guard.section {
-				Some(section) => route.route_layer(middleware::from_fn_with_state(section, require)),
-				None => route,
-			};
-			api.merge(match r.guard.timed {
+			api.merge(match r.guard.flags.0 {
 				true => route.layer(timeout.clone()),
 				false => route,
 			})
 		})
-		.layer(GlobalConcurrencyLimitLayer::new(state.cfg.max_concurrent))
-		.route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
-	let openapi = Bytes::from(serde_json::to_vec(&document()).expect("a document serializes"));
+		.layer(GlobalConcurrencyLimitLayer::new(state.cfg.max_concurrent));
+	let dashboards: Vec<serde_json::Value> = DASHBOARDS.iter().map(|d| serde_json::from_str(d).expect("grafana/dashboards/ holds JSON")).collect();
 	// the probes answer whatever load the API is under
 	let mut app = Router::new()
 		.route("/health", get(|| async { "ok" }))
-		.route("/openapi.json", tagged(openapi).route_layer(middleware::from_fn_with_state(state.clone(), conductor_or_user)))
-		.route(
-			"/dashboards",
-			tagged(Bytes::from(format!("[{}]", DASHBOARDS.join(",")))).route_layer(middleware::from_fn_with_state(state.clone(), conductor)),
-		)
+		.route("/openapi.json", serve(&document(), sa_auth::Gate::USER.or_conductor()))
+		.route("/dashboards", serve(&dashboards, sa_auth::Gate::CONDUCTOR))
 		.merge(api)
 		.merge(
-			// the conductor's own calls: never a person, so outside `authenticate`
+			// the conductor's own calls, each taking `Conductor`
 			Router::new()
 				.route("/api/conductor/gmbs", axum::routing::put(apply_snapshot))
 				.route("/api/conductor/charges", get(charges))
 				.route("/api/conductor/usage", get(usage))
 				.route("/api/conductor/notifications", get(notifications))
 				.route("/api/conductor/captures/{file}", get(capture_png))
-				.layer(timeout)
-				.route_layer(middleware::from_fn_with_state(state.clone(), conductor)),
+				.layer(timeout),
 		);
 	if let Some(dir) = mfe {
 		let bundle = Router::new()
 			.fallback_service(ServeDir::new(dir))
 			.layer(middleware::from_fn_with_state(bundle_etag(dir), revalidated));
 		app = app.nest_service("/mfe", bundle);
-		if let Some(sign_in) = sign_in {
-			let page = include_str!("../../review_archive_web/index.html").replace("{sign_in}", sign_in);
+		if dev.is_some() {
+			let page = include_str!("../../review_archive_web/index.html").replace("{sign_in}", "/");
 			let page = move || {
 				let page = page.clone();
 				async move { axum::response::Html(page) }
@@ -225,7 +195,11 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 				.route("/members/{member}", get(page));
 		}
 	}
-	app.with_state(state)
+	let app = app.with_state(state);
+	match dev {
+		Some(dev) => app.layer(middleware::from_fn(move |req, next| dev.clone().sign(req, next))),
+		None => app,
+	}
 }
 
 /// The Grafana dashboards of `grafana/dashboards/`, for the conductor's Grafana: every one in an array.
@@ -233,14 +207,6 @@ const DASHBOARDS: [&str; 2] = [
 	include_str!("../../../grafana/dashboards/ra-location.json"),
 	include_str!("../../../grafana/dashboards/ra-overview.json"),
 ];
-
-/// A JSON `body` that never changes while the process lives, tagged by its digest.
-fn tagged(body: Bytes) -> axum::routing::MethodRouter<AppState> {
-	use sha2::{Digest, Sha256};
-	let digest: String = Sha256::digest(&body)[..16].iter().map(|b| format!("{b:02x}")).collect();
-	let etag = header::HeaderValue::try_from(format!("\"{digest}\"")).expect("hex is a header value");
-	get(move || async move { ([(header::CONTENT_TYPE, "application/json")], body) }).layer(middleware::from_fn_with_state(etag, revalidated))
-}
 
 /// The whole bundle's digest, for every file in it: the nix store dates each file 1970, so a
 /// date tells one build from another for none of them.
@@ -287,85 +253,57 @@ async fn revalidated(State(etag): State<header::HeaderValue>, mut req: axum::ext
 	res
 }
 
-pub struct ApiError(StatusCode, String);
+/// What a request is refused with: [`Rejected`]'s words, the gate's, and a bare `internal` for a bug.
+#[derive(Clone, Copy, Debug, Serialize, strum::VariantArray)]
+#[serde(rename_all = "snake_case")]
+pub enum Code {
+	NotFound,
+	Invalid,
+	Busy,
+	Conflict,
+	Unauthenticated,
+	Forbidden,
+	/// A sign-in whose address's rows from before people had ids it may not claim.
+	Unclaimable,
+	Internal,
+}
 
-impl IntoResponse for ApiError {
-	fn into_response(self) -> Response {
-		(self.0, Json(ErrorBody { error: self.1 })).into_response()
+impl ErrorCode for Code {
+	fn status(self) -> StatusCode {
+		match self {
+			Self::NotFound => StatusCode::NOT_FOUND,
+			Self::Invalid => StatusCode::BAD_REQUEST,
+			Self::Busy => StatusCode::TOO_MANY_REQUESTS,
+			Self::Conflict => StatusCode::CONFLICT,
+			Self::Unauthenticated => StatusCode::UNAUTHORIZED,
+			Self::Forbidden | Self::Unclaimable => StatusCode::FORBIDDEN,
+			Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+		}
 	}
 }
 
-impl OperationOutput for ApiError {
-	type Inner = ErrorBody;
-
-	fn operation_response(ctx: &mut GenContext, op: &mut Operation) -> Option<Answer> {
-		Json::<ErrorBody>::operation_response(ctx, op)
-	}
-
-	fn inferred_responses(ctx: &mut GenContext, op: &mut Operation) -> Vec<(Option<Status>, Answer)> {
-		Self::operation_response(ctx, op).map(|r| (None, r)).into_iter().collect()
+impl From<Denied> for Code {
+	fn from(d: Denied) -> Self {
+		match d {
+			Denied::Unauthenticated => Self::Unauthenticated,
+			Denied::Forbidden => Self::Forbidden,
+		}
 	}
 }
 
-impl From<eyre::Report> for ApiError {
-	/// The caller's mistakes are 404 / 400 / 429 / 409 with the reason. Anything else is a 5xx:
-	/// reported, its details kept in the log rather than the response.
-	fn from(e: eyre::Report) -> Self {
+impl Refuses<eyre::Report> for Code {
+	/// The caller's mistakes with the reason; anything else reported, its details kept in the log.
+	fn refusal(e: eyre::Report) -> Refusal<Self> {
 		match e.downcast_ref::<Rejected>() {
-			Some(Rejected::NotFound(m)) => Self(StatusCode::NOT_FOUND, m.clone()),
-			Some(Rejected::Invalid(m)) => Self(StatusCode::BAD_REQUEST, m.clone()),
-			Some(Rejected::Busy(m)) => Self(StatusCode::TOO_MANY_REQUESTS, m.clone()),
-			Some(Rejected::Conflict(m)) => Self(StatusCode::CONFLICT, m.clone()),
+			Some(Rejected::NotFound(m)) => Refusal::new(Self::NotFound, m.clone()),
+			Some(Rejected::Invalid(m)) => Refusal::new(Self::Invalid, m.clone()),
+			Some(Rejected::Busy(m)) => Refusal::new(Self::Busy, m.clone()),
+			Some(Rejected::Conflict(m)) => Refusal::new(Self::Conflict, m.clone()),
 			None => {
 				crate::report(&e, "request failed");
-				Self(StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+				Refusal::new(Self::Internal, "internal error")
 			}
 		}
-	}
-}
-
-/// What axum's extractors refuse is the caller's mistake too, and answered the same way.
-macro_rules! rejections {
-	($($rejection:ty),*) => {$(
-		impl From<$rejection> for ApiError {
-			fn from(r: $rejection) -> Self {
-				Self(r.status(), r.body_text())
-			}
-		}
-	)*};
-}
-rejections!(JsonRejection, QueryRejection, PathRejection);
-
-/// A JSON body, refused as an [`ErrorBody`].
-#[derive(FromRequest)]
-#[from_request(via(axum::Json), rejection(ApiError))]
-struct JsonBody<T>(T);
-
-/// A query string, refused as an [`ErrorBody`].
-#[derive(FromRequestParts)]
-#[from_request(via(axum::extract::Query), rejection(ApiError))]
-struct Query<T>(T);
-
-/// A path's parameters, by their names in it, refused as an [`ErrorBody`].
-#[derive(FromRequestParts)]
-#[from_request(via(axum::extract::Path), rejection(ApiError))]
-struct Path<T>(T);
-
-impl<T: JsonSchema> OperationInput for JsonBody<T> {
-	fn operation_input(ctx: &mut GenContext, op: &mut Operation) {
-		Json::<T>::operation_input(ctx, op);
-	}
-}
-
-impl<T: JsonSchema> OperationInput for Query<T> {
-	fn operation_input(ctx: &mut GenContext, op: &mut Operation) {
-		axum::extract::Query::<T>::operation_input(ctx, op);
-	}
-}
-
-impl<T: JsonSchema> OperationInput for Path<T> {
-	fn operation_input(ctx: &mut GenContext, op: &mut Operation) {
-		axum::extract::Path::<T>::operation_input(ctx, op);
 	}
 }
 
@@ -541,7 +479,7 @@ impl OperationOutput for Stats {
 	}
 }
 
-type ApiResult<T> = Result<T, ApiError>;
+type ApiResult<T> = Result<T, Refusal<Code>>;
 
 /// Every watched place.
 async fn list_targets(State(s): State<AppState>) -> ApiResult<Json<Vec<TargetDto>>> {
@@ -549,22 +487,22 @@ async fn list_targets(State(s): State<AppState>) -> ApiResult<Json<Vec<TargetDto
 }
 
 /// Watches a place: a place id, or a Maps URL, as `target add` resolves them.
-async fn add_target(State(s): State<AppState>, JsonBody(req): JsonBody<NewTarget>) -> ApiResult<Created<TargetDto>> {
+async fn add_target(State(s): State<AppState>, Body(req): Body<NewTarget>) -> ApiResult<Created<TargetDto>> {
 	Ok(Created(s.archive.add_target(&req).await?.target.into()))
 }
 
 /// A target with its last run, what is archived, and the next scheduled scan.
-async fn get_target(State(s): State<AppState>, Path(Id { id }): Path<Id>) -> ApiResult<Json<TargetDetail>> {
+async fn get_target(State(s): State<AppState>, Ids(Id { id }): Ids<Id>) -> ApiResult<Json<TargetDetail>> {
 	Ok(Json(s.archive.target_detail(TargetId(id)).await?))
 }
 
 /// Changes what the patch names; the rest stays.
-async fn patch_target(State(s): State<AppState>, Path(Id { id }): Path<Id>, JsonBody(patch): JsonBody<TargetPatch>) -> ApiResult<Json<TargetDto>> {
+async fn patch_target(State(s): State<AppState>, Ids(Id { id }): Ids<Id>, Body(patch): Body<TargetPatch>) -> ApiResult<Json<TargetDto>> {
 	Ok(Json(s.archive.update_target(TargetId(id), &patch).await?.into()))
 }
 
 /// Disables the target. Nothing archived is deleted.
-async fn disable_target(State(s): State<AppState>, Path(Id { id }): Path<Id>) -> ApiResult<Json<TargetDto>> {
+async fn disable_target(State(s): State<AppState>, Ids(Id { id }): Ids<Id>) -> ApiResult<Json<TargetDto>> {
 	let disable = TargetPatch {
 		enabled: Some(false),
 		..Default::default()
@@ -573,12 +511,12 @@ async fn disable_target(State(s): State<AppState>, Path(Id { id }): Path<Id>) ->
 }
 
 /// The target's reviews as archived.
-async fn list_reviews(State(s): State<AppState>, Path(Id { id }): Path<Id>, Query(q): Query<ReviewsQuery>) -> ApiResult<Json<Vec<ReviewDto>>> {
+async fn list_reviews(State(s): State<AppState>, Ids(Id { id }): Ids<Id>, Params(q): Params<ReviewsQuery>) -> ApiResult<Json<Vec<ReviewDto>>> {
 	Ok(Json(s.archive.reviews(TargetId(id), &q).await?))
 }
 
 /// The target's runs, newest first.
-async fn list_runs(State(s): State<AppState>, Path(Id { id }): Path<Id>, Query(q): Query<RunsQuery>) -> ApiResult<Json<Vec<RunDto>>> {
+async fn list_runs(State(s): State<AppState>, Ids(Id { id }): Ids<Id>, Params(q): Params<RunsQuery>) -> ApiResult<Json<Vec<RunDto>>> {
 	Ok(Json(s.archive.runs(TargetId(id), &q).await?))
 }
 
@@ -586,7 +524,7 @@ async fn list_runs(State(s): State<AppState>, Path(Id { id }): Path<Id>, Query(q
 ///
 /// The same scan already queued is not queued twice: its id comes back. Past the queue's
 /// `max_queued_jobs`, 429.
-async fn scan_target(State(s): State<AppState>, Path(Id { id }): Path<Id>) -> ApiResult<Accepted<JobAccepted>> {
+async fn scan_target(State(s): State<AppState>, Ids(Id { id }): Ids<Id>) -> ApiResult<Accepted<JobAccepted>> {
 	let job_id = s.archive.enqueue_scan(TargetId(id)).await?;
 	s.signals.job_queued.notify_one();
 	Ok(Accepted(JobAccepted { job_id }))
@@ -598,7 +536,7 @@ async fn scan_target(State(s): State<AppState>, Path(Id { id }): Path<Id>) -> Ap
 /// so nothing is lost. `max_reviews` and the number of `review_ids` are at most
 /// `max_reviews_initial`. With `wait`, answers the finished job if it finishes by then; else
 /// the job's id, to poll. Past the queue's `max_queued_jobs`, 429.
-async fn capture_place(State(s): State<AppState>, Query(q): Query<WaitQuery>, JsonBody(req): JsonBody<CaptureRequest>) -> ApiResult<Captured> {
+async fn capture_place(State(s): State<AppState>, Params(q): Params<WaitQuery>, Body(req): Body<CaptureRequest>) -> ApiResult<Captured> {
 	// subscribed before queueing, so the job cannot end unseen in between
 	let mut finished = s.signals.job_finished.subscribe();
 	let job_id = s.archive.enqueue_capture(&req).await?;
@@ -619,28 +557,28 @@ async fn capture_place(State(s): State<AppState>, Query(q): Query<WaitQuery>, Js
 
 /// A job: `queued`, `running`, `done` or `failed`; on `done`, the reviews its run listed with
 /// their capture URLs (for a capture of `review_ids`, those of them it found).
-async fn get_job(State(s): State<AppState>, Path(Id { id }): Path<Id>) -> ApiResult<Json<JobDto>> {
+async fn get_job(State(s): State<AppState>, Ids(Id { id }): Ids<Id>) -> ApiResult<Json<JobDto>> {
 	Ok(Json(s.archive.job(id).await?))
 }
 
 /// A review with every version and capture.
-async fn get_review(State(s): State<AppState>, Path(Id { id }): Path<Id>) -> ApiResult<Json<ReviewDetail>> {
+async fn get_review(State(s): State<AppState>, Ids(Id { id }): Ids<Id>) -> ApiResult<Json<ReviewDetail>> {
 	Ok(Json(s.archive.review(ReviewId(id)).await?))
 }
 
 /// A capture's WebP, provenance in its Exif.
 ///
 /// Only what the archive recorded; for a member, only what shows a review of a place they track.
-async fn capture_webp(State(s): State<AppState>, caller: Caller, Path(CaptureFile { file }): Path<CaptureFile>) -> ApiResult<Webp> {
-	let sha = file.strip_suffix(".webp").ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "no such capture".into()))?;
-	Ok(Webp(match caller.permissions.may(sa_auth::Archive::Operate) {
+async fn capture_webp(State(s): State<AppState>, user: User, Caller(caller): Caller, Ids(CaptureFile { file }): Ids<CaptureFile>) -> ApiResult<Webp> {
+	let sha = file.strip_suffix(".webp").ok_or_else(|| Refusal::new(Code::NotFound, "no such capture"))?;
+	Ok(Webp(match user.permissions.may(sa_auth::Archive::Operate) {
 		true => s.archive.capture_webp(sha).await?,
-		false => s.archive.member_capture_webp(caller.person, sha).await?,
+		false => s.archive.member_capture_webp(caller, sha).await?,
 	}))
 }
 
 /// The same archive as `export`: `manifest.json` and the first capture of each review.
-async fn export_zip(State(s): State<AppState>, Path(Id { id }): Path<Id>, Query(q): Query<ExportQuery>) -> ApiResult<Zip> {
+async fn export_zip(State(s): State<AppState>, Ids(Id { id }): Ids<Id>, Params(q): Params<ExportQuery>) -> ApiResult<Zip> {
 	// An archive of thousands of captures does not belong in memory: it is written to a temp file
 	// with no name, which goes away with its last handle whatever happens to the request.
 	let mut file = tempfile::tempfile().map_err(eyre::Report::new)?;
@@ -656,7 +594,7 @@ async fn export_zip(State(s): State<AppState>, Path(Id { id }): Path<Id>, Query(
 ///
 /// `gone` counts what the runs of that day marked gone, whether or not it came back later.
 /// `Accept: text/csv` for CSV, the histogram as `stars_1` … `stars_5`.
-async fn stats(State(s): State<AppState>, WantsCsv(csv): WantsCsv, Query(q): Query<StatsQuery>) -> ApiResult<Stats> {
+async fn stats(State(s): State<AppState>, WantsCsv(csv): WantsCsv, Params(q): Params<StatsQuery>) -> ApiResult<Stats> {
 	let rows = s.archive.stats(&q).await?;
 	Ok(match csv {
 		true => Stats::Csv(stats_csv(&rows)?),
@@ -672,7 +610,7 @@ async fn stats(State(s): State<AppState>, WantsCsv(csv): WantsCsv, Query(q): Que
 /// `run`. The URL is `http(s)`, and may not point at a local or private address unless the
 /// archive's `webhooks.allowed_hosts` names its host; a non-empty `allowed_hosts` is the whole
 /// list of hosts hooks may go to. Redirects are not followed.
-async fn add_webhook(State(s): State<AppState>, JsonBody(hook): JsonBody<NewWebhook>) -> ApiResult<Created<WebhookDto>> {
+async fn add_webhook(State(s): State<AppState>, Body(hook): Body<NewWebhook>) -> ApiResult<Created<WebhookDto>> {
 	Ok(Created(s.archive.add_webhook(&hook).await?))
 }
 
@@ -682,30 +620,30 @@ async fn list_webhooks(State(s): State<AppState>) -> ApiResult<Json<Vec<WebhookD
 }
 
 /// Removes the hook and whatever it was still owed.
-async fn delete_webhook(State(s): State<AppState>, Path(Id { id }): Path<Id>) -> ApiResult<NoContent> {
+async fn delete_webhook(State(s): State<AppState>, Ids(Id { id }): Ids<Id>) -> ApiResult<NoContent> {
 	s.archive.delete_webhook(id).await?;
 	Ok(NoContent)
 }
 
 /// Every band's published layout of a dock: what a browser without one of its own starts from.
-async fn list_layouts(State(s): State<AppState>, Path(Dock { dock }): Path<Dock>) -> ApiResult<Json<Vec<LayoutDto>>> {
+async fn list_layouts(State(s): State<AppState>, Ids(Dock { dock }): Ids<Dock>) -> ApiResult<Json<Vec<LayoutDto>>> {
 	Ok(Json(s.archive.layouts(&dock).await?))
 }
 
 /// Publishes a dock's layout at a band for every browser without one of its own.
-async fn publish_layout(State(s): State<AppState>, Path(Slot { dock, band }): Path<Slot>, JsonBody(layout): JsonBody<NewLayout>) -> ApiResult<NoContent> {
+async fn publish_layout(State(s): State<AppState>, Ids(Slot { dock, band }): Ids<Slot>, Body(layout): Body<NewLayout>) -> ApiResult<NoContent> {
 	s.archive.publish_layout(&dock, &band, &layout).await?;
 	Ok(NoContent)
 }
 
 /// Who is signed in.
-async fn me(State(s): State<AppState>, caller: Caller) -> ApiResult<Json<Me>> {
-	let mine = s.archive.store()?.person_by_id(caller.person).await?.expect("authenticate found or made them");
+async fn me(State(s): State<AppState>, user: User, Caller(caller): Caller) -> ApiResult<Json<Me>> {
+	let mine = s.archive.store()?.person_by_id(caller).await?.expect("the gate's vouch found or made them");
 	Ok(Json(Me {
-		id: caller.person.0,
+		id: caller.0,
 		email: mine.email,
 		name: mine.name,
-		permissions: caller.permissions.iter().map(str::to_owned).collect(),
+		permissions: user.permissions.iter().map(str::to_owned).collect(),
 	}))
 }
 
@@ -730,7 +668,7 @@ async fn my_settings(State(s): State<AppState>, Member(m): Member) -> ApiResult<
 }
 
 /// Chooses what the patch names; the rest stays.
-async fn patch_my_settings(State(s): State<AppState>, Member(m): Member, JsonBody(req): JsonBody<SettingsPatch>) -> ApiResult<Json<Settings>> {
+async fn patch_my_settings(State(s): State<AppState>, Member(m): Member, Body(req): Body<SettingsPatch>) -> ApiResult<Json<Settings>> {
 	Ok(Json(s.archive.patch_settings(m, &req).await?))
 }
 
@@ -740,13 +678,13 @@ async fn reset_my_settings(State(s): State<AppState>, Member(m): Member) -> ApiR
 }
 
 /// Switches the GMB's track of a place on or off, or marks it a favorite; the place's target stays as it is.
-async fn patch_track(State(s): State<AppState>, Member(m): Member, Path(Track { gmb, target }): Path<Track>, JsonBody(req): JsonBody<TrackPatch>) -> ApiResult<NoContent> {
+async fn patch_track(State(s): State<AppState>, Member(m): Member, Ids(Track { gmb, target }): Ids<Track>, Body(req): Body<TrackPatch>) -> ApiResult<NoContent> {
 	s.archive.patch_track(m, gmb, TargetId(target), &req).await?;
 	Ok(NoContent)
 }
 
 /// Asks Google about a tracked place again: its id, name and address become what Google gives now.
-async fn relink_track(State(s): State<AppState>, Member(m): Member, Path(Track { gmb, target }): Path<Track>) -> ApiResult<Json<TargetDto>> {
+async fn relink_track(State(s): State<AppState>, Member(m): Member, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<TargetDto>> {
 	Ok(Json(s.archive.relink(m, gmb, TargetId(target)).await?))
 }
 
@@ -754,54 +692,54 @@ async fn relink_track(State(s): State<AppState>, Member(m): Member, Path(Track {
 ///
 /// 429 when the GMB is switched off or not verified, Maps is paused, the member is out of
 /// tokens, or the queue is full.
-async fn scan_track(State(s): State<AppState>, Spends(_, by): Spends<WalkStep, Member>, Path(Track { gmb, target }): Path<Track>) -> ApiResult<Accepted<JobAccepted>> {
+async fn scan_track(State(s): State<AppState>, Spends(_, by): Spends<WalkStep, Member>, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Accepted<JobAccepted>> {
 	let job_id = s.archive.scan_tracked(by, gmb, TargetId(target)).await?;
 	s.signals.job_queued.notify_one();
 	Ok(Accepted(JobAccepted { job_id }))
 }
 
 /// A tracked place's reviews in four columns: snapshotted, suspended, removed, reinstating.
-async fn track_board(State(s): State<AppState>, Member(m): Member, Path(Track { gmb, target }): Path<Track>) -> ApiResult<Json<Board>> {
+async fn track_board(State(s): State<AppState>, Member(m): Member, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<Board>> {
 	Ok(Json(s.archive.board(m, gmb, TargetId(target)).await?))
 }
 
 /// Records that the removed review's reinstatement was asked of Google, now.
 ///
 /// Asking again while one is open answers the open one.
-async fn reinstate(State(s): State<AppState>, Member(m): Member, Path(Appeal { gmb, review }): Path<Appeal>) -> ApiResult<Json<ReinstatementDto>> {
+async fn reinstate(State(s): State<AppState>, Member(m): Member, Ids(Appeal { gmb, review }): Ids<Appeal>) -> ApiResult<Json<ReinstatementDto>> {
 	Ok(Json(s.archive.reinstate(m, gmb, ReviewId(review)).await?))
 }
 
 /// Withdraws the open request; it stays on record as withdrawn.
-async fn withdraw_reinstatement(State(s): State<AppState>, Member(m): Member, Path(Appeal { gmb, review }): Path<Appeal>) -> ApiResult<NoContent> {
+async fn withdraw_reinstatement(State(s): State<AppState>, Member(m): Member, Ids(Appeal { gmb, review }): Ids<Appeal>) -> ApiResult<NoContent> {
 	s.archive.withdraw_reinstatement(m, gmb, ReviewId(review)).await?;
 	Ok(NoContent)
 }
 
 /// The conductor's GMBs and balances, taken whole or not at all.
-async fn apply_snapshot(State(s): State<AppState>, JsonBody(snap): JsonBody<Snapshot>) -> ApiResult<StatusCode> {
+async fn apply_snapshot(_: Conductor, State(s): State<AppState>, Body(snap): Body<Snapshot>) -> ApiResult<StatusCode> {
 	s.archive.apply_snapshot(&snap).await?;
 	Ok(StatusCode::NO_CONTENT)
 }
 
 /// What walks cost, for the conductor to charge: the feed past `after`.
-async fn charges(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<ChargePage>> {
+async fn charges(_: Conductor, State(s): State<AppState>, Params(q): Params<FeedQuery>) -> ApiResult<Json<ChargePage>> {
 	Ok(Json(s.archive.charges(q.after, q.limit).await?))
 }
 
 /// What walks did, whoever paid, for the conductor's costs: the feed past `after`.
-async fn usage(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<UsagePage>> {
+async fn usage(_: Conductor, State(s): State<AppState>, Params(q): Params<FeedQuery>) -> ApiResult<Json<UsagePage>> {
 	Ok(Json(s.archive.usage(q.after, q.limit).await?))
 }
 
 /// The Alerts feed past `after`: notes on the places live tracks name, each with their GMBs.
-async fn notifications(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<sa_alerts::NotePage>> {
+async fn notifications(_: Conductor, State(s): State<AppState>, Params(q): Params<FeedQuery>) -> ApiResult<Json<sa_alerts::NotePage>> {
 	Ok(Json(s.archive.notifications(q.after, q.limit).await?))
 }
 
 /// A capture as PNG, the photo of a `review_gone` note.
-async fn capture_png(State(s): State<AppState>, Path(file): Path<String>) -> ApiResult<Response> {
-	let sha = file.strip_suffix(".png").ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "no such capture".into()))?;
+async fn capture_png(_: Conductor, State(s): State<AppState>, Ids(file): Ids<String>) -> ApiResult<Response> {
+	let sha = file.strip_suffix(".png").ok_or_else(|| Refusal::new(Code::NotFound, "no such capture"))?;
 	Ok((
 		[(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "private, max-age=31536000, immutable")],
 		s.archive.capture_png(sha).await?,

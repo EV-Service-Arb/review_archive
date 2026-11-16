@@ -36,8 +36,8 @@ crates/review_archive/          the engine (features: maps, store)
 crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, background loops; thin over `Archive`
   src/http.rs                   the API's operations, one table (ev_lib `api`), and the document derived from it; `/mfe/`, the page at `/`,
                                 `GET /dashboards`: `grafana/dashboards/`, compiled in, for the conductor's Grafana
-  src/auth.rs                   who is calling: the panel's assertion (`sa_auth`), a person by `sub`, the conductor;
-                                the operations' gates (`Section`) and the conductor's; whose `/me` it is (`X-Member`)
+  src/auth.rs                   who is calling: the conductor's assertion (`sa_auth`'s gate, its `Vouch` claiming the person
+                                by `sub`); whose `/me` it is (`X-Member`); `--dev-member`'s signer
   src/worker.rs                 the browser's worker (queued jobs, then due targets) and the deliverer
   src/settings.rs               the environment (ev_lib `settings!`): secrets, APP_ENV
   src/config.rs                 the config (v_utils `Settings`): data dir, bind, and every library and server section
@@ -86,40 +86,40 @@ with its own platform implements `sources::ReviewSource` and records through
 
 ## The API
 
-JSON; errors `{"error": "…"}` with 400 / 401 / 403 / 404 / 409 / 429, and a bare `internal error`
-for a 5xx. A person reaches it through the conductor (`/api/review_archive/*`, under its
+JSON; a refusal is `{"code", "error"}`, its codes per operation in the document's `x-errors`, and a
+bare `internal error` for a 5xx. A person reaches it through the conductor (`/api/review_archive/*`, under its
 assertion).
 
 **One table, everything derived** (ev_lib `api`): `http::routes` is what the router is built
 from; each operation's request and answer are its handler's signature, its description the
-handler's `///`, its id the handler's name, its permission its `Section` (`x-permission`), and
-whether the caller pays for it said by hand (`x-spends`). `GET /openapi.json` is that document,
-served under `/`, tagged by its digest (`ETag`, `If-None-Match` → 304): the conductor pulls it as
+handler's `///`, its id the handler's name, its permission its `sa_auth` gate's (`x-permission`), what
+it refuses its `x-errors`, and what the caller pays its `Spends` (`x-spends`). `GET /openapi.json` is that document,
+served under `/` (`ev_lib::api::serve`: `ETag`, `If-None-Match` → 304): the conductor pulls it as
 it pulls `/dashboards`, under its own assertion, and a person signed in may read it too. The
 conductor's own calls (`/api/conductor/*`, `/dashboards`) are no operation of the table: nobody
 but the conductor may make them. Below, the overview (a test holds it to the table); what each
 takes and answers is in the document. An export is not held to `http.request_timeout`.
 
 ```text
-GET    /targets                                        Operate
-POST   /targets                                        Operate
-GET    /targets/{id}                                   Operate
-PATCH  /targets/{id}                                   Operate
-DELETE /targets/{id}                                   Operate
-GET    /targets/{id}/{reviews,runs}                    Operate
-POST   /targets/{id}/scan                              Operate
-GET    /targets/{id}/export.zip                        Operate, untimed
-POST   /captures                                       Operate
+GET    /targets                                        archive:operate
+POST   /targets                                        archive:operate
+GET    /targets/{id}                                   archive:operate
+PATCH  /targets/{id}                                   archive:operate
+DELETE /targets/{id}                                   archive:operate
+GET    /targets/{id}/{reviews,runs}                    archive:operate
+POST   /targets/{id}/scan                              archive:operate
+GET    /targets/{id}/export.zip                        archive:operate, untimed
+POST   /captures                                       archive:operate
 GET    /captures/{file}
-GET    /jobs/{id}                                      Operate
-GET    /reviews/{id}                                   Operate
-GET    /stats                                          Operate
-GET    /webhooks                                       Operate
-POST   /webhooks                                       Operate
-DELETE /webhooks/{id}                                  Operate
+GET    /jobs/{id}                                      archive:operate
+GET    /reviews/{id}                                   archive:operate
+GET    /stats                                          archive:operate
+GET    /webhooks                                       archive:operate
+POST   /webhooks                                       archive:operate
+DELETE /webhooks/{id}                                  archive:operate
 GET    /layouts/{dock}
-PUT    /layouts/{dock}/{band}                          Operate
-GET    /members                                        ActAs
+PUT    /layouts/{dock}/{band}                          archive:operate
+GET    /members                                        members:act_as
 GET    /me
 GET    /me/{overview,gmbs,settings}
 PATCH  /me/settings

@@ -10,7 +10,7 @@ use review_archive::{
 	Archive,
 	config::Config,
 	core::{
-		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
+		Coverage, Known, Observed, OwnerPost, Scan, Target,
 		dto::{
 			CaptureRequest, Country, Event, JobStatus, LocationSummary, Managed, Me, MemberDto, NewTarget, NewWebhook, OnGoogle, Setting, Settings, SettingsPatch, Snapshot, TargetPatch,
 			TrackPatch,
@@ -27,7 +27,7 @@ use review_archive::{
 };
 use review_archive_client::{Captured, Client};
 use review_archive_server::{
-	auth::Auth,
+	auth::Dev,
 	http::{AppState, HttpConfig, router},
 	worker::Signals,
 };
@@ -149,8 +149,8 @@ async fn env() -> Env {
 			}
 		})
 	};
-	let auth = Auth::Panel(signer.public().parse().unwrap());
-	let app = router(AppState::new(archive.clone(), auth, signals.clone(), HttpConfig::default()), None, None).layer(panel);
+	let verifier = sa_auth::Verifier::new(signer.public().parse().unwrap(), sa_auth::Service::ReviewArchive);
+	let app = router(AppState::new(archive.clone(), verifier, signals.clone(), HttpConfig::default()), None, None).layer(panel);
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let base = format!("http://{}", listener.local_addr().unwrap());
 	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -674,8 +674,8 @@ async fn an_interval_too_large_to_store_is_a_400() {
 	e.server.abort();
 }
 
-/// The API speaks JSON in and out, errors included: a body or a query it cannot read gets
-/// the same `{"error": …}` as every other 4xx.
+/// The API speaks JSON in and out, errors included: a body or a query it cannot read is
+/// refused `{"code": "bad_request", "error": …}`.
 #[tokio::test]
 async fn an_unreadable_body_or_query_gets_a_json_error_body() {
 	let e = env().await;
@@ -688,13 +688,11 @@ async fn an_unreadable_body_or_query_gets_a_json_error_body() {
 		.await
 		.unwrap();
 	assert!(bad_body.status().is_client_error(), "{}", bad_body.status());
-	let text = bad_body.text().await.unwrap();
-	assert!(serde_json::from_str::<review_archive::core::dto::ErrorBody>(&text).is_ok(), "not an ErrorBody: {text:?}");
+	assert_eq!(bad_body.json::<serde_json::Value>().await.unwrap()["code"], "bad_request");
 
 	let bad_query = http.get(format!("{}/targets/1/reviews?gone=maybe", e.base)).send().await.unwrap();
 	assert!(bad_query.status().is_client_error(), "{}", bad_query.status());
-	let text = bad_query.text().await.unwrap();
-	assert!(serde_json::from_str::<review_archive::core::dto::ErrorBody>(&text).is_ok(), "not an ErrorBody: {text:?}");
+	assert_eq!(bad_query.json::<serde_json::Value>().await.unwrap()["code"], "bad_request");
 	e.server.abort();
 }
 
@@ -991,6 +989,19 @@ async fn an_address_another_account_holds_cannot_be_claimed() {
 	e.server.abort();
 }
 
+const TEST: &str = "00000000-0000-0000-0000-00000000007e";
+
+/// The `--dev-member` the dev tests sign for, holding nothing.
+fn test_user() -> sa_auth::User {
+	sa_auth::User {
+		sub: TEST.into(),
+		email: "test@localhost".into(),
+		email_verified: true,
+		name: "test".into(),
+		permissions: Vec::<String>::new().into_iter().collect(),
+	}
+}
+
 /// `serve --dev-member`: every request is that member, so a dashboard runs without the panel.
 #[tokio::test]
 async fn a_dev_member_stands_in_for_a_missing_sign_in() {
@@ -1000,14 +1011,13 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 		..Config::default()
 	};
 	let archive = Archive::open(config).await.unwrap();
-	const TEST: &str = "00000000-0000-0000-0000-00000000007e";
 	let seen = Seen {
 		sub: TEST,
 		email: "test@localhost",
 		email_verified: true,
 		name: "test",
 	};
-	let Claim::Person(test) = archive.person(&seen).await.unwrap() else {
+	let Claim::Person(_) = archive.person(&seen).await.unwrap() else {
 		panic!("nobody else holds the address")
 	};
 	let snapshot = Snapshot {
@@ -1029,13 +1039,13 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 		prices: Default::default(),
 	};
 	archive.apply_snapshot(&snapshot).await.unwrap();
-	let auth = Auth::Dev {
-		person: test,
-		email: "test@localhost".into(),
-		permissions: Vec::<String>::new().into_iter().collect(),
-	};
+	let dev = Dev::new(test_user());
 	let mfe = tempfile::tempdir().unwrap();
-	let app = router(AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()), Some(mfe.path()), Some("/"));
+	let app = router(
+		AppState::new(archive, dev.verifier(), Arc::new(Signals::default()), HttpConfig::default()),
+		Some(mfe.path()),
+		Some(dev),
+	);
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let base = format!("http://{}", listener.local_addr().unwrap());
 	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1208,12 +1218,12 @@ async fn a_new_bundle_is_never_answered_from_an_old_ones_cache() {
 		})
 		.await
 		.unwrap();
-		let auth = Auth::Dev {
-			person: PersonId(1),
-			email: "test@localhost".into(),
-			permissions: Vec::<String>::new().into_iter().collect(),
-		};
-		let app = router(AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()), Some(mfe.path()), Some("/"));
+		let dev = Dev::new(test_user());
+		let app = router(
+			AppState::new(archive, dev.verifier(), Arc::new(Signals::default()), HttpConfig::default()),
+			Some(mfe.path()),
+			Some(dev),
+		);
 		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let base = format!("http://{}", listener.local_addr().unwrap());
 		(dir, base, tokio::spawn(async move { axum::serve(listener, app).await.unwrap() }))
