@@ -29,7 +29,7 @@ def hidden(name):
 
 
 BOARD = "/me/gmbs/${gmb}/tracks/${target}/board"
-RUNS = "/targets/${target}/runs"
+RUNS = "/me/gmbs/${gmb}/tracks/${target}/runs"
 
 CARD = [
 	("id", "review.id", "number"),

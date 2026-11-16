@@ -95,7 +95,7 @@ with its own platform implements `sources::ReviewSource` and records through
 ## The API
 
 JSON; a refusal is `{"code", "error"}`, its codes per operation in the document's `x-errors`, and a
-bare `internal error` for a 5xx. A person reaches it through the conductor (`/api/review_archive/*`, under its
+bare `internal error` for a 5xx; past `http.request_timeout` it is `timed_out` (408). A person reaches it through the conductor (`/api/review_archive/*`, under its
 assertion).
 
 **One table, everything derived** (ev_lib `api`): `http::routes` is what the router is built
@@ -135,7 +135,7 @@ DELETE /me/settings
 PATCH  /me/gmbs/{gmb}/tracks/{target}
 POST   /me/gmbs/{gmb}/tracks/{target}/relink
 POST   /me/gmbs/{gmb}/tracks/{target}/scan             spends
-GET    /me/gmbs/{gmb}/tracks/{target}/board
+GET    /me/gmbs/{gmb}/tracks/{target}/{board,runs}
 PUT    /me/gmbs/{gmb}/reinstatements/{review}
 DELETE /me/gmbs/{gmb}/reinstatements/{review}
 ```

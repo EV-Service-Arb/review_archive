@@ -42,7 +42,7 @@ use sa_core::{
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use tower::limit::GlobalConcurrencyLimitLayer;
-use tower_http::{services::ServeDir, timeout::TimeoutLayer};
+use tower_http::services::ServeDir;
 use v_utils::{Timeframe, macros::SettingsNested};
 
 use crate::{
@@ -135,6 +135,7 @@ fn routes() -> Vec<ApiRoute> {
 		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/relink", user, relink_track),
 		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/scan", user, scan_track),
 		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/tracks/{target}/board", user, track_board),
+		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/tracks/{target}/runs", user, track_runs),
 		ApiRoute::new(M::PUT, "/me/gmbs/{gmb}/reinstatements/{review}", user, reinstate),
 		ApiRoute::new(M::DELETE, "/me/gmbs/{gmb}/reinstatements/{review}", user, withdraw_reinstatement),
 	]
@@ -150,7 +151,13 @@ pub fn document() -> OpenApi {
 /// `mfe`: the built dashboard bundle, served under `/mfe/`; with `dev` too, `/` is the dashboard's
 /// page, its sign-in `/` itself.
 pub fn router(state: AppState, mfe: Option<&std::path::Path>, dev: Option<Dev>) -> Router {
-	let timeout = TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, state.cfg.request_timeout.duration());
+	let limit = state.cfg.request_timeout.duration();
+	let timeout = tower::ServiceBuilder::new()
+		.layer(axum::error_handling::HandleErrorLayer::new(move |e: tower::BoxError| async move {
+			assert!(e.is::<tower::timeout::error::Elapsed>(), "a route fails in nothing but its time: {e}");
+			Refusal::new(Code::TimedOut, format!("not answered within http.request_timeout ({}s)", limit.as_secs()))
+		}))
+		.layer(tower::timeout::TimeoutLayer::new(limit));
 	let api = routes()
 		.into_iter()
 		.fold(Router::new(), |api, r| {
@@ -269,6 +276,8 @@ pub enum Code {
 	Forbidden,
 	/// A sign-in whose address's rows from before people had ids it may not claim.
 	Unclaimable,
+	/// Past `http.request_timeout`.
+	TimedOut,
 	Internal,
 }
 
@@ -281,6 +290,7 @@ impl ErrorCode for Code {
 			Self::Conflict => StatusCode::CONFLICT,
 			Self::Unauthenticated => StatusCode::UNAUTHORIZED,
 			Self::Forbidden | Self::Unclaimable => StatusCode::FORBIDDEN,
+			Self::TimedOut => StatusCode::REQUEST_TIMEOUT,
 			Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
 		}
 	}
@@ -705,6 +715,11 @@ async fn scan_track(State(s): State<AppState>, Spends(_, by): Spends<WalkStep, M
 /// A tracked place's reviews in four columns: snapshotted, suspended, removed, reinstating.
 async fn track_board(State(s): State<AppState>, Member(m): Member, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<Board>> {
 	Ok(Json(s.archive.board(m, gmb, TargetId(target)).await?))
+}
+
+/// A tracked place's runs, newest first.
+async fn track_runs(State(s): State<AppState>, Member(m): Member, Ids(Track { gmb, target }): Ids<Track>, Params(q): Params<RunsQuery>) -> ApiResult<Json<Vec<RunDto>>> {
+	Ok(Json(s.archive.track_runs(m, gmb, TargetId(target), &q).await?))
 }
 
 /// Records that the removed review's reinstatement was asked of Google, now.

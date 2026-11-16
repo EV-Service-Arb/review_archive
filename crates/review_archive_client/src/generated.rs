@@ -160,6 +160,25 @@ impl Client {
 		Ok(res.json().await?)
 	}
 
+	/// A tracked place's runs, newest first.
+	///
+	/// `GET /me/gmbs/{gmb}/tracks/{target}/runs`
+	pub async fn track_runs(&self, gmb: i64, target: i64, limit: Option<u32>, x_member: Option<i64>) -> Result<Vec<review_archive_core::dto::RunDto>, Error> {
+		let mut req = self.request(reqwest::Method::GET, &format!("/me/gmbs/{}/tracks/{}/runs", gmb, target))?.query(&{
+			#[derive(serde::Serialize)]
+			struct Query {
+				#[serde(skip_serializing_if = "Option::is_none")]
+				limit: Option<u32>,
+			}
+			Query { limit }
+		});
+		if let Some(v) = x_member {
+			req = req.header("x-member", v.to_string());
+		}
+		let res = Self::send(req).await?;
+		Ok(res.json().await?)
+	}
+
 	/// Queues a scan of a tracked place, on top of its schedule; the member who asks pays for it in tokens.
 	///
 	/// `POST /me/gmbs/{gmb}/tracks/{target}/scan`

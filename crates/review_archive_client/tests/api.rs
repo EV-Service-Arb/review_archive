@@ -124,6 +124,10 @@ struct Env {
 }
 
 async fn env() -> Env {
+	env_with(HttpConfig::default()).await
+}
+
+async fn env_with(http: HttpConfig) -> Env {
 	let dir = tempfile::tempdir().unwrap();
 	let mut config = Config {
 		data_dir: Some(dir.path().to_owned()),
@@ -150,7 +154,7 @@ async fn env() -> Env {
 		})
 	};
 	let verifier = sa_auth::Verifier::new(signer.public().parse().unwrap(), sa_auth::Service::ReviewArchive);
-	let app = router(AppState::new(archive.clone(), verifier, signals.clone(), HttpConfig::default()), None, None).layer(panel);
+	let app = router(AppState::new(archive.clone(), verifier, signals.clone(), http), None, None).layer(panel);
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let base = format!("http://{}", listener.local_addr().unwrap());
 	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -852,6 +856,39 @@ async fn stats_come_back_as_json_through_the_client_and_as_csv_on_request() {
 			&format!("{t},{today},2,0,0,5.000,0,0,0,0,2"),
 		]
 	);
+	e.server.abort();
+}
+
+/// A request past `http.request_timeout` is refused like any other: a code the client reads.
+#[tokio::test]
+async fn a_request_past_its_time_is_refused_timed_out() {
+	let e = env_with(HttpConfig {
+		request_timeout: "1s".into(),
+		..HttpConfig::default()
+	})
+	.await;
+	add_place(&e).await;
+	let req = CaptureRequest {
+		place: Some(PLACE.into()),
+		..Default::default()
+	};
+	match e.client.capture_place(Some(60), &req).await {
+		Err(review_archive_client::Error::Api { status, code, .. }) => assert_eq!((status, code.as_str()), (StatusCode::REQUEST_TIMEOUT, "timed_out")),
+		other => panic!("nothing works the queue, so the wait outlives the request: {other:?}"),
+	}
+	e.server.abort();
+}
+
+/// A member reads the runs of a place they track, and of no other.
+#[tokio::test]
+async fn a_member_reads_the_runs_of_their_tracks() {
+	let e = env().await;
+	let (alice, bob) = (e.member(ALICE), e.member(BOB));
+	let g = e.gmb(ALICE, "alice@gmail.com", PLACE).await;
+	let t = track_of(&alice, g).await.id;
+	record(&e, t, vec![review("a")]).await;
+	assert_eq!(alice.track_runs(g, t, Some(5), None).await.unwrap().len(), 1);
+	assert_eq!(bob.track_runs(g, t, Some(5), None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	e.server.abort();
 }
 

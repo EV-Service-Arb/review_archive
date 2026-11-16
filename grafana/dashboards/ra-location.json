@@ -789,7 +789,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "/targets/${target}/runs",
+          "url": "/me/gmbs/${gmb}/tracks/${target}/runs",
           "url_options": {
             "method": "GET",
             "params": [
@@ -900,7 +900,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "/targets/${target}/runs",
+          "url": "/me/gmbs/${gmb}/tracks/${target}/runs",
           "url_options": {
             "method": "GET",
             "params": [
@@ -1063,7 +1063,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "/targets/${target}/runs",
+          "url": "/me/gmbs/${gmb}/tracks/${target}/runs",
           "url_options": {
             "method": "GET",
             "params": [
