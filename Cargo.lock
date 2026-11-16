@@ -2017,6 +2017,8 @@ dependencies = [
 [[package]]
 name = "ev_lib"
 version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "562d5db20f34579aac60e6b217460a3493278fa12ae3a0923d68285f38006f87"
 dependencies = [
  "aide",
  "axum",
@@ -2072,6 +2074,8 @@ dependencies = [
 [[package]]
 name = "ev_lib_classes"
 version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa7774a212ddeff688b7928c807ad857416135d27c7b3861d2d68d66328453a5"
 dependencies = [
  "strum",
  "tailwind_fuse",
@@ -4936,6 +4940,7 @@ dependencies = [
  "review_archive_core",
  "sa_alerts",
  "sa_auth",
+ "sa_places",
  "schemars",
  "serde",
  "serde_json",
@@ -5166,7 +5171,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 [[package]]
 name = "sa_alerts"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#b8df89a31f542242afa9a0b2c606bf24d3dc8ea5"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#3d15333b2c2c4130dec18d806d5c96b8cc2b9f37"
 dependencies = [
  "jiff",
  "sa_auth",
@@ -5180,7 +5185,7 @@ dependencies = [
 [[package]]
 name = "sa_auth"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#b8df89a31f542242afa9a0b2c606bf24d3dc8ea5"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#3d15333b2c2c4130dec18d806d5c96b8cc2b9f37"
 dependencies = [
  "base64 0.22.1",
  "concierge_iam",
@@ -5196,7 +5201,7 @@ dependencies = [
 [[package]]
 name = "sa_core"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#b8df89a31f542242afa9a0b2c606bf24d3dc8ea5"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#3d15333b2c2c4130dec18d806d5c96b8cc2b9f37"
 dependencies = [
  "hex",
  "hmac 0.13.0",
@@ -5217,7 +5222,7 @@ dependencies = [
 [[package]]
 name = "sa_places"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#b8df89a31f542242afa9a0b2c606bf24d3dc8ea5"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#3d15333b2c2c4130dec18d806d5c96b8cc2b9f37"
 dependencies = [
  "base64 0.22.1",
  "eyre",
@@ -5232,13 +5237,14 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "v_utils",
  "zeroize",
 ]
 
 [[package]]
 name = "sa_ui"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#b8df89a31f542242afa9a0b2c606bf24d3dc8ea5"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#3d15333b2c2c4130dec18d806d5c96b8cc2b9f37"
 dependencies = [
  "dioxus",
  "ev_lib 0.25.1",
@@ -7048,9 +7054,9 @@ dependencies = [
 
 [[package]]
 name = "v_utils"
-version = "2.23.0"
+version = "2.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d2375d1136642256d3b61a3fcd768c1d1bb52586e79c6bb151a8a9b9e122222"
+checksum = "763460688cb958bf467ca140122109dd2f9a2ec2b0cafbee26521b14ee34c185"
 dependencies = [
  "ahash",
  "bon",
@@ -7084,9 +7090,9 @@ dependencies = [
 
 [[package]]
 name = "v_utils_macros"
-version = "2.16.0"
+version = "2.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bda86a1e57b6d74b17dad6b4c5bb36df7c5eb354d9e318577a4b53216551aa0"
+checksum = "a7530357746c9a98f791caa4dacc46e767de5924dcca96584fd10a002c9d7f16"
 dependencies = [
  "heck",
  "proc-macro2",
