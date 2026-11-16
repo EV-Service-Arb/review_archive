@@ -19,8 +19,7 @@ use ev_lib::{
 	i18n::{Locale, Messages, Translator},
 	t,
 	uikit_dioxus::{
-		self, BadgeVariant, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Size, Tabs, TabsList,
-		TabsTrigger,
+		Badge, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Size, Tabs, TabsList, TabsTrigger, Tone,
 	},
 };
 use review_archive_client::{
@@ -711,7 +710,7 @@ fn Picker(on_pick: EventHandler<MemberDto>, on_close: EventHandler<()>) -> Eleme
 									move |_| on_pick.call(m.clone())
 								},
 								if !m.claimed {
-									uikit_dioxus::Badge { variant: BadgeVariant::Outline, {t!(tr, "picker.unclaimed", "never signed in")} }
+									Badge { {t!(tr, "picker.unclaimed", "never signed in")} }
 								}
 								span { "{m.name}" }
 								span { class: "flex-1 truncate text-ink-soft", "{m.email}" }
@@ -997,7 +996,7 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<
 						class: format!("{row} min-w-0 {}", if current == Some(g.gmail.id) && !aside { "bg-hover text-ink" } else { "text-ink-soft" }),
 						to: Route::at(tab, View::Gmail(g.gmail.id)),
 						span { class: "truncate flex-1", "{g.gmail.gmail}" }
-						uikit_dioxus::Badge { variant: BadgeVariant::Secondary, "{g.gmbs.len()}" }
+						Badge { "{g.gmbs.len()}" }
 					}
 				}
 			}
@@ -1046,27 +1045,6 @@ fn Places(cards: Vec<(Gmb, LocationSummary)>, gmail: Option<GmailDto>, tab: Opti
 	rsx! {
 		filter::Bar { kept, total }
 		{overview}
-	}
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Tone {
-	Ok,
-	Bad,
-	Warn,
-	Neutral,
-}
-
-#[component]
-fn Badge(tone: Tone, children: Element) -> Element {
-	let (variant, class) = match tone {
-		Tone::Ok => (BadgeVariant::Success, ""),
-		Tone::Bad => (BadgeVariant::Outline, "border-transparent bg-accent-error/15 text-accent-error"),
-		Tone::Warn => (BadgeVariant::Outline, "border-transparent bg-accent-warn/15 text-accent-warn"),
-		Tone::Neutral => (BadgeVariant::Outline, "border-transparent bg-accent-trace/15 text-accent-trace"),
-	};
-	rsx! {
-		uikit_dioxus::Badge { variant, class, {children} }
 	}
 }
 

@@ -258,13 +258,13 @@ fn Card(card: BoardCard, column: Column, mut dragging: Signal<Option<Drag>>) -> 
 				span { "{when}" }
 				div { class: "flex gap-1.5",
 					if let Some(days) = reinstated {
-						Badge { tone: Tone::Ok, "reinstated after {days}d" }
+						Badge { tone: Tone::Positive, "reinstated after {days}d" }
 					}
 					if r.capture_corrupted == Some(true) {
 						Badge { tone: Tone::Warn, span { title: "the screenshot is cut off; the next scan retakes it", "corrupted" } }
 					}
 					if r.reply.is_some() {
-						Badge { tone: Tone::Ok, "responded" }
+						Badge { tone: Tone::Positive, "responded" }
 					} else {
 						Badge { tone: Tone::Warn, "no reply" }
 					}

@@ -1,12 +1,12 @@
 //! The locations overview as the kit draws it: a card per place.
 
 use dioxus::{prelude::*, web::WebEventExt};
-use ev_lib::uikit_dioxus::{Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Size, Spinner, Switch, button_classes};
+use ev_lib::uikit_dioxus::{Badge, Button, ButtonVariant, Card, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Size, Spinner, Switch, Tone, button_classes};
 use review_archive_client::dto::{LocationSummary, OnGoogle, RunStatus, ScanState, TrackPatch};
 use sa_ui::TokenCost;
 
 use crate::{
-	Badge, Gmb, Route, Tone, act, ago,
+	Gmb, Route, act, ago,
 	filter::reviews::{Review, Reviews},
 };
 
@@ -90,22 +90,22 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 							span { title: "not scanned until the GBP is verified", "{gmb.state}" }
 						}
 					}
-					Badge { tone: Tone::Ok,
+					Badge { tone: Tone::Positive,
 						match loc.listed {
 							Some(listed) => rsx! { span { title: "archived and still listed / listed on Google", "live: {loc.live}/{listed}" } },
 							None => rsx! { "live: {loc.live}" },
 						}
 					}
-					Badge { tone: Tone::Ok,
+					Badge { tone: Tone::Positive,
 						span { title: "posted over the last 7 days, removed ones included", "new 7d: +{loc.new_7d}" }
 					}
 					if let Some(post) = &loc.latest_post {
-						Badge { tone: Tone::Ok,
+						Badge { tone: Tone::Positive,
 							span { title: "owner's latest post, {ago(post.published_est.as_deref().unwrap_or(&post.first_seen))}:\n{post.text}", "posts 7d: {loc.posts_7d}" }
 						}
 					}
 					span { onclick: narrowed(Review::Responded),
-						Badge { tone: if loc.responded < loc.live { Tone::Warn } else { Tone::Ok },
+						Badge { tone: if loc.responded < loc.live { Tone::Warn } else { Tone::Positive },
 							span { title: "replied to by the owner / live", "responded: {loc.responded}/{loc.live}" }
 						}
 					}
@@ -120,12 +120,12 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 						}
 					}
 					if loc.suspended > 0 {
-						Badge { tone: Tone::Bad,
+						Badge { tone: Tone::Error,
 							span { title: "5-star reviews gone from the listing", "suspended: {loc.suspended}" }
 						}
 					}
 					if loc.removed > 0 {
-						Badge { tone: Tone::Bad, "removed: {loc.removed}" }
+						Badge { tone: Tone::Error, "removed: {loc.removed}" }
 					}
 					if loc.reinstating > 0 {
 						Badge { tone: Tone::Warn, "reinstating: {loc.reinstating}" }
