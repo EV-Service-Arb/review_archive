@@ -3,7 +3,7 @@
 //! with the run's end, and no walk for a place whose trackers are out of tokens, nor past the
 //! account's hourly limit.
 
-use std::{cell::RefCell, path::Path, sync::Mutex};
+use std::{cell::RefCell, path::Path, sync::Mutex, time::Duration};
 
 use jiff::{SignedDuration, Timestamp};
 use review_archive::{
@@ -24,6 +24,7 @@ use review_archive::{
 	},
 };
 use sa_core::prices::Item;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 #[path = "support/priced.rs"]
@@ -73,12 +74,35 @@ struct Opens(i64);
 
 impl ReviewSource for Opens {
 	async fn scan(&self, target: &Target, known: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
-		for s in [WalkStep::Open, WalkStep::Reviews, WalkStep::Sort] {
-			meter.spend(s);
-		}
+		opens(meter);
 		Spends(self.0).scan(target, known, meter).await
 	}
 }
+
+fn opens(meter: &mut Meter) {
+	for s in [WalkStep::Open, WalkStep::Reviews, WalkStep::Sort] {
+		meter.spend(s);
+	}
+}
+
+/// A walk that opens and scrolls `before` times, waits for `gate`, then scrolls `after` times more.
+struct Gated {
+	before: i64,
+	gate: Notify,
+	after: i64,
+}
+
+impl ReviewSource for Gated {
+	async fn scan(&self, target: &Target, known: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
+		opens(meter);
+		scrolls(meter, self.before);
+		self.gate.notified().await;
+		Spends(self.after).scan(target, known, meter).await
+	}
+}
+
+/// Past the walk's step checkpoint, with room for its write.
+const PAST_A_CHECKPOINT: Duration = Duration::from_secs(12);
 
 /// A walk that reads `member`'s card for its place while it goes.
 struct Peeks<'a> {
@@ -513,6 +537,85 @@ async fn every_walk_is_used_whoever_pays() {
 	assert_eq!((rest.used.as_slice(), rest.next), (&used.used[4..], used.used[4].id));
 	let none = archive.usage(rest.next, 4).await.unwrap();
 	assert_eq!((none.used.len(), none.next), (0, rest.next));
+}
+
+fn usage_rows(page: &review_archive::core::dto::UsagePage) -> Vec<(Item, i64)> {
+	page.used.iter().map(|u| (u.item, u.units)).collect()
+}
+
+fn opened_and_scrolled(n: i64) -> Vec<(Item, i64)> {
+	[(WalkStep::Open, 1), (WalkStep::Reviews, 1), (WalkStep::Sort, 1), (WalkStep::Step, n)]
+		.map(|(s, n)| (Item::Walk(s), n))
+		.to_vec()
+}
+
+/// A walk its process died in is counted as far as it was kept, once the next start fails its run, and only once.
+#[tokio::test]
+async fn a_walk_a_restart_cut_off_is_used_once() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	Conductor::new().push(&archive).await;
+	let t = target(&archive, "ChIJtokenstest00000killed").await;
+	let dies = Gated {
+		before: 2,
+		gate: Notify::new(),
+		after: 0,
+	};
+	tokio::time::timeout(PAST_A_CHECKPOINT, archive.record(&dies, &t)).await.expect_err("the gate never opens");
+	assert!(archive.usage(0, 500).await.unwrap().used.is_empty(), "nothing is final while the run is open");
+	archive.close().await;
+
+	let archive = open(dir.path()).await;
+	archive.recover().await.unwrap();
+	let used = archive.usage(0, 500).await.unwrap();
+	assert_eq!(usage_rows(&used), opened_and_scrolled(2));
+	archive.recover().await.unwrap();
+	assert_eq!(archive.usage(0, 500).await.unwrap().used, used.used, "a second start counts it again");
+}
+
+/// A walk that outlives its checkpoints is counted at its end, as it ended, once.
+#[tokio::test]
+async fn a_checkpointed_walk_is_used_once_at_its_end() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	Conductor::new().push(&archive).await;
+	let t = target(&archive, "ChIJtokenstest00000longer").await;
+	let walk = Gated {
+		before: 2,
+		gate: Notify::new(),
+		after: 3,
+	};
+	let (recorded, ()) = tokio::join!(archive.record(&walk, &t), async {
+		tokio::time::sleep(PAST_A_CHECKPOINT).await;
+		walk.gate.notify_one();
+	});
+	recorded.unwrap();
+	archive.recover().await.unwrap();
+	assert_eq!(usage_rows(&archive.usage(0, 500).await.unwrap()), opened_and_scrolled(5));
+}
+
+/// A hand-run walk still going when `serve` starts is counted as the start found it; its own end adds nothing to what was published.
+#[tokio::test]
+async fn a_walk_that_outlives_the_sweep_is_used_once_as_swept() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	Conductor::new().push(&archive).await;
+	let t = target(&archive, "ChIJtokenstest0000outlive").await;
+	let walk = Gated {
+		before: 2,
+		gate: Notify::new(),
+		after: 3,
+	};
+	let (recorded, swept) = tokio::join!(archive.record(&walk, &t), async {
+		tokio::time::sleep(PAST_A_CHECKPOINT).await;
+		archive.recover().await.unwrap();
+		let swept = archive.usage(0, 500).await.unwrap();
+		walk.gate.notify_one();
+		swept
+	});
+	recorded.unwrap();
+	assert_eq!(usage_rows(&swept), opened_and_scrolled(2));
+	assert_eq!(archive.usage(0, 500).await.unwrap().used, swept.used);
 }
 
 #[tokio::test]

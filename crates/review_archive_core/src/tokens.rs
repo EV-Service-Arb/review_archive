@@ -1,7 +1,10 @@
 //! Risk tokens: what a walk costs the signed-in account. Balances and prices are the conductor's;
 //! this is the account's own limit and the walk's meter.
 
-use std::collections::BTreeMap;
+use std::{
+	collections::BTreeMap,
+	sync::{Arc, Mutex},
+};
 
 pub use sa_core::prices::WalkStep;
 use sa_core::prices::{Item, Prices};
@@ -75,7 +78,7 @@ pub struct Meter {
 	tariff: Tariff,
 	allowance: i64,
 	spent: i64,
-	steps: BTreeMap<WalkStep, i64>,
+	steps: Steps,
 }
 
 #[derive(Debug)]
@@ -94,7 +97,7 @@ impl Meter {
 			tariff: Tariff::Priced(prices),
 			allowance,
 			spent: 0,
-			steps: BTreeMap::new(),
+			steps: Steps::default(),
 		}
 	}
 
@@ -104,7 +107,7 @@ impl Meter {
 			tariff: Tariff::Shut,
 			allowance: 0,
 			spent: 0,
-			steps: BTreeMap::new(),
+			steps: Steps::default(),
 		}
 	}
 
@@ -114,7 +117,7 @@ impl Meter {
 			tariff: Tariff::Uncounted,
 			allowance: i64::MAX,
 			spent: 0,
-			steps: BTreeMap::new(),
+			steps: Steps::default(),
 		}
 	}
 
@@ -129,7 +132,7 @@ impl Meter {
 	/// Spends `step`'s price, whatever is left: the steps a walk cannot do without.
 	pub fn spend(&mut self, step: WalkStep) {
 		self.spent += self.cost(step);
-		*self.steps.entry(step).or_default() += 1;
+		self.steps.add(step);
 	}
 
 	/// Spends `step`'s price if it fits; `false`: the walk is at its budget.
@@ -138,7 +141,7 @@ impl Meter {
 		let fits = self.spent + cost <= self.allowance;
 		if fits {
 			self.spent += cost;
-			*self.steps.entry(step).or_default() += 1;
+			self.steps.add(step);
 		}
 		fits
 	}
@@ -157,8 +160,23 @@ impl Meter {
 		self.spent
 	}
 
-	/// How many times each step was done so far, priced or free.
-	pub fn steps(&self) -> &BTreeMap<WalkStep, i64> {
-		&self.steps
+	/// How many times each step was done, priced or free, readable while the walk holds the meter.
+	pub fn steps(&self) -> Steps {
+		self.steps.clone()
+	}
+}
+
+/// A walk's steps done; every clone reads the same walk.
+#[derive(Clone, Debug, Default)]
+pub struct Steps(Arc<Mutex<BTreeMap<WalkStep, i64>>>);
+
+impl Steps {
+	/// So far.
+	pub fn now(&self) -> BTreeMap<WalkStep, i64> {
+		self.0.lock().expect("held only to count or copy").clone()
+	}
+
+	fn add(&self, step: WalkStep) {
+		*self.0.lock().expect("held only to count or copy").entry(step).or_default() += 1;
 	}
 }

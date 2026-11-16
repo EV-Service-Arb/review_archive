@@ -249,7 +249,7 @@ pub(super) async fn charge(tx: &mut SqliteConnection, end: &RunEnd<'_>, now: Tim
 
 /// What the run's walk did, a row per step, into the usage feed with the run's end.
 pub(super) async fn used(tx: &mut SqliteConnection, end: &RunEnd<'_>, now: Timestamp) -> eyre::Result<()> {
-	for (&step, &units) in end.meter.steps() {
+	for (step, units) in end.meter.steps().now() {
 		sqlx::query("INSERT INTO walk_usage (run_id, item, units, at) VALUES (?, ?, ?, ?)")
 			.bind(end.run.0)
 			.bind(Item::Walk(step).to_string())

@@ -210,7 +210,10 @@ with its own platform implements `sources::ReviewSource` and records through
   tokens is not walked; a GMB the conductor switched off, or not verified, pays for nothing. A scan a member asks for is theirs alone to pay; the operator's jobs
   and ad-hoc looks are no one's. Every run, whoever pays and failed or not, also puts what its
   walk did into the usage feed (`GET /api/conductor/usage`, `sa_core::usage`): a row per
-  `walk.*` step it did, its count, at the run's end, from the same meter. The archive never calls
+  `walk.*` step it did, its count, from the same meter. The steps are kept on the open run every
+  10 s; a run a restart cut off is counted from them when the next start fails it. Rows are
+  written once, as the run ends, and never change: a hand-run `scan` that outlives that start
+  stays counted as it was found. The archive never calls
   the conductor: the conductor reads the feeds and pushes the snapshot, under a Conductor assertion.
 - **Events are an outbox.** `review.new/changed/gone/reappeared` and `run.failed` are written
   to `webhook_deliveries` in the same transaction as what they report, a row per hook, and
