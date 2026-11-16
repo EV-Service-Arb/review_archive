@@ -210,11 +210,12 @@
 
         # Secret-free prod config baked into the image; the container has no `nix`,
         # so it is evaluated to TOML here. Secrets arrive from the k8s Secret.
+        google = import "${accounting}/google_env.nix" "SA_GOOGLE";
         prodConfig = (pkgs.formats.toml { }).generate "config.toml" (import ./deploy/config.nix {
           inherit port;
           chromium = headlessShell;
           mfe = "${mfe}";
-          google = (import "${accounting}/google_env.nix" "SA_GOOGLE").accounts;
+          google = google.accounts;
         });
 
         imageEnv = playwrightEnv // {
@@ -231,6 +232,8 @@
         launchChecked = pkgs.runCommand "${pname}-launch-checked" { } ''
           export ${lib.concatStringsSep " " (lib.mapAttrsToList (k: v: "${k}=${lib.escapeShellArg v}") imageEnv)}
           export HOME=$TMPDIR VK_DRIVER_FILES=/nonexistent
+          # the config reads the Google keys at load; the k8s Secret carries them, the build has none
+          export ${lib.concatMapStringsSep " " (v: "${v}=launch-check") (builtins.attrNames google.vars)}
           ${bin}/bin/${pname} --config ${prodConfig} check-browser
           mkdir -p $out/bin
           ln -s ${bin}/bin/${pname} $out/bin/${pname}
