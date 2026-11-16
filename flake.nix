@@ -62,7 +62,7 @@
         github = v_flakes.github {
           inherit pkgs pname rs;
           enable = true;
-          lastSupportedVersion = "nightly-2026-09-03";
+          lastSupportedVersion = "nightly-2026-09-24";
           containerRelease = { registry = "ghcr.io/ev-service-arb"; deployKeys = [ "EV-Service-Arb/accounting" ]; };
           jobs.default = true;
           lfs = false;
