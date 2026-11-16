@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The bundle, as the archive serves it under /mfe/ and the panel under /review_archive/mfe/: wasm-bindgen's module, the entry that
+# The bundle, as the archive serves it under /mfe/ and the panel under /mfe/review_archive/: wasm-bindgen's module, the entry that
 # registers the element, its registry manifest, the stylesheet.
 # $1: the built .wasm; $2: the directory it goes to.
 set -euo pipefail

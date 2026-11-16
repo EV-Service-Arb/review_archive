@@ -292,7 +292,7 @@ scanned pay.
 ### Auth
 
 Served behind the Service-Arb panel at `sa.evinvest.ltd`: its `/api/review_archive/*` reaches
-the API (the prefix stripped), and its `/review_archive/mfe/*` the bundle. Nothing else reaches
+the API (the prefix stripped), and its `/mfe/review_archive/*` the bundle. Nothing else reaches
 the service.
 
 - Every authenticated request carries the panel's assertion in `x-sa-assertion` (`sa_auth`):
@@ -345,7 +345,7 @@ publishes. Ops alerts stay on Discord.
 
 `crates/review_archive_web`: a dioxus microfrontend, `<mfe-review-archive-dashboard>`, its
 bundle served by the binary under `/mfe/` (`mfe_dir`), which the panel forwards as
-`/review_archive/mfe/`; the panel's page at `/review_archive` mounts it under its top bar
+`/mfe/review_archive/`; the panel's page at `/review_archive` mounts it under its top bar
 and gives it the API base (`/api/review_archive`), its sign-in and its CSRF cookie. A 401
 sends the top window to the sign-in with `return_to` = the page, which comes back signed
 in. Design: Figma "review_archive / dashboard", on ev_lib's `uikit`. One holding
