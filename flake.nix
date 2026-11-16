@@ -12,7 +12,7 @@
     };
     # its google.nix: the Google billing accounts the prod config bakes in
     accounting = {
-      url = "git+https://github.com/EV-Service-Arb/accounting";
+      url = "git+ssh://git@github.com/EV-Service-Arb/accounting";
       flake = false;
     };
   };
@@ -63,7 +63,7 @@
           inherit pkgs pname rs;
           enable = true;
           lastSupportedVersion = "nightly-2026-09-03";
-          containerRelease = { registry = "ghcr.io/ev-service-arb"; };
+          containerRelease = { registry = "ghcr.io/ev-service-arb"; deployKeys = [ "EV-Service-Arb/accounting" ]; };
           jobs.default = true;
           lfs = false;
           gitignore.extra = ''

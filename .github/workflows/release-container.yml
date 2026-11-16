@@ -53,6 +53,21 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
           registry: ghcr.io
           username: ${{ github.actor }}
+      - name: SSH auth for private flake inputs
+        run: |
+          install -d -m 700 ~/.ssh
+          ssh-keyscan -t rsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          key="${{ secrets.DEPLOY_KEY_ACCOUNTING }}"
+          if [ -z "$key" ]; then
+            echo "::error::DEPLOY_KEY_ACCOUNTING unset — build fetches private input 'EV-Service-Arb/accounting'. Provision: git_ops init-deploy-key EV-Service-Arb/accounting" >&2
+            exit 1
+          fi
+          printf '%s\n' "$key" > ~/.ssh/accounting
+          chmod 600 ~/.ssh/accounting
+          printf 'Host gh-accounting\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/accounting\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+          git config --global url."ssh://git@gh-accounting/EV-Service-Arb/accounting".insteadOf "ssh://git@github.com/EV-Service-Arb/accounting"
+          git config --global url."git@gh-accounting:EV-Service-Arb/accounting".insteadOf "git@github.com:EV-Service-Arb/accounting"
+        shell: bash
       - name: Build + push containers
         run: |
           set -euo pipefail

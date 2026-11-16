@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "accounting": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794855044,
+        "narHash": "sha256-KopijTjmOsSK+/PLIHocwzd9ksp8oM6AwudJ5c3YyqU=",
+        "ref": "refs/heads/main",
+        "rev": "b925689c1068b27fdc2d89a78bf361f572faa388",
+        "revCount": 144,
+        "type": "git",
+        "url": "ssh://git@github.com/EV-Service-Arb/accounting"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@github.com/EV-Service-Arb/accounting"
+      }
+    },
     "browser_manipulation": {
       "inputs": {
         "v_flakes": [
@@ -283,6 +299,7 @@
     },
     "root": {
       "inputs": {
+        "accounting": "accounting",
         "browser_manipulation": "browser_manipulation",
         "v_flakes": "v_flakes"
       }
