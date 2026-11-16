@@ -1065,19 +1065,13 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	assert_eq!(nobody.overview().await.unwrap()[0].gmail.gmail, "ops@gmail.com");
 	assert_eq!(nobody.me().await.unwrap().email, "test@localhost");
 	assert_eq!(nobody.targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN), "a member, not the operator");
-	for view in [
-		"/",
-		"/gmbs",
-		"/gmbs/1",
-		"/gmbs/1/tracks/2",
-		"/gmails/1",
-		"/members/3",
-		"/members/3/",
-		"/members/3/gmbs/1/tracks/2",
-	] {
+	for view in ["/", "/gmbs/1", "/gmails/1", "/settings", "/act-as", "/members/3", "/members/3/", "/members/3/gmbs/1"] {
 		let page = reqwest::get(format!("{base}{view}")).await.unwrap();
 		assert_eq!(page.status(), StatusCode::OK, "{view} is the dashboard's page");
 		assert!(page.text().await.unwrap().contains("mfe-review-archive-dashboard"));
+	}
+	for nowhere in ["/gmbs", "/gmbs/1/tracks/2", "/members/x"] {
+		assert_eq!(reqwest::get(format!("{base}{nowhere}")).await.unwrap().status(), StatusCode::NOT_FOUND, "{nowhere} is no view");
 	}
 	assert_eq!(
 		reqwest::get(format!("{base}/dashboards")).await.unwrap().status(),

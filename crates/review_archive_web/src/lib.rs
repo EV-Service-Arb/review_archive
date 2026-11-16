@@ -21,11 +21,13 @@ use ev_lib::{
 	uikit_dioxus::{
 		Badge, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Size, Tabs, TabsList, TabsTrigger, Tone,
 	},
+	views::Routed,
 };
 use review_archive_client::{
 	Client,
 	dto::{GmailDto, GmailOverview, GmbSummary, LocationSummary, Me, MemberDto, OnGoogle},
 };
+use review_archive_core::views::{Board, View};
 use sa_auth::{Members, Permission, PermissionSet};
 use wasm_bindgen::{JsCast, prelude::*};
 
@@ -282,75 +284,43 @@ impl From<(&GmailDto, &GmbSummary)> for Gmb {
 	}
 }
 
-/// What a tab shows.
-#[derive(Clone, Debug, PartialEq)]
-enum View {
-	Home,
-	Gmail(i64),
-	/// A GMB's board.
-	Gmb(i64),
-	Settings,
-}
-
-impl dioxus::router::ToRouteSegments for View {
-	fn display_route_segments(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Home => write!(f, "/gmbs"),
-			Self::Gmail(g) => write!(f, "/gmails/{g}"),
-			Self::Gmb(gmb) => write!(f, "/gmbs/{gmb}"),
-			Self::Settings => write!(f, "/settings"),
-		}
-	}
-}
-
-impl dioxus::router::FromRouteSegments for View {
-	type Err = String;
-
-	fn from_route_segments(segments: &[&str]) -> Result<Self, String> {
-		let id = |s: &str| s.parse::<i64>().map_err(|_| format!("{s:?} is not an id"));
-		match segments {
-			[] | [""] | ["gmbs"] => Ok(Self::Home),
-			["gmails", g] => Ok(Self::Gmail(id(g)?)),
-			["gmbs", g] => Ok(Self::Gmb(id(g)?)),
-			["settings"] => Ok(Self::Settings),
-			_ => Err(format!("no view at /{}", segments.join("/"))),
-		}
-	}
-}
-
-/// Where the dashboard is, as its URL under the host's `base` says: a view of the caller's
-/// own, of the member their tab acts as, or the pick of a member to open a tab for.
+/// Where the dashboard is: one route, the views' (`review_archive_core::views`).
 #[derive(Clone, Debug, PartialEq, Routable)]
 #[rustfmt::skip]
 enum Route {
 	#[layout(Shell)]
-		#[route("/act-as", PickView)]
-		Pick {},
-		#[route("/members/:member/:..view", TheirView)]
-		Theirs { member: i64, view: View },
-		#[route("/:..view", MyView)]
-		Mine { view: View },
+		#[route("/:..at", Page)]
+		At { at: Routed<View> },
 }
 
 impl Route {
-	fn at(member: Option<i64>, view: View) -> Self {
-		match member {
-			Some(member) => Self::Theirs { member, view },
-			None => Self::Mine { view },
-		}
-	}
-
-	fn member(&self) -> Option<i64> {
-		match self {
-			Self::Theirs { member, .. } => Some(*member),
-			Self::Mine { .. } | Self::Pick {} => None,
+	fn at(member: Option<i64>, board: Board) -> Self {
+		Self::At {
+			at: Routed(match member {
+				Some(member) => View::Theirs { member, view: board },
+				None => View::Mine { view: board },
+			}),
 		}
 	}
 
 	fn view(&self) -> &View {
-		match self {
-			Self::Theirs { view, .. } | Self::Mine { view } => view,
-			Self::Pick {} => &View::Home,
+		let Self::At { at } = self;
+		&at.0
+	}
+
+	/// Whose tab: `None` for the caller's own, and for the pick, which opens one.
+	fn member(&self) -> Option<i64> {
+		match self.view() {
+			View::Theirs { member, .. } => Some(*member),
+			View::Mine { .. } | View::Pick => None,
+		}
+	}
+
+	/// What the tab shows; the pick lays over the caller's home.
+	fn board(&self) -> &Board {
+		match self.view() {
+			View::Theirs { view, .. } | View::Mine { view } => view,
+			View::Pick => &Board::Home,
 		}
 	}
 }
@@ -360,28 +330,17 @@ impl Route {
 #[derive(Clone, Copy)]
 struct Views(Signal<std::collections::HashMap<Option<i64>, Route>>);
 
-/// The routes render nothing themselves — every tab stays mounted under [`Shell`] — they
-/// only note where their tab is.
-fn remember(route: Route) -> Element {
+/// The route renders nothing itself — every tab stays mounted under [`Shell`] — it only notes
+/// where its tab is; the pick is no tab's.
+#[component]
+fn Page(at: Routed<View>) -> Element {
 	let Views(mut views) = use_context();
+	let route = Route::At { at };
 	use_effect(use_reactive!(|route| {
-		views.write().insert(route.member(), route);
+		if *route.view() != View::Pick {
+			views.write().insert(route.member(), route);
+		}
 	}));
-	rsx! {}
-}
-
-#[component]
-fn MyView(view: View) -> Element {
-	remember(Route::Mine { view })
-}
-
-#[component]
-fn TheirView(member: i64, view: View) -> Element {
-	remember(Route::Theirs { member, view })
-}
-
-#[component]
-fn PickView() -> Element {
 	rsx! {}
 }
 
@@ -620,7 +579,7 @@ fn Admin(me: i64) -> Element {
 	// where a tab is: the URL for the active one, else where it was left; a tab never visited starts at its home
 	let view_of = move |m: Option<i64>| match views.read().get(&m) {
 		Some(r) => r.clone(),
-		None => Route::at(m, View::Home),
+		None => Route::at(m, Board::Home),
 	};
 	let shown = |m: Option<i64>| match active == m {
 		true => "flex min-h-0 flex-1",
@@ -663,14 +622,14 @@ fn Admin(me: i64) -> Element {
 			}
 			}
 			div { class: shown(None),
-				Workspace { view: if matches!(route, Route::Mine { .. }) { route.clone() } else { view_of(None) } }
+				Workspace { view: if matches!(route.view(), View::Mine { .. }) { route.clone() } else { view_of(None) } }
 			}
 			for m in tabs {
 				div { key: "{m}", class: shown(Some(m)),
 					Workspace { view: if active == Some(m) { route.clone() } else { view_of(Some(m)) } }
 				}
 			}
-			if route == (Route::Pick {}) {
+			if *route.view() == View::Pick {
 				Picker {
 					on_pick: move |m: MemberDto| {
 						navigator().replace(view_of((m.id != me).then_some(m.id)));
@@ -848,12 +807,12 @@ fn Workspace(view: Route) -> Element {
 		Some(Err(e)) => return rsx! { div { class: "{shell} p-6 text-accent-error", "{e}" } },
 		None => None,
 	};
-	let at = view.view().clone();
+	let at = view.board().clone();
 	let gmb_of = |id: i64| gmails.iter().find_map(|g| g.gmbs.iter().find(|b| b.id == id).map(|b| (g.gmail.clone(), b.clone())));
 	let picked = match at {
-		View::Home | View::Settings => None,
-		View::Gmail(gmail) => Some(gmail),
-		View::Gmb(gmb) => gmb_of(gmb).map(|(g, _)| g.id),
+		Board::Home | Board::Settings => None,
+		Board::Gmail { gmail } => Some(gmail),
+		Board::Gmb { gmb } => gmb_of(gmb).map(|(g, _)| g.id),
 	};
 	// a removed gmail's URL shows them all, as home does
 	let current = picked.filter(|id| gmails.iter().any(|g| g.gmail.id == *id));
@@ -886,10 +845,10 @@ fn Workspace(view: Route) -> Element {
 					div { class: "border-b border-border bg-accent-error/15 px-6 py-2 text-accent-error", "{e}" }
 				}
 				match at {
-					View::Settings => rsx! {
+					Board::Settings => rsx! {
 						settings::Page {}
 					},
-					View::Gmb(gmb) => match gmb_of(gmb) {
+					Board::Gmb { gmb } => match gmb_of(gmb) {
 						Some((gmail, b)) => rsx! { board::Board { gmb: Gmb::from((&gmail, &b)), location: b.track, tab } },
 						None => rsx! { div { class: "p-6 text-ink-soft", "No GMB #{gmb} of yours: it may have been removed." } },
 					},
@@ -950,8 +909,8 @@ fn AddGmb() -> Element {
 }
 
 #[component]
-fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<i64>) -> Element {
-	let aside = at == View::Settings;
+fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: Board, tab: Option<i64>) -> Element {
+	let aside = at == Board::Settings;
 	let row = "flex items-center gap-2 rounded-md px-3 py-2 text-left cursor-pointer hover:bg-hover";
 	rsx! {
 		nav { class: "flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-secondary",
@@ -960,8 +919,8 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<
 			}
 			div { class: "flex items-center gap-1.5 pl-2 pr-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-soft",
 				Link {
-					class: if at == View::Home { "rounded-md px-2 py-0.5 bg-hover text-ink" } else { "rounded-md px-2 py-0.5 hover:bg-hover" },
-					to: Route::at(tab, View::Home),
+					class: if at == Board::Home { "rounded-md px-2 py-0.5 bg-hover text-ink" } else { "rounded-md px-2 py-0.5 hover:bg-hover" },
+					to: Route::at(tab, Board::Home),
 					"Managing gmails"
 				}
 				InfoTip {
@@ -971,8 +930,8 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<
 					}
 				}
 				Link {
-					class: if at == View::Settings { "rounded-md p-0.5 bg-hover text-ink" } else { "rounded-md p-0.5 hover:bg-hover" },
-					to: Route::at(tab, View::Settings),
+					class: if at == Board::Settings { "rounded-md p-0.5 bg-hover text-ink" } else { "rounded-md p-0.5 hover:bg-hover" },
+					to: Route::at(tab, Board::Settings),
 					title: "Settings",
 					// lucide `settings`
 					svg {
@@ -994,7 +953,7 @@ fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: View, tab: Option<
 					Link {
 						key: "{g.gmail.id}",
 						class: format!("{row} min-w-0 {}", if current == Some(g.gmail.id) && !aside { "bg-hover text-ink" } else { "text-ink-soft" }),
-						to: Route::at(tab, View::Gmail(g.gmail.id)),
+						to: Route::at(tab, Board::Gmail { gmail: g.gmail.id }),
 						span { class: "truncate flex-1", "{g.gmail.gmail}" }
 						Badge { "{g.gmbs.len()}" }
 					}
@@ -1032,7 +991,7 @@ fn Places(cards: Vec<(Gmb, LocationSummary)>, gmail: Option<GmailDto>, tab: Opti
 					for (g, loc) in shown {
 						cards::LocationCard {
 							key: "{g.id}-{loc.target.id}",
-							to: Route::at(tab, View::Gmb(g.id)),
+							to: Route::at(tab, Board::Gmb { gmb: g.id }),
 							all: gmail.is_none(),
 							gmb: g,
 							loc,

@@ -38,6 +38,7 @@ pub mod reconcile;
 pub mod relative_date;
 pub mod schedule;
 pub mod tokens;
+pub mod views;
 
 use std::{collections::HashMap, fmt, str::FromStr};
 

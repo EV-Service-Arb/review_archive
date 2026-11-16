@@ -38,3 +38,17 @@ fn the_overview_names_every_operation_and_no_other() {
 		.collect();
 	assert_eq!(overview, table);
 }
+
+/// Every operation says what it refuses; the document's views are the dashboard's, each parsing its own href
+/// (`View::table()` refuses to build otherwise).
+#[test]
+fn every_operation_lists_its_refusals_and_the_document_its_views() {
+	let doc = serde_json::to_value(review_archive_server::http::document()).unwrap();
+	for (path, item) in doc["paths"].as_object().unwrap() {
+		for (method, op) in item.as_object().unwrap() {
+			assert!(op["x-errors"].is_object(), "{method} {path} has no x-errors");
+		}
+	}
+	let views = doc["x-views"]["views"].as_object().unwrap();
+	assert!(["pick", "mine.home", "mine.gmb", "theirs.settings"].iter().all(|v| views.contains_key(*v)), "{:?}", views.keys());
+}

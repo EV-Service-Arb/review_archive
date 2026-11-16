@@ -16,10 +16,13 @@ use axum::{
 	response::{IntoResponse, NoContent, Response},
 	routing::get,
 };
-use ev_lib::api::{
-	Body, Created, ErrorCode, GenContext, Ids, JsonSchema, OpenApi, OperationInput, OperationOutput, Params, Refusal, Refuses, Route,
-	openapi::{MediaType, Operation, Response as Answer, StatusCode as Status},
-	serve,
+use ev_lib::{
+	api::{
+		Body, Created, ErrorCode, GenContext, Ids, JsonSchema, OpenApi, OperationInput, OperationOutput, Params, Refusal, Refuses, Route,
+		openapi::{MediaType, Operation, Response as Answer, StatusCode as Status},
+		serve,
+	},
+	views::Views,
 };
 use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
@@ -29,6 +32,7 @@ use review_archive_core::{
 		ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch,
 		UsagePage, WaitQuery, WebhookDto, stats_csv,
 	},
+	views::View,
 };
 use sa_auth::{Conductor, Denied, User, Verifier};
 use sa_core::prices::{Spends, WalkStep};
@@ -135,7 +139,7 @@ fn routes() -> Vec<ApiRoute> {
 
 /// The operations as an OpenAPI document, served under `/`: the conductor puts it under its forward.
 pub fn document() -> OpenApi {
-	let mut doc = ev_lib::api::document("review_archive", env!("CARGO_PKG_VERSION"), "/", &routes(), ev_lib::api_docs!(), None);
+	let mut doc = ev_lib::api::document("review_archive", env!("CARGO_PKG_VERSION"), "/", &routes(), ev_lib::api_docs!(), Some(View::table()));
 	doc.info.description = Some("Archive of public place reviews: a WebP screenshot of every review as it first appears, plus data for statistics.".into());
 	doc
 }
@@ -178,21 +182,16 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, dev: Option<Dev>) 
 		app = app.nest_service("/mfe", bundle);
 		if dev.is_some() {
 			let page = include_str!("../../review_archive_web/index.html").replace("{sign_in}", "/");
-			let page = move || {
+			// a link to one of the dashboard's views loads the page, which routes there
+			app = app.fallback(get(move |uri: axum::http::Uri| {
 				let page = page.clone();
-				async move { axum::response::Html(page) }
-			};
-			// the dashboard's own paths: a link to one of its views loads the page, which routes there
-			app = app
-				.route("/", get(page.clone()))
-				.route("/settings", get(page.clone()))
-				.route("/act-as", get(page.clone()))
-				.route("/gmbs", get(page.clone()))
-				.route("/gmbs/{*view}", get(page.clone()))
-				.route("/gmails/{*view}", get(page.clone()))
-				.route("/members/{member}/{*view}", get(page.clone()))
-				.route("/members/{member}/", get(page.clone()))
-				.route("/members/{member}", get(page));
+				async move {
+					match View::parse(uri.path()) {
+						Ok(_) => axum::response::Html(page).into_response(),
+						Err(e) => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
+					}
+				}
+			}));
 		}
 	}
 	let app = app.with_state(state);

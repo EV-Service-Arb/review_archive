@@ -10,6 +10,7 @@ crates/review_archive_core/     no I/O: no browser, database, network or clock
                                 what callers type in (intervals, langs, dates) and Rejected
   src/reconcile.rs              a scan against what is stored → new / changed / unchanged / gone / reappeared
   src/schedule.rs               when a target is next due: interval, jitter, backoff
+  src/views.rs                  the dashboard's views (ev_lib `Views`): the document's `x-views`, the page's routes
   src/tokens.rs                 the account's hourly limit, a walk's steps at the conductor's prices, and the walk's meter (what it spent, and each step done)
   src/relative_date.rs          "il y a 3 semaines" → an estimated timestamp, and its earliest bound
   src/maps/selectors.rs         every assumption about Google's markup, and the in-page scripts
@@ -35,7 +36,8 @@ crates/review_archive/          the engine (features: maps, store)
   src/failure.rs                the typed errors (miette codes and help), `describe`, and who a failure waits for
     src/webhooks.rs               where a hook may point; delivering the outbox: signature, retries
 crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, background loops; thin over `Archive`
-  src/http.rs                   the API's operations, one table (ev_lib `api`), and the document derived from it; `/mfe/`, the page at `/`,
+  src/http.rs                   the API's operations, one table (ev_lib `api`), and the document derived from it, its views
+                                the core's; `/mfe/`, the page (`--dev-member`) at every path a view parses,
                                 `GET /dashboards`: `grafana/dashboards/`, compiled in, for the conductor's Grafana
   src/auth.rs                   who is calling: the conductor's assertion (`sa_auth`'s gate, its `Vouch` claiming the person
                                 by `sub`); whose `/me` it is (`X-Member`); `--dev-member`'s signer

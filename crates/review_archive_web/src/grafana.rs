@@ -16,7 +16,7 @@ use strum::IntoEnumIterator;
 use wasm_bindgen::{JsCast, prelude::*};
 
 use crate::{
-	Picked, Refresh, Route, Selection, View, act,
+	Picked, Refresh, Route, Selection, act,
 	filter::reviews::{Review, Reviews},
 	may,
 };
@@ -317,7 +317,7 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 		Up::Select(_) => {}
 		Up::Open { gmb } => {
 			reviews.set(Reviews::default());
-			navigator().push(Route::at(tab, View::Gmb(gmb)));
+			navigator().push(Route::at(tab, review_archive_core::views::Board::Gmb { gmb }));
 		}
 		Up::Scan { gmb, target } => act(move |c| async move { c.scan_tracked(gmb, target).await.map(drop) }),
 		Up::Enable { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
