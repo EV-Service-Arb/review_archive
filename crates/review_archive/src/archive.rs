@@ -238,7 +238,8 @@ impl Archive {
 						sa_places::Keys::new(config.google.iter().filter_map(|a| Some((a.name.clone(), a.provides.places.as_deref()?.to_owned()))).collect()),
 						Arc::new(sa_places::InOrder),
 						queries_cache(config.queries_cache.as_deref())?,
-					)?,
+					)?
+					.spend(config.spend),
 					store: Store::open(&db, config.defaults.interval).await?,
 					blobs: BlobStore::new(blobs),
 				};

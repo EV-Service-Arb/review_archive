@@ -73,6 +73,7 @@ impl AppConfig {
 			secrets,
 			queries_cache: self.queries_cache.clone(),
 			google: self.google.clone(),
+			spend: false,
 		}
 	}
 }

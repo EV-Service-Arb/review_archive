@@ -250,7 +250,7 @@
             healthPath = "/health";
             # an archive that misses a scan catches up on the next one
             criticality = "normal";
-            entrypoint = [ "${launchChecked}/bin/${pname}" "--config" "${prodConfig}" "serve" ];
+            entrypoint = [ "${launchChecked}/bin/${pname}" "--config" "${prodConfig}" "--spend-real-quota-i-am-certain" "serve" ];
             workingDir = "/data";
             contents = [ pkgs.nodejs ];
             imageEnv = lib.mapAttrsToList (k: v: "${k}=${v}") (imageEnv // {

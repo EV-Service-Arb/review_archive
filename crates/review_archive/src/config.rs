@@ -31,6 +31,9 @@ pub struct Config {
 	/// carries no place id, in rotation order.
 	#[cfg(feature = "store")]
 	pub google: Vec<sa_places::Account>,
+	/// Buy the Places answers the queries cache lacks, on real quota; without it only cached ones are served.
+	#[cfg(feature = "store")]
+	pub spend: bool,
 	/// The conductor's queries cache, `<origin>/api/queries_cache`, where every Places answer is
 	/// kept for everyone: asking Places needs it.
 	pub queries_cache: Option<String>,
