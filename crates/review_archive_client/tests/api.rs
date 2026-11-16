@@ -888,6 +888,17 @@ async fn archive_routes_need_archive_operate() {
 	e.server.abort();
 }
 
+/// A read names the tables its handler read, for the conductor to re-read it by: who is calling
+/// is the gate's to find, so a sign-in that claims a person does not refresh every member's screen.
+#[tokio::test]
+async fn a_read_names_its_tables_and_not_the_callers() {
+	let e = env().await;
+	let read = http_as(&Who::member(ALICE)).get(format!("{}/layouts/ra-location", e.base)).send().await.unwrap();
+	assert_eq!(read.status(), StatusCode::OK);
+	assert_eq!(read.headers()["x-sa-reads"], "review_archive.layouts");
+	e.server.abort();
+}
+
 /// `/me` is anyone signed in, with no permission at all.
 #[tokio::test]
 async fn me_is_open_to_anyone_signed_in() {

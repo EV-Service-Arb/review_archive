@@ -20,6 +20,7 @@ maps = ["dep:browser_manipulation", "dep:futures", "dep:playwright-rs"]
 settings = ["dep:clap", "dep:schemars", "v_utils/cli", "review_archive_core/settings"]
 # SQLite + content-addressed WebPs under a data dir, runs, stats, export, webhooks.
 store = [
+    "dep:ev_lib",
     "dep:futures",
     "dep:hmac",
     "dep:sa_alerts",
@@ -34,6 +35,7 @@ store = [
 [dependencies]
 browser_manipulation = { workspace = true, optional = true }
 clap = { workspace = true, optional = true }
+ev_lib = { workspace = true, features = ["sqlite"], optional = true }
 eyre.workspace = true
 futures = { workspace = true, optional = true }
 hmac = { workspace = true, optional = true }

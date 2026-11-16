@@ -22,7 +22,8 @@ crates/review_archive/          the engine (features: maps, store)
   src/archive/members.rs        what a member does, scoped to them
   src/browser/                  the `Browser` handle over `browser_manipulation`: consent, sorting, the walk, screenshots
   src/sources/                  the `ReviewSource` port; the maps and gbp adapters
-  src/store/                    SQLite (runtime sqlx queries, embedded migrations/), WebP blobs, export
+  src/store/                    SQLite (runtime sqlx queries, embedded migrations/), WebP blobs, export; the pool is
+                                `ev_lib::sqlite`'s: a GET answers `x-sa-reads`, each committed write is told as `review_archive.<table>`
   src/store/jobs.rs             the job queue (on-demand scans and ad-hoc captures)
   src/store/events.rs           events into the outbox (hooks) and the conductor's Alerts feed, in the scan's own transaction
   src/store/members.rs          per-member state: track switches, reinstatements
