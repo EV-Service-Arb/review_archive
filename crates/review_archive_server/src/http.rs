@@ -31,7 +31,7 @@ use review_archive_core::{
 	dto::{
 		Board, CaptureRequest, ChargePage, DayStats, ErrorBody, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs, NewLayout, NewTarget,
 		NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto, TargetPatch,
-		TrackPatch, WaitQuery, WebhookDto, stats_csv,
+		TrackPatch, UsagePage, WaitQuery, WebhookDto, stats_csv,
 	},
 };
 use serde::{Deserialize, Serialize};
@@ -194,6 +194,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, sign_in: Option<&s
 			Router::new()
 				.route("/api/conductor/gmbs", axum::routing::put(apply_snapshot))
 				.route("/api/conductor/charges", get(charges))
+				.route("/api/conductor/usage", get(usage))
 				.route("/api/conductor/notifications", get(notifications))
 				.route("/api/conductor/captures/{file}", get(capture_png))
 				.layer(timeout)
@@ -785,6 +786,13 @@ async fn apply_snapshot(State(s): State<AppState>, JsonBody(snap): JsonBody<Snap
 /// What walks cost, for the conductor to charge: the feed past `after`.
 async fn charges(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<ChargePage>> {
 	Ok(Json(s.archive.charges(q.after, q.limit).await?))
+}
+
+/// What walks did, whoever paid, for the conductor's costs: the feed past `after`.
+#[utoipa::path(get, path = "/api/conductor/usage", tag = "conductor", params(FeedQuery),
+	responses((status = 200, body = UsagePage), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody)))]
+async fn usage(State(s): State<AppState>, Query(q): Query<FeedQuery>) -> ApiResult<Json<UsagePage>> {
+	Ok(Json(s.archive.usage(q.after, q.limit).await?))
 }
 
 /// The Alerts feed past `after`: notes on the places live tracks name, each with their GMBs.

@@ -4,7 +4,7 @@
 
 use std::{io::Read, sync::Arc, time::Duration};
 
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use reqwest::StatusCode;
 use review_archive::{
 	Archive,
@@ -15,10 +15,15 @@ use review_archive::{
 			CaptureRequest, Country, Event, JobStatus, LocationSummary, Managed, Me, MemberDto, NewTarget, NewWebhook, OnGoogle, Setting, Settings, SettingsPatch, Snapshot, TargetPatch,
 			TrackPatch,
 		},
-		tokens::Meter,
+		schedule::Schedule,
+		tokens::{Meter, Tokens},
 	},
+	record::Recorder,
 	sources::ReviewSource,
-	store::people::{Claim, Seen},
+	store::{
+		blobs::BlobStore,
+		people::{Claim, Seen},
+	},
 };
 use review_archive_client::{Captured, Client};
 use review_archive_server::{
@@ -27,6 +32,9 @@ use review_archive_server::{
 	worker::Signals,
 };
 use sa_auth::Signer;
+
+#[path = "../../review_archive/tests/support/priced.rs"]
+mod priced;
 
 /// The panel's signing key, and another under the same id that the archive does not hold.
 const PANEL_KEY: &str = "panel:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
@@ -124,6 +132,7 @@ async fn env() -> Env {
 	// the webhooks here point at loopback, which only a listed host may
 	config.webhooks.allowed_hosts = vec!["127.0.0.1".into()];
 	let archive = Archive::open(config).await.unwrap();
+	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 	let signals = Arc::new(Signals::default());
 	let signer: Arc<Signer> = Arc::new(PANEL_KEY.parse().unwrap());
 	let panel = {
@@ -154,11 +163,7 @@ async fn env() -> Env {
 		base,
 		client,
 		server,
-		mirror: std::sync::Mutex::new(Snapshot {
-			gmbs: vec![],
-			balances: Default::default(),
-			charges_through: 0,
-		}),
+		mirror: std::sync::Mutex::new(priced::snapshot()),
 	}
 }
 
@@ -567,6 +572,7 @@ async fn every_route_but_health_wants_an_assertion() {
 		("DELETE", "/me/gmbs/1/reinstatements/1"),
 		("PUT", "/api/conductor/gmbs"),
 		("GET", "/api/conductor/charges"),
+		("GET", "/api/conductor/usage"),
 		("GET", "/api/conductor/notifications"),
 		("GET", &format!("/api/conductor/captures/{}.png", "0".repeat(64))),
 		("GET", "/dashboards"),
@@ -1020,6 +1026,7 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 		}],
 		balances: Default::default(),
 		charges_through: 0,
+		prices: Default::default(),
 	};
 	archive.apply_snapshot(&snapshot).await.unwrap();
 	let auth = Auth::Dev {
@@ -1440,6 +1447,37 @@ async fn my_gmbs_tags_what_needs_the_operator() {
 	e.server.abort();
 }
 
+/// A GMB's row draws its place's live reviews by day: a day no walk collected is empty, not zero.
+#[tokio::test]
+async fn my_gmbs_draws_live_reviews_by_collected_day() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let g = e.gmb(ALICE, "a@gmail.com", PLACE).await;
+	let target = e.archive.target(review_archive::core::TargetId(track_of(&alice, g).await.id)).await.unwrap();
+	let blobs = BlobStore::new(e.dir.path().join("blobs"));
+	let walk = async |now: fn() -> Timestamp, reviews: Vec<Observed>| {
+		Recorder {
+			store: e.archive.store().unwrap(),
+			blobs: &blobs,
+			now,
+			schedule: &Schedule::default(),
+			tokens: &Tokens::default(),
+		}
+		.run(&Listed(reviews), &target)
+		.await
+		.unwrap();
+	};
+	walk(|| Timestamp::now() - SignedDuration::from_hours(72), vec![review("a"), review("b"), review("c")]).await;
+	walk(|| Timestamp::now() - SignedDuration::from_hours(24), vec![review("a"), review("b")]).await;
+	walk(Timestamp::now, vec![review("a"), review("b"), review("d")]).await;
+
+	let days = alice.my_gmbs().await.unwrap().gmbs[&g].live_30d.clone();
+	assert_eq!(days.len(), 30, "today last");
+	let collected: Vec<_> = days.iter().enumerate().filter_map(|(i, d)| d.map(|d| (i, d.live, d.lost))).collect();
+	assert_eq!(collected, vec![(26, 3, 0), (28, 2, 1), (29, 3, 0)]);
+	e.server.abort();
+}
+
 /// A place is scanned while any track of it is on; turning tracks off is the member's own and
 /// leaves the shared target as it was.
 #[tokio::test]
@@ -1676,7 +1714,7 @@ async fn the_snapshot_tracks_every_placed_gbp() {
 			"state": state, "country": country, "name": format!("GBP {id}"), "address": "1 rue de la Paix, Paris",
 		})
 	};
-	let snapshot = |gbps: Vec<serde_json::Value>| serde_json::json!({"gmbs": gbps, "balances": {ALICE: 1000, BOB: 1000}, "charges_through": 0});
+	let snapshot = |gbps: Vec<serde_json::Value>| serde_json::json!({"gmbs": gbps, "balances": {ALICE: 1000, BOB: 1000}, "charges_through": 0, "prices": priced::snapshot().prices});
 	let overview = async |who: &str| -> Vec<serde_json::Value> {
 		let gmails: Vec<serde_json::Value> = http_as(&Who::member(who)).get(format!("{}/me/overview", e.base)).send().await.unwrap().json().await.unwrap();
 		gmails.into_iter().flat_map(|g| g["gmbs"].as_array().unwrap().clone()).collect()

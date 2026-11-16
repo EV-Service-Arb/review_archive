@@ -16,6 +16,9 @@ use review_archive_core::schedule::Schedule;
 use review_archive_server::worker::{Signals, WorkerConfig, run};
 use tokio::sync::watch;
 
+#[path = "../../review_archive/tests/support/priced.rs"]
+mod priced;
+
 const PLACE: &str = "ChIJLU7jZClu5kcR4PcOOO6p3I0";
 
 /// A fresh directory under the system temp dir, removed on drop.
@@ -111,6 +114,7 @@ async fn a_browser_that_cannot_be_set_up_ends_the_worker() {
 	})
 	.await
 	.unwrap();
+	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 	let maps = NewTarget {
 		place: Some(PLACE.into()),
 		..Default::default()
@@ -148,6 +152,16 @@ fn serve_whose_worker_cannot_go_on_exits_78() {
 		c
 	};
 	assert!(cli(&["target", "add", PLACE]).status().unwrap().success());
+	tokio::runtime::Runtime::new().unwrap().block_on(async {
+		let archive = Archive::open(Config {
+			data_dir: Some(dir.0.join("data")),
+			..Config::default()
+		})
+		.await
+		.unwrap();
+		archive.apply_snapshot(&priced::snapshot()).await.unwrap();
+		archive.close().await;
+	});
 
 	let mut serve = cli(&["serve", "--dev-member", "none"]).spawn().unwrap();
 	let deadline = std::time::Instant::now() + Duration::from_secs(60);
@@ -185,6 +199,7 @@ fn serve_with_every_account_signed_out_exits_78_at_boot() {
 		})
 		.await
 		.unwrap();
+		archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 		archive.store().unwrap().mark_signed_out(&data.join("chromium-profile"), Timestamp::now()).await.unwrap();
 		let target = archive.targets().await.unwrap()[0].id;
 		archive.close().await;
@@ -246,6 +261,7 @@ fn serve_without_the_login_check_outlives_every_account_signed_out() {
 	};
 	let target = rt.block_on(async {
 		let archive = open().await;
+		archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 		archive.store().unwrap().mark_signed_out(&data.join("chromium-profile"), Timestamp::now()).await.unwrap();
 		let target = archive.targets().await.unwrap()[0].id;
 		archive.close().await;

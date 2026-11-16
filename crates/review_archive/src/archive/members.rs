@@ -5,8 +5,7 @@
 use jiff::Timestamp;
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, TargetId,
-	dto::{Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch},
-	maps::cost,
+	dto::{Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch, UsagePage},
 	parse_interval,
 };
 use sa_alerts::NotePage;
@@ -74,12 +73,15 @@ impl Archive {
 
 	/// The member's gmails, their GMBs, and each one's places as tracked.
 	pub async fn overview(&self, member: PersonId) -> eyre::Result<Vec<GmailOverview>> {
-		self.store()?.overview(member, Timestamp::now()).await
+		let store = self.store()?;
+		// no walk starts: each place's scan_cost is null, and asking for a scan says why
+		let prices = store.walk_prices(&self.inner.tokens).await?.ok();
+		store.overview(member, prices.as_ref(), Timestamp::now()).await
 	}
 
 	/// The member's GMBs' tags for the conductor's page.
 	pub async fn my_gmbs(&self, member: PersonId) -> eyre::Result<MyGmbs> {
-		self.store()?.my_gmbs(member).await
+		self.store()?.my_gmbs(member, Timestamp::now()).await
 	}
 
 	/// Queues a scan of a place the member's GMB tracks, on top of its schedule; the member
@@ -98,7 +100,8 @@ impl Archive {
 			return Err(Rejected::Busy(why).into());
 		}
 		let sub = store.person_by_id(member).await?.and_then(|p| p.sub).expect("check_track matched their GMB by their sub");
-		if store.holdings(&[sub]).await? < cost::FIRST_SCREEN {
+		let prices = store.walk_prices(&self.inner.tokens).await?.map_err(|no| Rejected::Busy(no.to_string()))?;
+		if store.holdings(&[sub]).await? < prices.first_screen() {
 			return Err(Rejected::Busy("you are out of tokens".into()).into());
 		}
 		store.enqueue_job(JobKind::Scan, target, None, Some(member), self.inner.defaults.max_queued_jobs, now).await
@@ -159,6 +162,12 @@ impl Archive {
 	pub async fn charges(&self, after: i64, limit: u32) -> eyre::Result<ChargePage> {
 		page(limit)?;
 		self.store()?.charges(after, limit).await
+	}
+
+	/// The usage feed past `after`, `limit` at most: every run's steps, whoever paid.
+	pub async fn usage(&self, after: i64, limit: u32) -> eyre::Result<UsagePage> {
+		page(limit)?;
+		self.store()?.usage(after, limit).await
 	}
 
 	/// The Alerts feed past `after`, `limit` at most; its notes kept a day.

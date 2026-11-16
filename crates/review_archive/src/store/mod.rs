@@ -19,7 +19,7 @@ mod tokens;
 mod webhooks;
 
 use std::{
-	collections::HashMap,
+	collections::{BTreeMap, HashMap},
 	path::{Path, PathBuf},
 	time::Duration,
 };
@@ -33,7 +33,9 @@ use review_archive_core::{
 	fmt_ts, parse_interval,
 	reconcile::Plan,
 	schedule::{Breaker, LastRun, Schedule},
+	tokens::{Meter, WalkStep},
 };
+use sa_core::prices::Item;
 use sqlx::{
 	FromRow, SqliteConnection, Transaction,
 	sqlite::{Sqlite, SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -116,8 +118,8 @@ pub struct RunEnd<'a> {
 	pub error: Option<&'a str>,
 	/// The job whose run this is.
 	pub job: Option<i64>,
-	/// What its walk spent; a failed one too, Google saw it all the same.
-	pub tokens: i64,
+	/// What its walk spent and did; a failed one too, Google saw it all the same.
+	pub meter: &'a Meter,
 	/// Who pays for it: [`Bill::payers`].
 	pub payers: &'a [String],
 	/// Its charges go back to its payers: it failed, or met a [`review_archive_core::Warning::Failure`].
@@ -625,6 +627,18 @@ impl Store {
 		Ok(RunId(id))
 	}
 
+	/// Keeps an open run's walk steps so far, for [`Self::fail_interrupted`].
+	pub(crate) async fn keep_steps(&self, run: RunId, steps: &BTreeMap<WalkStep, i64>) -> eyre::Result<()> {
+		let steps: BTreeMap<String, i64> = steps.iter().map(|(&s, &n)| (Item::Walk(s).to_string(), n)).collect();
+		sqlx::query("UPDATE runs SET steps = ? WHERE id = ? AND finished_at IS NULL")
+			.bind(serde_json::to_string(&steps)?)
+			.bind(run.0)
+			.execute(&self.pool)
+			.await
+			.wrap_err("keeping a run's walk steps")?;
+		Ok(())
+	}
+
 	/// Records a run that stored nothing (and its job): `run.failed` goes out.
 	pub async fn fail_run(&self, end: RunEnd<'_>, now: Timestamp) -> eyre::Result<()> {
 		let mut tx = self.write().await?;
@@ -883,7 +897,15 @@ impl Store {
 			.execute(&mut *tx)
 			.await
 			.wrap_err("linking interrupted jobs to their runs")?;
-		sqlx::query("UPDATE runs SET status = 'failed', finished_at = ?, error = ? WHERE finished_at IS NULL")
+		sqlx::query(
+			"INSERT INTO walk_usage (run_id, item, units, at)
+			 SELECT r.id, j.key, j.value, ? FROM runs r, json_each(r.steps) j WHERE r.finished_at IS NULL ORDER BY r.id, j.key",
+		)
+		.bind(fmt_ts(now))
+		.execute(&mut *tx)
+		.await
+		.wrap_err("counting interrupted runs' walks")?;
+		sqlx::query("UPDATE runs SET status = 'failed', finished_at = ?, error = ?, steps = NULL WHERE finished_at IS NULL")
 			.bind(fmt_ts(now))
 			.bind(WHY)
 			.execute(&mut *tx)
@@ -1125,7 +1147,13 @@ async fn run_by_id<'e, E: sqlx::SqliteExecutor<'e>>(db: E, id: RunId) -> eyre::R
 
 /// Ends the run, and its job with it: a failed run fails the job, anything else is done.
 async fn finish(tx: &mut SqliteConnection, end: RunEnd<'_>, counts: Counts, seen: &[ReviewId], now: Timestamp) -> eyre::Result<()> {
-	sqlx::query("UPDATE runs SET finished_at = ?, status = ?, error = ?, n_seen = ?, n_new = ?, n_changed = ?, n_gone = ?, tokens = ? WHERE id = ?")
+	// a hand-run scan outliving a restart: its usage went out as `fail_interrupted` found it kept, and a feed row never changes
+	let swept: bool = sqlx::query_scalar("SELECT finished_at IS NOT NULL FROM runs WHERE id = ?")
+		.bind(end.run.0)
+		.fetch_one(&mut *tx)
+		.await
+		.wrap_err("reading the run's end")?;
+	sqlx::query("UPDATE runs SET finished_at = ?, status = ?, error = ?, n_seen = ?, n_new = ?, n_changed = ?, n_gone = ?, tokens = ?, steps = NULL WHERE id = ?")
 		.bind(fmt_ts(now))
 		.bind(end.status.as_ref())
 		.bind(end.error)
@@ -1133,13 +1161,16 @@ async fn finish(tx: &mut SqliteConnection, end: RunEnd<'_>, counts: Counts, seen
 		.bind(counts.new)
 		.bind(counts.changed)
 		.bind(counts.gone)
-		.bind(end.tokens)
+		.bind(end.meter.spent())
 		.bind(end.run.0)
 		.execute(&mut *tx)
 		.await
 		.wrap_err("recording run end")?;
 	assert!(end.kick_back || end.status != RunStatus::Failed, "a failed run is ours, not its payers'");
 	mirror::charge(tx, &end, now).await?;
+	if !swept {
+		mirror::used(tx, &end, now).await?;
+	}
 	if let Some(job) = end.job {
 		let failed = end.status == RunStatus::Failed;
 		let status = if failed { JobStatus::Failed } else { JobStatus::Done };

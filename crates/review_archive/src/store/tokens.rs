@@ -1,9 +1,13 @@
-//! Who pays for a walk and what it may spend. Balances are the conductor's: what a payer holds
-//! here is its mirrored balance less the charges the feed holds past the conductor's cursor.
+//! Who pays for a walk and what it may spend. Balances and prices are the conductor's: what a payer
+//! holds here is its mirrored balance less the charges the feed holds past the conductor's cursor.
 
 use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
-use review_archive_core::{TargetId, fmt_ts, maps::cost, tokens::Tokens};
+use review_archive_core::{
+	TargetId, fmt_ts,
+	tokens::{NoWalks, Tokens, WalkPrices},
+};
+use sa_core::prices::{Item, Prices};
 
 use super::{Store, parse_ts};
 
@@ -26,6 +30,20 @@ pub struct Rail {
 }
 
 impl Store {
+	/// What a walk's steps cost as the conductor last priced them, or why no walk starts.
+	pub async fn walk_prices(&self, cfg: &Tokens) -> eyre::Result<Result<WalkPrices, NoWalks>> {
+		let rows: Vec<(String, i64)> = sqlx::query_as("SELECT item, price FROM mirror_prices")
+			.fetch_all(&self.pool)
+			.await
+			.wrap_err("loading the prices")?;
+		let prices = rows
+			.into_iter()
+			.map(|(item, price)| Ok((item.parse::<Item>()?, price)))
+			.collect::<eyre::Result<Prices>>()
+			.wrap_err("a mirrored price")?;
+		Ok(cfg.walk_prices(&prices))
+	}
+
 	/// What `payers` hold together: each one's mirrored balance less an equal share of every
 	/// charge past `charges_through` naming them, none below 0; a `sub` the conductor told of
 	/// no balance for holds 0.
@@ -48,8 +66,8 @@ impl Store {
 
 	/// Who pays for scanning `target` now, and what the walk may spend: for `job`, the member
 	/// who asked for it, or no one for the operator's; for an `ad_hoc` look, no one; else its trackers.
-	pub async fn bill(&self, target: TargetId, job: Option<i64>, ad_hoc: bool, now: Timestamp, cfg: &Tokens) -> eyre::Result<Bill> {
-		let rail = self.rail(now, cfg).await?;
+	pub async fn bill(&self, target: TargetId, job: Option<i64>, ad_hoc: bool, now: Timestamp, cfg: &Tokens, prices: &WalkPrices) -> eyre::Result<Bill> {
+		let rail = self.rail(now, cfg, prices).await?;
 		let payers = match job {
 			Some(id) => {
 				let (by, sub): (Option<i64>, Option<String>) = sqlx::query_as("SELECT j.requested_by, p.sub FROM jobs j LEFT JOIN people p ON p.id = j.requested_by WHERE j.id = ?")
@@ -75,16 +93,16 @@ impl Store {
 	}
 
 	/// Whether the members tracking `target` hold too few tokens together for a walk to read anything.
-	pub async fn held(&self, target: TargetId) -> eyre::Result<bool> {
+	pub async fn held(&self, target: TargetId, prices: &WalkPrices) -> eyre::Result<bool> {
 		let payers = self.trackers(target).await?;
 		if payers.is_empty() {
 			return Ok(false);
 		}
-		Ok(self.holdings(&payers).await? < cost::FIRST_SCREEN)
+		Ok(self.holdings(&payers).await? < prices.first_screen())
 	}
 
 	/// What the walks of the last hour left of `per_hour`.
-	pub async fn rail(&self, now: Timestamp, cfg: &Tokens) -> eyre::Result<Rail> {
+	pub async fn rail(&self, now: Timestamp, cfg: &Tokens, prices: &WalkPrices) -> eyre::Result<Rail> {
 		let window: Vec<(String, i64)> = sqlx::query_as("SELECT finished_at, tokens FROM runs WHERE finished_at > ? AND tokens > 0 ORDER BY finished_at")
 			.bind(fmt_ts(now - SignedDuration::from_hours(1)))
 			.fetch_all(&self.pool)
@@ -93,15 +111,20 @@ impl Store {
 		let mut spent: i64 = window.iter().map(|(_, t)| t).sum();
 		let left = (cfg.per_hour - spent).max(0);
 		let mut reopens_at = None;
-		if left < cost::FIRST_SCREEN {
+		if left < prices.first_screen() {
 			for (at, t) in &window {
 				spent -= t;
-				if cfg.per_hour - spent >= cost::FIRST_SCREEN {
+				if cfg.per_hour - spent >= prices.first_screen() {
 					reopens_at = Some(parse_ts(at)? + SignedDuration::from_hours(1));
 					break;
 				}
 			}
-			assert!(reopens_at.is_some(), "per_hour ({}) is below a walk's first screen ({})", cfg.per_hour, cost::FIRST_SCREEN);
+			assert!(
+				reopens_at.is_some(),
+				"per_hour ({}) is below a walk's first screen ({}), which `Tokens::walk_prices` refuses",
+				cfg.per_hour,
+				prices.first_screen()
+			);
 		}
 		Ok(Rail { left, reopens_at })
 	}

@@ -8,6 +8,7 @@ use std::fmt;
 pub use sa_core::{
 	gbp::{Country, Managed, OnGoogle, Snapshot},
 	tokens::{Charge, ChargePage},
+	usage::{UsagePage, Used},
 };
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
@@ -677,7 +678,8 @@ pub struct LocationSummary {
 	/// A scan of it under way or waiting.
 	pub scan: Option<ScanState>,
 	/// What its latest scheduled walk spent; a first screen's worth for a place never walked.
-	pub scan_cost: i64,
+	/// `null` while no walk starts: walks unpriced, or a first screen past the hour's limit.
+	pub scan_cost: Option<i64>,
 }
 
 /// A scan of a place under way or waiting.
@@ -867,6 +869,19 @@ pub struct GmbReviews {
 	pub reinstating: u32,
 	/// An enabled track's latest finished non-ad-hoc run `failed` (a `partial` run still made a snapshot).
 	pub failing: bool,
+	/// The last 30 UTC days, oldest first, today last, on the target [`Self::rating`] is from;
+	/// `null` for a day no finished `ok`/`partial` non-ad-hoc run collected.
+	pub live_30d: Vec<Option<DayReviews>>,
+}
+
+/// One collected day of a place's reviews, as [`GmbReviews::live_30d`] tells it.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DayReviews {
+	/// Reviews listed at the day's end.
+	pub live: u32,
+	/// Reviews the day's runs found gone.
+	pub lost: u32,
 }
 
 /// A page of one of the conductor's feeds: `GET /api/conductor/charges`, `GET /api/conductor/notifications`.

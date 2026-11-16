@@ -9,7 +9,7 @@ use jiff::Timestamp;
 use review_archive_core::{
 	GbpLocation, Known, Observed, Scan, Target, Warning,
 	gbp::{FindCards, ReviewList, ReviewsPage, list_coverage, match_captures, observed},
-	maps::{WalkPolicy, cost},
+	maps::WalkPolicy,
 	tokens::Meter,
 };
 use serde::Deserialize;
@@ -179,7 +179,7 @@ impl ReviewSource for GbpSource<'_> {
 			let mut policy = FindCards::new(&wanted, Timestamp::now());
 			// The API list stands on its own; a failed screenshot pass only leaves captures pending.
 			let walked = match self.browser {
-				Ok(_) if meter.left() < cost::FIRST_SCREEN => Err(Warning::Limit("screenshots skipped, out of tokens".to_owned())),
+				Ok(_) if !meter.affords_first_screen() => Err(Warning::Limit("screenshots skipped, out of tokens".to_owned())),
 				Ok(browser) => browser
 					.walk(&target.place_id, &target.lang, &mut policy, meter, max)
 					.await

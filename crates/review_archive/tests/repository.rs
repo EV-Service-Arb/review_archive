@@ -738,6 +738,7 @@ async fn an_untracked_place_is_purged_after_a_week() {
 		}],
 		balances: Default::default(),
 		charges_through: 0,
+		prices: Default::default(),
 	};
 	e.store.apply_snapshot(&gmb(false), now()).await.unwrap();
 	e.store.apply_snapshot(&gmb(true), now()).await.unwrap();

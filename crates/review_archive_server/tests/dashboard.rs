@@ -80,6 +80,7 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 			.collect(),
 		balances: Default::default(),
 		charges_through: 0,
+		prices: Default::default(),
 	};
 	archive.apply_snapshot(&snapshot).await.unwrap();
 	for b in archive.overview(owner).await.unwrap().into_iter().flat_map(|g| g.gmbs) {

@@ -12,6 +12,9 @@ use review_archive::{
 	sources::ReviewSource,
 };
 
+#[path = "support/priced.rs"]
+mod priced;
+
 /// Maps' "Sign in" corner.
 struct SignedOut;
 
@@ -31,7 +34,9 @@ async fn open(dir: &Path) -> Archive {
 		..Config::default()
 	};
 	config.browser.profile_dirs = profiles(dir).into();
-	Archive::open(config).await.unwrap()
+	let archive = Archive::open(config).await.unwrap();
+	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
+	archive
 }
 
 async fn target(archive: &Archive) -> Target {

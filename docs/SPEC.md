@@ -251,7 +251,7 @@ The archive keeps a mirror of them and annotates them; it adds and removes none.
   out; a card's `non-5-star` and `responded` tags open it with that one ruled out.
 - `GET /me/gmbs` answers per GMB not removed `{tracked, rating, reviews, suspended, reinstating, failing}` (`tracked`: its track is live) (the place's figures
   from its last walk; `suspended` and `reinstating` the overview's counts while its track is on;
-  `failing`: its track is on and its latest finished non-ad-hoc run is `failed`, a `partial` one is not) and `places_tracked`: what the conductor's `/gmbs` page
+  `failing`: its track is on and its latest finished non-ad-hoc run is `failed`, a `partial` one is not; `live_30d`: 30 UTC days to today of `{live, lost}` on the target `rating` is from, `null` on a day no finished `ok`/`partial` non-ad-hoc run collected, `live` the reviews listed at the day's end and `lost` the day's runs' gone) and `places_tracked`: what the conductor's `/gmbs` page
   tags a GMB with.
 
 ### Tokens
@@ -260,10 +260,12 @@ Every Maps walk runs on the operator's signed-in Google account, and each action
 exposure for it. Tokens price that; they are the conductor's, and the members whose places are
 scanned pay.
 
-- A walk is metered in `maps::cost`: opening the place 7, the Reviews tab 1, sorting 7
-  (each retried click 2), each scroll of the feed 1 — the data requests each sends Google, a
-  scroll's ~9 being the unit. "More" and screenshots send none. An unchanged place costs 8;
-  a rescan 15 and 1 per screen of cards.
+- A walk is metered by step at the admin's prices, set at the conductor and mirrored from its
+  snapshot (`mirror_prices`): opening the place, the Reviews tab, sorting (each retried click
+  apart), each scroll of the feed. "More" and screenshots cost nothing. While a step has no
+  price — before the first snapshot too — or a first screen (open, Reviews, sort) costs more
+  than `tokens.per_hour`, no Maps walk starts: Maps is closed, and a scan asked for is refused
+  (`429`) saying which; a place's card shows "no walks".
 - What a member holds is their balance in the conductor's last snapshot (`mirror_balances`, by
   `sub`; none told is 0) less the equal shares (`ceil(spent / payers)`) of the charges past
   the snapshot's `charges_through` that name them, never below 0. No network is asked: a

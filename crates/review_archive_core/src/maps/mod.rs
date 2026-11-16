@@ -19,23 +19,6 @@ use crate::{Capture, Coverage, Known, Observed, OwnerPost, Scan, Warning, relati
 /// Cards per screen of the feed: a run this long of already-archived cards ends a walk.
 pub const SCREEN: usize = 10;
 
-/// What each action of a walk costs in tokens: the data requests it sends Google, in units of a
-/// feed scroll's ~9. Measured on 18-, 400- and 1000+-review places; "More" and screenshots send none.
-pub mod cost {
-	/// Opening the place's page (and answering the consent page).
-	pub const OPEN: i64 = 7;
-	/// The Reviews tab, and its histogram.
-	pub const REVIEWS: i64 = 1;
-	/// The sort menu and "Newest".
-	pub const SORT: i64 = 7;
-	/// Each click on the sort button past the first.
-	pub const SORT_RETRY: i64 = 2;
-	/// One scroll of the feed, and the screen of cards it loads.
-	pub const STEP: i64 = 1;
-	/// A walk is not started on less: with it, it reads at least the list's first screen.
-	pub const FIRST_SCREEN: i64 = OPEN + REVIEWS + SORT;
-}
-
 /// What a walk needs to know about each card, and when it has seen enough.
 pub trait WalkPolicy: Send {
 	/// Whether to read the list at all, given how many reviews the page says it holds.

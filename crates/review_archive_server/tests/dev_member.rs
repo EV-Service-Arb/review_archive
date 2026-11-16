@@ -47,6 +47,7 @@ async fn the_dev_member_is_whoever_manages_the_archive() {
 		}],
 		balances: Default::default(),
 		charges_through: 0,
+		prices: Default::default(),
 	};
 	archive.apply_snapshot(&snapshot).await.unwrap();
 	archive.close().await;

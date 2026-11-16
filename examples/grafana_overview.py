@@ -24,7 +24,7 @@ ROOT = """(
       "post": latest_post.text, "post_at": latest_post.published_est ? latest_post.published_est : latest_post.first_seen,
       "responded": responded, "corrupted": corrupted, "captured": captured, "non_five_star": non_five_star, "suspended": suspended, "removed": removed, "reinstating": reinstating, "held": held,
       "last_run_at": last_run_at, "last_run_status": last_run_status, "last_run_error": last_run_error,
-      "scan": scan.state, "scan_since": scan.since, "scan_ahead": scan.ahead, "scan_cost": scan_cost
+      "scan": scan.state, "scan_since": scan.since, "scan_ahead": scan.ahead, "scan_cost": scan_cost, "no_walks": scan_cost = null
     })
   );
   $sort($append([], $rows[$type($lookup($order, key)) = "number"]), function($l, $r) { $lookup($order, $l.key) > $lookup($order, $r.key) })
@@ -119,6 +119,7 @@ CARD_COLUMNS = [
 	("scan_since", "scan_since", "string"),
 	("scan_ahead", "scan_ahead", "number"),
 	("scan_cost", "scan_cost", "number"),
+	("no_walks", "no_walks", "boolean"),
 ]
 
 # the cards' columns the table shows, under its names, in its order
@@ -166,10 +167,11 @@ CONTENT = """<div class="ra-grid">
     {{#if removed}}<span class="bad">removed: {{removed}}</span>{{/if}}
     {{#if reinstating}}<span class="warn">reinstating: {{reinstating}}</span>{{/if}}
     {{#if held}}<span class="warn" title="not scanned: every member tracking it is out of tokens">out of tokens</span>{{/if}}
+    {{#if no_walks}}<span class="warn" title="not scanned: walks are not priced, or cost more than the hour allows; ↻ says which">no walks</span>{{/if}}
   </div>
   <div class="ra-run">
     <span class="ra-line" title="{{last_run_error}}"><i class="ra-dot ra-dot-{{dot this}}"></i>{{scanline this}}{{lastline this}}{{#if last_run_status}}{{last_run_status}}{{else}}never scanned{{/if}}</span>
-    {{#if scan}}<span class="ra-btn"><i class="ra-spin"></i></span>{{else}}<button class="ra-btn" data-act="scan" title="scan now, on top of the schedule: ≈ {{scan_cost}} tokens">↻</button>{{/if}}
+    {{#if scan}}<span class="ra-btn"><i class="ra-spin"></i></span>{{else}}<button class="ra-btn" data-act="scan" title="scan now, on top of the schedule{{#unless no_walks}}: ≈ {{scan_cost}} tokens{{/unless}}">↻</button>{{/if}}
     <button class="ra-btn" data-act="enable" title="scanned on the schedule"><i class="ra-switch{{#if enabled}} on{{/if}}"></i></button>
     <details class="ra-menu">
       <summary class="ra-btn" title="more">⋮</summary>

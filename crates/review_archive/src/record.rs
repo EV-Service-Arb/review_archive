@@ -2,7 +2,10 @@
 //! blobs, the reconciliation and what gets written. [`Recorder`] is the low-level entry
 //! for a caller with its own [`ReviewSource`]; [`Archive`](crate::Archive) uses it too.
 
-use std::collections::HashMap;
+use std::{
+	collections::{BTreeMap, HashMap},
+	time::Duration,
+};
 
 use jiff::Timestamp;
 use review_archive_core::{
@@ -19,6 +22,9 @@ use crate::{
 	store::{RunEnd, RunId, ScanWrite, Store, StoredCapture, blobs::BlobStore, sat_u32},
 	webp,
 };
+
+/// How often a walk's steps are kept on its open run: what a restart cut off is counted up to the last one.
+const CHECKPOINT: Duration = Duration::from_secs(10);
 
 /// A recorded run: the summary, its row, the reviews it listed, and why it failed.
 #[derive(Debug)]
@@ -59,8 +65,13 @@ impl Recorder<'_> {
 	/// with the run, in the same transaction. Who pays, in that transaction too, is [`Store::bill`]'s.
 	pub async fn record<S: ReviewSource>(&self, source: &S, target: &Target, job: Option<i64>) -> eyre::Result<Recorded> {
 		let known = self.store.known(target.id).await?;
-		let bill = self.store.bill(target.id, job, source.ad_hoc(), (self.now)(), self.tokens).await?;
-		let mut meter = Meter::new(bill.allowance);
+		let (payers, mut meter) = match self.store.walk_prices(self.tokens).await? {
+			Ok(prices) => {
+				let bill = self.store.bill(target.id, job, source.ad_hoc(), (self.now)(), self.tokens, &prices).await?;
+				(bill.payers, Meter::new(prices, bill.allowance))
+			}
+			Err(_) => (Vec::new(), Meter::shut()), // Maps is closed for it: this run walks nothing, so charges no one
+		};
 		let run = self.store.start_run(target.id, source.ad_hoc(), (self.now)()).await?;
 		let mut summary = RunSummary {
 			target: target.id.0,
@@ -72,7 +83,32 @@ impl Recorder<'_> {
 			error: None,
 		};
 		let mut failure = None;
-		let seen = match source.scan(target, &known, &mut meter).await {
+		let steps = meter.steps();
+		let scanned = {
+			let walk = source.scan(target, &known, &mut meter);
+			tokio::pin!(walk);
+			let mut kept = BTreeMap::new();
+			let mut keeping = true;
+			loop {
+				tokio::select! {
+					scanned = &mut walk => break scanned,
+					() = tokio::time::sleep(CHECKPOINT), if keeping => {
+						let now = steps.now();
+						if now != kept {
+							match self.store.keep_steps(run, &now).await {
+								Ok(()) => kept = now,
+								// the run's end counts the walk all the same; only a restart before it loses what is not kept
+								Err(e) => {
+									tracing::error!(run = run.0, error = %format!("{e:#}"), "a walk's steps are no longer kept: a restart before its end would not count it");
+									keeping = false;
+								}
+							}
+						}
+					}
+				}
+			}
+		};
+		let seen = match scanned {
 			Err(e) => {
 				let error = crate::describe(&e);
 				let end = RunEnd {
@@ -80,8 +116,8 @@ impl Recorder<'_> {
 					status: RunStatus::Failed,
 					error: Some(&error),
 					job,
-					tokens: meter.spent(),
-					payers: &bill.payers,
+					meter: &meter,
+					payers: &payers,
 					kick_back: true,
 				};
 				self.store.fail_run(end, (self.now)()).await?;
@@ -126,8 +162,8 @@ impl Recorder<'_> {
 					status: summary.status,
 					error: summary.error.as_deref(),
 					job,
-					tokens: meter.spent(),
-					payers: &bill.payers,
+					meter: &meter,
+					payers: &payers,
 					kick_back: warnings.iter().any(|w| matches!(w, Warning::Failure(_))),
 				};
 				let applied = match self.store.apply(target.id, write, end, (self.now)()).await {

@@ -4,7 +4,7 @@
 use std::{net::SocketAddr, path::PathBuf};
 
 use review_archive::config::{BrowserConfig, Defaults, WebhookConfig};
-use review_archive_core::{maps::cost, schedule::Schedule, tokens::Tokens};
+use review_archive_core::{schedule::Schedule, tokens::Tokens};
 use review_archive_server::{http::HttpConfig, worker::WorkerConfig};
 use smart_default::SmartDefault;
 use v_utils::macros::{ConfigJsonSchema, MyConfigPrimitives, Settings};
@@ -52,12 +52,6 @@ impl AppConfig {
 			"defaults.interval ({}) is below schedule.min_interval ({})",
 			cfg.defaults.interval,
 			cfg.schedule.min_interval
-		);
-		eyre::ensure!(
-			cfg.tokens.per_hour >= cost::FIRST_SCREEN,
-			"tokens.per_hour ({}) is below what a walk's first screen costs ({})",
-			cfg.tokens.per_hour,
-			cost::FIRST_SCREEN
 		);
 		Ok(cfg)
 	}

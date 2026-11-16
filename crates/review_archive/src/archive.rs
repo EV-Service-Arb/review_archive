@@ -305,8 +305,7 @@ impl Archive {
 		// nothing archived: every card is wanted, and stopping at the limit leaves no gap
 		let nothing = Known { initial: true, ..Known::default() };
 		let mut policy = Requested::new(&nothing, req.limits.review_ids.clone());
-		// nothing stored, so no one to charge and no hour to keep
-		let mut meter = review_archive_core::tokens::Meter::new(i64::MAX);
+		let mut meter = review_archive_core::tokens::Meter::uncounted();
 		let walked = self.inner.browser.walk(&req.place_id, lang, &mut policy, &mut meter, max).await?;
 		let page_url = walked.page_url.clone();
 		let mut scan = policy.conclude(walked, Timestamp::now());
@@ -442,8 +441,9 @@ impl Archive {
 		if target.kind == TargetKind::Maps {
 			let store = self.store()?;
 			let now = Timestamp::now();
-			let payers = store.bill(target.id, job, false, now, &self.inner.tokens).await?.payers;
-			if !payers.is_empty() && store.holdings(&payers).await? < review_archive_core::maps::cost::FIRST_SCREEN {
+			let prices = store.walk_prices(&self.inner.tokens).await?.map_err(|no| Rejected::Busy(no.to_string()))?;
+			let payers = store.bill(target.id, job, false, now, &self.inner.tokens, &prices).await?.payers;
+			if !payers.is_empty() && store.holdings(&payers).await? < prices.first_screen() {
 				return Err(Rejected::Busy(format!("target {} is held: the members paying for it are out of tokens", target.id)).into());
 			}
 		}
@@ -645,20 +645,31 @@ impl Archive {
 		Ok(())
 	}
 
-	/// Why scans of this kind cannot run at `now`: Maps paused while it cannot work, or a source
-	/// halted until a restart. A pause ends at its probe time; for a `job`, shortly after its last trip.
+	/// Why scans of this kind cannot run at `now`: Maps paused while it cannot work, a source
+	/// halted until a restart, or walks unpriced or past the hour. A pause ends at its probe time;
+	/// for a `job`, shortly after its last trip.
 	#[cfg(feature = "maps")]
 	async fn closed(&self, kind: TargetKind, job: bool, now: Timestamp) -> eyre::Result<Option<String>> {
 		let halted = self.inner.halted.lock().expect("nothing under this lock panics").clone();
 		Ok(match kind {
 			TargetKind::Gbp => halted.gbp.map(|why| format!("gbp is halted until a restart: {why}")),
-			TargetKind::Maps => match (halted.maps, self.store()?.breaker().await?, self.store()?.rail(now, &self.inner.tokens).await?.reopens_at) {
-				(Some(why), ..) => Some(format!("Maps is halted until a restart: {why}")),
-				(None, Some(b), _) if job && now < b.job_probe_after => Some(format!("Maps is paused after {}: a scan asked for may probe it from {}", b.reason, b.job_probe_after)),
-				(None, Some(b), _) if !job && now < b.probe_after => Some(format!("Maps is paused after {} until {}, when one walk probes", b.reason, b.probe_after)),
-				(None, _, Some(at)) => Some(format!("Maps has spent its hour's tokens; it reopens at {at}")),
-				(None, ..) => None,
-			},
+			TargetKind::Maps => {
+				let store = self.store()?;
+				let spent = match store.walk_prices(&self.inner.tokens).await? {
+					Err(no) => Some(no.to_string()),
+					Ok(prices) => store
+						.rail(now, &self.inner.tokens, &prices)
+						.await?
+						.reopens_at
+						.map(|at| format!("Maps has spent its hour's tokens; it reopens at {at}")),
+				};
+				match (halted.maps, store.breaker().await?, spent) {
+					(Some(why), ..) => Some(format!("Maps is halted until a restart: {why}")),
+					(None, Some(b), _) if job && now < b.job_probe_after => Some(format!("Maps is paused after {}: a scan asked for may probe it from {}", b.reason, b.job_probe_after)),
+					(None, Some(b), _) if !job && now < b.probe_after => Some(format!("Maps is paused after {} until {}, when one walk probes", b.reason, b.probe_after)),
+					(None, _, spent) => spent,
+				}
+			}
 		})
 	}
 
@@ -925,7 +936,14 @@ impl Archive {
 		let store = self.store()?;
 		let now = Timestamp::now();
 		let breaker = store.breaker().await?;
-		let rail = store.rail(now, &self.inner.tokens).await?;
+		// none: no Maps target is due until a snapshot prices walks within the hour
+		let walks = match store.walk_prices(&self.inner.tokens).await? {
+			Ok(prices) => {
+				let rail = store.rail(now, &self.inner.tokens, &prices).await?;
+				Some((prices, rail))
+			}
+			Err(_) => None,
+		};
 		#[cfg(feature = "maps")]
 		let halted = self.inner.halted.lock().expect("nothing under this lock panics").clone();
 		let mut out = Vec::new();
@@ -937,12 +955,13 @@ impl Archive {
 			} {
 				continue;
 			}
-			// held until a snapshot of the conductor's gives its members tokens; it is looked at again then
-			if t.kind == TargetKind::Maps && store.held(t.id).await? {
-				continue;
-			}
 			let mut due = self.due_at(&t).await?;
 			if t.kind == TargetKind::Maps {
+				let Some((prices, rail)) = &walks else { continue };
+				// held until a snapshot of the conductor's gives its members tokens; it is looked at again then
+				if store.held(t.id, prices).await? {
+					continue;
+				}
 				for at in [breaker.as_ref().map(|b| b.probe_after), rail.reopens_at].into_iter().flatten() {
 					due = Some(due.map_or(at, |d| d.max(at)));
 				}

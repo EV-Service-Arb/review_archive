@@ -3,7 +3,7 @@
 //! with the run's end, and no walk for a place whose trackers are out of tokens, nor past the
 //! account's hourly limit.
 
-use std::{cell::RefCell, path::Path, sync::Mutex};
+use std::{cell::RefCell, path::Path, sync::Mutex, time::Duration};
 
 use jiff::{SignedDuration, Timestamp};
 use review_archive::{
@@ -12,7 +12,8 @@ use review_archive::{
 	core::{
 		Coverage, Known, PersonId, Rejected, Scan, Target, TargetId, Warning,
 		dto::{Charge, Country, LocationSummary, Managed, NewTarget, OnGoogle, ScanState, Snapshot},
-		tokens::{Meter, Tokens},
+		fmt_ts,
+		tokens::{Meter, Tokens, WalkStep},
 	},
 	record::Recorder,
 	sources::ReviewSource,
@@ -22,10 +23,21 @@ use review_archive::{
 		people::{Claim, Seen},
 	},
 };
+use sa_core::prices::Item;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
-/// A walk that costs `.0` tokens.
+#[path = "support/priced.rs"]
+mod priced;
+
+/// A walk that costs `.0` tokens: that many scrolls, at [`priced::snapshot`]'s prices.
 struct Spends(i64);
+
+fn scrolls(meter: &mut Meter, n: i64) {
+	for _ in 0..n {
+		meter.spend(WalkStep::Step);
+	}
+}
 
 /// A walk Google stops.
 struct Fails;
@@ -52,10 +64,45 @@ struct BreaksAfter(i64);
 
 impl ReviewSource for BreaksAfter {
 	async fn scan(&self, _: &Target, _: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
-		meter.spend(self.0);
+		scrolls(meter, self.0);
 		eyre::bail!("the page went away")
 	}
 }
+
+/// A walk that opens the place, its reviews and their sort, then scrolls `.0` times.
+struct Opens(i64);
+
+impl ReviewSource for Opens {
+	async fn scan(&self, target: &Target, known: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
+		opens(meter);
+		Spends(self.0).scan(target, known, meter).await
+	}
+}
+
+fn opens(meter: &mut Meter) {
+	for s in [WalkStep::Open, WalkStep::Reviews, WalkStep::Sort] {
+		meter.spend(s);
+	}
+}
+
+/// A walk that opens and scrolls `before` times, waits for `gate`, then scrolls `after` times more.
+struct Gated {
+	before: i64,
+	gate: Notify,
+	after: i64,
+}
+
+impl ReviewSource for Gated {
+	async fn scan(&self, target: &Target, known: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
+		opens(meter);
+		scrolls(meter, self.before);
+		self.gate.notified().await;
+		Spends(self.after).scan(target, known, meter).await
+	}
+}
+
+/// Past the walk's step checkpoint, with room for its write.
+const PAST_A_CHECKPOINT: Duration = Duration::from_secs(12);
 
 /// A walk that reads `member`'s card for its place while it goes.
 struct Peeks<'a> {
@@ -95,7 +142,7 @@ fn recorder<'a>(archive: &'a Archive, blobs: &'a BlobStore) -> Recorder<'a> {
 
 impl ReviewSource for Spends {
 	async fn scan(&self, _: &Target, _: &Known, meter: &mut Meter) -> eyre::Result<Scan> {
-		meter.spend(self.0);
+		scrolls(meter, self.0);
 		Ok(Scan {
 			reviews: vec![],
 			coverage: Coverage::DownTo(None),
@@ -155,11 +202,7 @@ struct Conductor(RefCell<Snapshot>);
 
 impl Conductor {
 	fn new() -> Self {
-		Self(RefCell::new(Snapshot {
-			gmbs: vec![],
-			balances: Default::default(),
-			charges_through: 0,
-		}))
+		Self(RefCell::new(priced::snapshot()))
 	}
 
 	async fn push(&self, archive: &Archive) {
@@ -316,6 +359,7 @@ async fn the_hour_closes_maps_whoever_pays() {
 	let archive = open(dir.path()).await;
 	let spent = target(&archive, "ChIJtokenstest00000spent").await;
 	let waiting = target(&archive, "ChIJtokenstest0000waiting").await;
+	Conductor::new().push(&archive).await;
 	archive.record(&Spends(Tokens::default().per_hour), &spent).await.unwrap();
 	let now = Timestamp::now();
 	assert!(archive.due(now).await.unwrap().is_empty());
@@ -448,4 +492,161 @@ async fn a_purged_places_charges_stay_in_the_feed() {
 	assert!(archive.store().unwrap().targets().await.unwrap().is_empty());
 	assert_eq!(feed(&archive).await.iter().map(|c| c.spent).collect::<Vec<_>>(), [20]);
 	assert_eq!(holds(&archive, "a").await, 80);
+}
+
+/// The browser's work is in the usage feed once per run, whoever pays, a failed run's too.
+#[tokio::test]
+async fn every_walk_is_used_whoever_pays() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
+	let paid = target(&archive, "ChIJtokenstest000000paid").await;
+	let operators = target(&archive, "ChIJtokenstest00operator").await;
+	person(archive.store().unwrap(), "a").await;
+	conductor.tracks(&archive, "a", &paid).await;
+	conductor.set(&archive, "a", 100).await;
+
+	archive.record(&Opens(3), &paid).await.unwrap();
+	archive.record(&BreaksAfter(2), &operators).await.unwrap();
+	archive.record(&Fails, &operators).await.unwrap();
+	assert_eq!(feed(&archive).await.len(), 1, "only the paid walk is charged");
+
+	let used = archive.usage(0, 500).await.unwrap();
+	let rows: Vec<_> = used.used.iter().map(|u| (u.item, u.units)).collect();
+	let walk = |s| Item::Walk(s);
+	assert_eq!(
+		rows,
+		[
+			(walk(WalkStep::Open), 1),
+			(walk(WalkStep::Reviews), 1),
+			(walk(WalkStep::Sort), 1),
+			(walk(WalkStep::Step), 3),
+			(walk(WalkStep::Step), 2)
+		]
+	);
+	let ended: Vec<_> = archive.runs(paid.id, &Default::default()).await.unwrap().iter().map(|r| r.finished_at.clone()).collect();
+	assert_eq!(
+		used.used[..4].iter().map(|u| Some(fmt_ts(u.at))).collect::<Vec<_>>(),
+		vec![ended[0].clone(); 4],
+		"dated at the run's end"
+	);
+
+	let first = archive.usage(0, 4).await.unwrap();
+	assert_eq!((first.used.as_slice(), first.next), (&used.used[..4], used.used[3].id));
+	let rest = archive.usage(first.next, 4).await.unwrap();
+	assert_eq!((rest.used.as_slice(), rest.next), (&used.used[4..], used.used[4].id));
+	let none = archive.usage(rest.next, 4).await.unwrap();
+	assert_eq!((none.used.len(), none.next), (0, rest.next));
+}
+
+fn usage_rows(page: &review_archive::core::dto::UsagePage) -> Vec<(Item, i64)> {
+	page.used.iter().map(|u| (u.item, u.units)).collect()
+}
+
+fn opened_and_scrolled(n: i64) -> Vec<(Item, i64)> {
+	[(WalkStep::Open, 1), (WalkStep::Reviews, 1), (WalkStep::Sort, 1), (WalkStep::Step, n)]
+		.map(|(s, n)| (Item::Walk(s), n))
+		.to_vec()
+}
+
+/// A walk its process died in is counted as far as it was kept, once the next start fails its run, and only once.
+#[tokio::test]
+async fn a_walk_a_restart_cut_off_is_used_once() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	Conductor::new().push(&archive).await;
+	let t = target(&archive, "ChIJtokenstest00000killed").await;
+	let dies = Gated {
+		before: 2,
+		gate: Notify::new(),
+		after: 0,
+	};
+	tokio::time::timeout(PAST_A_CHECKPOINT, archive.record(&dies, &t)).await.expect_err("the gate never opens");
+	assert!(archive.usage(0, 500).await.unwrap().used.is_empty(), "nothing is final while the run is open");
+	archive.close().await;
+
+	let archive = open(dir.path()).await;
+	archive.recover().await.unwrap();
+	let used = archive.usage(0, 500).await.unwrap();
+	assert_eq!(usage_rows(&used), opened_and_scrolled(2));
+	archive.recover().await.unwrap();
+	assert_eq!(archive.usage(0, 500).await.unwrap().used, used.used, "a second start counts it again");
+}
+
+/// A walk that outlives its checkpoints is counted at its end, as it ended, once.
+#[tokio::test]
+async fn a_checkpointed_walk_is_used_once_at_its_end() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	Conductor::new().push(&archive).await;
+	let t = target(&archive, "ChIJtokenstest00000longer").await;
+	let walk = Gated {
+		before: 2,
+		gate: Notify::new(),
+		after: 3,
+	};
+	let (recorded, ()) = tokio::join!(archive.record(&walk, &t), async {
+		tokio::time::sleep(PAST_A_CHECKPOINT).await;
+		walk.gate.notify_one();
+	});
+	recorded.unwrap();
+	archive.recover().await.unwrap();
+	assert_eq!(usage_rows(&archive.usage(0, 500).await.unwrap()), opened_and_scrolled(5));
+}
+
+/// A hand-run walk still going when `serve` starts is counted as the start found it; its own end adds nothing to what was published.
+#[tokio::test]
+async fn a_walk_that_outlives_the_sweep_is_used_once_as_swept() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	Conductor::new().push(&archive).await;
+	let t = target(&archive, "ChIJtokenstest0000outlive").await;
+	let walk = Gated {
+		before: 2,
+		gate: Notify::new(),
+		after: 3,
+	};
+	let (recorded, swept) = tokio::join!(archive.record(&walk, &t), async {
+		tokio::time::sleep(PAST_A_CHECKPOINT).await;
+		archive.recover().await.unwrap();
+		let swept = archive.usage(0, 500).await.unwrap();
+		walk.gate.notify_one();
+		swept
+	});
+	recorded.unwrap();
+	assert_eq!(usage_rows(&swept), opened_and_scrolled(2));
+	assert_eq!(archive.usage(0, 500).await.unwrap().used, swept.used);
+}
+
+#[tokio::test]
+async fn nothing_walks_unpriced_nor_past_the_hour() {
+	let dir = tempfile::tempdir().unwrap();
+	let archive = open(dir.path()).await;
+	let conductor = Conductor::new();
+	let t = target(&archive, "ChIJtokenstest00unpriced").await;
+	let m = person(archive.store().unwrap(), "m").await;
+	let now = Timestamp::now();
+	let closed = |e: eyre::Report| match e.downcast_ref::<Rejected>() {
+		Some(Rejected::Busy(why)) => why.clone(),
+		_ => panic!("{e:#}"),
+	};
+	assert!(archive.due(now).await.unwrap().is_empty(), "before the first snapshot nothing is priced");
+	assert!(closed(archive.enqueue_scan(t.id).await.unwrap_err()).contains("not priced"));
+
+	conductor.0.borrow_mut().prices.remove(&Item::Walk(WalkStep::SortRetry));
+	let g = conductor.tracks(&archive, "m", &t).await;
+	conductor.set(&archive, "m", 100).await;
+	assert!(archive.due(now).await.unwrap().is_empty());
+	assert!(closed(archive.scan_tracked(m, g, t.id).await.unwrap_err()).contains("\"Sort, again\" has no price"));
+	assert_eq!(card(&archive, m, t.id).await.scan_cost, None);
+
+	conductor.0.borrow_mut().prices = priced::snapshot().prices;
+	conductor.push(&archive).await;
+	assert_eq!(archive.due(now).await.unwrap().iter().map(|t| t.id).collect::<Vec<_>>(), [t.id]);
+	assert_eq!(card(&archive, m, t.id).await.scan_cost, Some(15), "a place never walked costs its first screen");
+
+	conductor.0.borrow_mut().prices.insert(WalkStep::Open.into(), Tokens::default().per_hour);
+	conductor.push(&archive).await;
+	assert!(archive.due(now).await.unwrap().is_empty());
+	assert!(closed(archive.enqueue_scan(t.id).await.unwrap_err()).contains("more than tokens.per_hour"));
 }
