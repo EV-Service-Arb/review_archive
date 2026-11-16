@@ -1,12 +1,12 @@
 # Prod config, evaluated to TOML at build time and baked into the image
 # (`flake.nix: prodConfig`). Secret-free — PANEL_ASSERTION_KEYS, the Google accounts' keys `google`
-# names, the GBP_* OAuth triple, SENTRY_DSN, ALERT_WEBHOOK_{ERROR,WARN} and APP_ENV arrive
+# names (`SA_GOOGLE_<ACCOUNT>_<SLOT>`), the GBP_* OAuth triple, SENTRY_DSN, ALERT_WEBHOOK_{ERROR,WARN} and APP_ENV arrive
 # from the container environment (`review_archive --print-required-vars` lists the required ones).
 #
 # Passed as `--config` explicitly: without it the binary boots on dev defaults,
 # a 127.0.0.1 bind that fails the readiness probe and a data dir that is not the
 # mounted volume.
-{ port, chromium, mfe }:
+{ port, chromium, mfe, google }:
 {
   data_dir = "/data";
   # the dashboard bundle, served under /mfe/, its page at /
@@ -19,14 +19,6 @@
   # pause between scrolls, so V8 collects before the next screen loads
   browser.lean = [{ js_heap_mib = 512; } "small_young_generation" "js_lite_mode" "one_raster_thread" "low_end_device"];
   browser.step_wait = "3s";
-  # the conductor's accounts, as devops' scopes.nix `saGoogle` lists them and supplies their keys
-  google = [
-    {
-      name = "evinvest";
-      export = "gen-lang-client-0759123990.billing.gcp_billing_export_v1_010027_EEDB26_C25F67";
-      reader = { env = "SA_GOOGLE_EVINVEST_READER"; };
-      places = { env = "SA_GOOGLE_EVINVEST_PLACES"; };
-      allow = 0;
-    }
-  ];
+  # accounting's google.nix, each secret slot the variable devops supplies (site_conductor docs/spec/google.md)
+  inherit google;
 }

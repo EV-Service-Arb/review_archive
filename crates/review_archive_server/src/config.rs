@@ -42,9 +42,8 @@ pub struct AppConfig {
 	/// The conductor's queries cache, `<origin>/api/queries_cache`, where every Places answer is
 	/// kept for everyone; in the cluster, the contract's `consumes` sets it. Asking Places needs it.
 	pub queries_cache: Option<String>,
-	/// The Google billing accounts, as the conductor's config lists them (its docs/ARCHITECTURE.md,
-	/// Google accounts): their Places keys, `{ env = "…" }`, in rotation order. None: a place is
-	/// added by its id alone.
+	/// accounting's `google.nix` accounts (site_conductor docs/spec/google.md); those that provide
+	/// `places` are asked in rotation order. None: a place is added by its id alone.
 	#[serde(default)]
 	#[settings(skip)]
 	pub google: Vec<sa_places::Account>,

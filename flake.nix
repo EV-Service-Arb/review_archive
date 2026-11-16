@@ -10,9 +10,14 @@
       url = "github:valeratrades/browser_manipulation?ref=v0.4.6";
       inputs.v_flakes.follows = "v_flakes";
     };
+    # its google.nix: the Google billing accounts the prod config bakes in
+    accounting = {
+      url = "git+https://github.com/EV-Service-Arb/accounting";
+      flake = false;
+    };
   };
 
-  outputs = { self, v_flakes, browser_manipulation }:
+  outputs = { self, v_flakes, browser_manipulation, accounting }:
     let
       # the first of this repository's ten in SA_PORT_RANGE: site_conductor's docs/port_range.md
       SA_PORTS = 52810;
@@ -209,6 +214,7 @@
           inherit port;
           chromium = headlessShell;
           mfe = "${mfe}";
+          google = (import "${accounting}/google_env.nix" "SA_GOOGLE").accounts;
         });
 
         imageEnv = playwrightEnv // {

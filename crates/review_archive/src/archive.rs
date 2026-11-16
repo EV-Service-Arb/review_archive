@@ -235,7 +235,7 @@ impl Archive {
 			(Some(db), Some(blobs)) => {
 				let stored = Stored {
 					google: sa_places::Google::try_new(
-						sa_places::Keys::new(config.google.iter().filter_map(|a| Some((a.name.clone(), a.places.clone()?))).collect()),
+						sa_places::Keys::new(config.google.iter().filter_map(|a| Some((a.name.clone(), a.provides.places.as_deref()?.to_owned()))).collect()),
 						Arc::new(sa_places::InOrder),
 						queries_cache(config.queries_cache.as_deref())?,
 					)?,
