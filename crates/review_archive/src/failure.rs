@@ -306,6 +306,7 @@ pub(crate) fn places_error(e: sa_places::Error) -> eyre::Report {
 		sa_places::Error::Exhausted(spent) => PlacesError::new_exhausted(spent).into(),
 		sa_places::Error::Decode(e) => PlacesError::from(e).into(),
 		sa_places::Error::QueriesCache(why) => PlacesError::new_queries_cache(why).into(),
+		e @ sa_places::Error::Unbought => Rejected::Busy(e.to_string()).into(),
 		e @ (sa_places::Error::OwnKey { .. } | sa_places::Error::Unpaid(_) | sa_places::Error::Purse(_) | sa_places::Error::Rank(_)) => {
 			unreachable!("the archive asks as the house, its accounts in order: no own key, no purse, no rank to fail; got {e}")
 		}
