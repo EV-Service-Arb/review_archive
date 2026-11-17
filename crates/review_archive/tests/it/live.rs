@@ -13,7 +13,7 @@ use review_archive::{
 	core::dto::{NewTarget, ReviewsQuery, RunStatus},
 };
 
-#[path = "support/busy.rs"]
+#[path = "../support/busy.rs"]
 mod busy;
 
 fn starved(failure: &str) {

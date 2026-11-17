@@ -16,7 +16,7 @@ use review_archive_core::schedule::Schedule;
 use review_archive_server::worker::{Signals, WorkerConfig, run};
 use tokio::sync::watch;
 
-#[path = "../../review_archive/tests/support/priced.rs"]
+#[path = "../../../review_archive/tests/support/priced.rs"]
 mod priced;
 
 const PLACE: &str = "ChIJLU7jZClu5kcR4PcOOO6p3I0";

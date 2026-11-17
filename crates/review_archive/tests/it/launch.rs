@@ -13,7 +13,7 @@ use review_archive::{
 	sources::ReviewSource,
 };
 
-#[path = "support/priced.rs"]
+#[path = "../support/priced.rs"]
 mod priced;
 
 struct SlowStart;

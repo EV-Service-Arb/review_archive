@@ -12,7 +12,7 @@ use review_archive::{
 	sources::ReviewSource,
 };
 
-#[path = "support/priced.rs"]
+#[path = "../support/priced.rs"]
 mod priced;
 
 /// Maps' "Sign in" corner.

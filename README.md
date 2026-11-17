@@ -89,7 +89,7 @@ Selectors live in `src/sources/maps/selectors.rs` and nowhere else. Refresh the 
 `review_archive scan <id> --dump-html tmp/dump` (a failing step also dumps the whole page and a
 screenshot there), fix the selectors, and `cargo insta review` the parser snapshots.
 
-The live test is `cargo test --test live -- --ignored`; it needs a browser and the network.
+The live test is `cargo test --test it live -- --ignored`; it needs a browser and the network.
 
 
 <br>
