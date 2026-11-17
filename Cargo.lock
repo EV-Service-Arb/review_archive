@@ -4845,6 +4845,7 @@ dependencies = [
  "reqwest 0.13.5",
  "review_archive_core",
  "sa_alerts",
+ "sa_auth",
  "sa_core",
  "sa_places",
  "schemars",
@@ -4930,6 +4931,7 @@ dependencies = [
  "review_archive_core",
  "sa_alerts",
  "sa_auth",
+ "sa_core",
  "sa_places",
  "schemars",
  "serde",
@@ -5161,7 +5163,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 [[package]]
 name = "sa_alerts"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#9f840f0022837d0f920e5bb0b6d93e4cd3cdc0b0"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
 dependencies = [
  "jiff",
  "sa_auth",
@@ -5175,7 +5177,7 @@ dependencies = [
 [[package]]
 name = "sa_auth"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#9f840f0022837d0f920e5bb0b6d93e4cd3cdc0b0"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
 dependencies = [
  "base64 0.22.1",
  "concierge_iam",
@@ -5185,14 +5187,18 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "strum",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "sa_core"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#9f840f0022837d0f920e5bb0b6d93e4cd3cdc0b0"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
 dependencies = [
+ "axum",
+ "ev_lib 0.33.0",
+ "futures",
  "hex",
  "hmac 0.13.0",
  "jiff",
@@ -5205,6 +5211,7 @@ dependencies = [
  "strum",
  "subtle",
  "thiserror 2.0.21",
+ "tokio",
  "url",
  "uuid",
 ]
@@ -5212,7 +5219,7 @@ dependencies = [
 [[package]]
 name = "sa_places"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#9f840f0022837d0f920e5bb0b6d93e4cd3cdc0b0"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
 dependencies = [
  "base64 0.22.1",
  "eyre",
@@ -5234,7 +5241,7 @@ dependencies = [
 [[package]]
 name = "sa_ui"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#9f840f0022837d0f920e5bb0b6d93e4cd3cdc0b0"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
 dependencies = [
  "dioxus",
  "ev_lib 0.25.1",
