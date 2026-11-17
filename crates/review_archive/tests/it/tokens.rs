@@ -27,7 +27,7 @@ use sa_core::prices::Item;
 use tokio::sync::Notify;
 use uuid::Uuid;
 
-#[path = "support/priced.rs"]
+#[path = "../support/priced.rs"]
 mod priced;
 
 /// A walk that costs `.0` tokens: that many scrolls, at [`priced::snapshot`]'s prices.
