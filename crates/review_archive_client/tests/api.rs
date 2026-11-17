@@ -1213,7 +1213,6 @@ async fn the_conductor_alone_is_served_every_dashboard() {
 	let etag = served.headers()["etag"].to_str().unwrap().to_owned();
 	assert!(etag.starts_with('"'), "a strong tag: {etag}");
 	let served: Vec<serde_json::Value> = served.json().await.unwrap();
-	std::fs::write("/tmp/radev/served.json", serde_json::to_string_pretty(&served).unwrap()).unwrap();
 	let uid = |d: &serde_json::Value| d["uid"].as_str().expect("the conductor files a dashboard by its uid").to_owned();
 	let mut uids: Vec<String> = served.iter().map(uid).collect();
 	uids.sort();

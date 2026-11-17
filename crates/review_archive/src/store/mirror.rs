@@ -215,6 +215,8 @@ impl Store {
 					at: at.parse().wrap_err_with(|| format!("usage {id}'s time {at:?}"))?,
 					id,
 					units,
+					// a walk is charged through the charge feed, to its payers: none of its uses is charged as taken
+					user: None,
 				})
 			})
 			.collect::<eyre::Result<Vec<_>>>()?;
