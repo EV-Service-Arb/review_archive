@@ -164,7 +164,7 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 							size: Size::Sm,
 							icon: true,
 							r#type: "button",
-							onclick: move |_| act(move |c| async move { c.scan_tracked(id, target).await.map(drop) }),
+							onclick: move |_| act(move |c, tab| async move { c.scan_track(id, target, tab).await.map(drop) }),
 							span { title: "scan now, on top of the schedule", "↻" }
 						}
 					};
@@ -177,7 +177,7 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 			label { class: "inline-flex h-8 cursor-pointer items-center rounded-[var(--control-radius)] px-1.5 transition-all hover:bg-hover has-disabled:cursor-not-allowed has-disabled:hover:bg-transparent", // ↻'s hover, and a click on it toggles
 				Switch {
 					checked: loc.enabled,
-					on_checked_change: move |on: bool| act(move |c| async move { c.patch_track(id, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
+					on_checked_change: move |on: bool| act(move |c, tab| async move { c.patch_track(id, target, tab, &TrackPatch { enabled: Some(on), favorite: None }).await }),
 				}
 			}
 			DropdownMenu {
@@ -191,7 +191,7 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 				}
 				DropdownMenuContent { class: "left-auto right-0 z-50",
 					DropdownMenuItem {
-						onclick: move |_| act(move |c| async move { c.patch_track(id, target, &TrackPatch { enabled: None, favorite: Some(!favorite) }).await }),
+						onclick: move |_| act(move |c, tab| async move { c.patch_track(id, target, tab, &TrackPatch { enabled: None, favorite: Some(!favorite) }).await }),
 						if favorite {
 							span { class: "text-accent-warn", "★" }
 							"unfavorite"
@@ -200,7 +200,7 @@ pub fn LocationCard(gmb: Gmb, all: bool, loc: LocationSummary, to: Route) -> Ele
 							"favorite"
 						}
 					}
-					DropdownMenuItem { onclick: move |_| act(move |c| async move { c.relink(id, target).await.map(drop) }),
+					DropdownMenuItem { onclick: move |_| act(move |c, tab| async move { c.relink_track(id, target, tab).await.map(drop) }),
 						span { "⟳" }
 						span { title: "ask Google for the place's id, name and address again", "re-link" }
 					}

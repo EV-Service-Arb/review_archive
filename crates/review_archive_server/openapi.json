@@ -1,0 +1,6511 @@
+{
+  "components": {
+    "schemas": {
+      "Board": {
+        "description": "One tracked place's reviews in three columns.",
+        "properties": {
+          "reinstating": {
+            "description": "Gone with an open appeal, most recently requested first.",
+            "items": {
+              "$ref": "#/components/schemas/BoardCard"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "description": "Gone with fewer stars, or none, without an open appeal, most recently gone first.",
+            "items": {
+              "$ref": "#/components/schemas/BoardCard"
+            },
+            "type": "array"
+          },
+          "snapshotted": {
+            "description": "Listed now, newest first sighting first; a reinstated one carries its appeal.",
+            "items": {
+              "$ref": "#/components/schemas/BoardCard"
+            },
+            "type": "array"
+          },
+          "suspended": {
+            "description": "Gone with 5 stars, without an open appeal, most recently gone first.",
+            "items": {
+              "$ref": "#/components/schemas/BoardCard"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "snapshotted",
+          "suspended",
+          "removed",
+          "reinstating"
+        ],
+        "type": "object"
+      },
+      "BoardCard": {
+        "description": "A review on a board, with this GMB's latest appeal of it that was not withdrawn.",
+        "properties": {
+          "reinstatement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReinstatementDto"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The appeal."
+          },
+          "review": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReviewDto"
+              }
+            ],
+            "description": "The review."
+          }
+        },
+        "required": [
+          "review",
+          "reinstatement"
+        ],
+        "type": "object"
+      },
+      "CaptureDto": {
+        "description": "A stored screenshot.",
+        "properties": {
+          "captured_at": {
+            "description": "When it was taken.",
+            "type": "string"
+          },
+          "corrupted": {
+            "description": "The card was shot shifted, its left part cut off; `None` until the archive has looked.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "height": {
+            "description": "Pixels.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "page_url": {
+            "description": "The page it was taken on.",
+            "type": "string"
+          },
+          "scanner_version": {
+            "description": "What took it.",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Its hash, and its name in the blob store.",
+            "type": "string"
+          },
+          "url": {
+            "description": "`/captures/<sha256>.webp`.",
+            "type": "string"
+          },
+          "width": {
+            "description": "Pixels.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sha256",
+          "captured_at",
+          "width",
+          "height",
+          "page_url",
+          "scanner_version",
+          "corrupted",
+          "url"
+        ],
+        "type": "object"
+      },
+      "CaptureRequest": {
+        "description": "`POST /captures`: capture a place without registering it. One of `place` and `maps_url`.",
+        "properties": {
+          "lang": {
+            "description": "UI language of the Maps page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maps_url": {
+            "description": "A Google Maps URL.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_reviews": {
+            "description": "Cards read at most; the per-scan default when unset, `defaults.max_reviews_initial`\nat most.",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "place": {
+            "description": "A place id (or a Maps URL).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "review_ids": {
+            "description": "Only these Google review ids; the walk stops once all are found.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "DayReviews": {
+        "description": "One collected day of a place's reviews, as [`GmbReviews::live_30d`] tells it.",
+        "properties": {
+          "live": {
+            "description": "Reviews listed at the day's end.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "lost": {
+            "description": "Reviews the day's runs found gone.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "live",
+          "lost"
+        ],
+        "type": "object"
+      },
+      "DayStats": {
+        "description": "One target's activity on one UTC day.",
+        "properties": {
+          "changed": {
+            "description": "Edits seen that day.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "day": {
+            "description": "`YYYY-MM-DD`.",
+            "type": "string"
+          },
+          "gone": {
+            "description": "Reviews that went missing that day, whether or not they came back later.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "histogram": {
+            "description": "Count of reviews first seen that day per star, index 0 = one star.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 5,
+            "minItems": 5,
+            "type": "array"
+          },
+          "mean_rating": {
+            "description": "Mean rating, as first seen, of the reviews first seen that day.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "new": {
+            "description": "Reviews first seen that day.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "target_id": {
+            "description": "The target.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "target_id",
+          "day",
+          "new",
+          "changed",
+          "gone",
+          "mean_rating",
+          "histogram"
+        ],
+        "type": "object"
+      },
+      "Error": {
+        "description": "Why the request was refused.",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "error": {
+            "description": "For a person.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "error"
+        ],
+        "type": "object"
+      },
+      "ErrorCode": {
+        "description": "Which refusal, for a client to act on: its status follows from it.",
+        "enum": [
+          "bad_request",
+          "busy",
+          "conflict",
+          "forbidden",
+          "internal",
+          "invalid",
+          "not_found",
+          "timed_out",
+          "too_large",
+          "unauthenticated",
+          "unclaimable"
+        ],
+        "type": "string"
+      },
+      "Event": {
+        "description": "What a webhook can subscribe to. Stored and sent (`X-Event`) under its dotted name.\n\n- `review.new`: A review archived for the first time.\n- `review.changed`: A new version of a review.\n- `review.gone`: A review no longer listed where a scan looked.\n- `review.reappeared`: A gone review listed again.\n- `run.failed`: A scan failed.",
+        "enum": [
+          "review.new",
+          "review.changed",
+          "review.gone",
+          "review.reappeared",
+          "run.failed"
+        ],
+        "type": "string"
+      },
+      "GmailOverview": {
+        "description": "A gmail and its GMBs.",
+        "properties": {
+          "gmail": {
+            "description": "The address.",
+            "type": "string"
+          },
+          "gmbs": {
+            "description": "Its GMBs, by id.",
+            "items": {
+              "$ref": "#/components/schemas/GmbSummary"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The conductor's id.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "gmail",
+          "gmbs"
+        ],
+        "type": "object"
+      },
+      "GmbReviews": {
+        "description": "A GMB's reviews, as [`MyGmbs`] tells them.",
+        "properties": {
+          "failing": {
+            "description": "An enabled track's latest finished non-ad-hoc run `failed` (a `partial` run still made a snapshot).",
+            "type": "boolean"
+          },
+          "live_30d": {
+            "description": "The last 30 UTC days, oldest first, today last, on the target [`Self::rating`] is from;\n`null` for a day no finished `ok`/`partial` non-ad-hoc run collected.",
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DayReviews"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "rating": {
+            "description": "The place's star average, from its most recently walked tracked target; `null` when never walked.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "reinstating": {
+            "description": "Gone reviews with an open appeal, over its enabled tracks.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reviews": {
+            "description": "How many reviews Google lists for it, likewise.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "suspended": {
+            "description": "5-star reviews gone from the listing with no open appeal, over its enabled tracks: what [`LocationSummary::suspended`] counts.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tracked": {
+            "description": "It is verified and switched on, and its track is on.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tracked",
+          "rating",
+          "reviews",
+          "suspended",
+          "reinstating",
+          "failing",
+          "live_30d"
+        ],
+        "type": "object"
+      },
+      "GmbSummary": {
+        "description": "A GMB: one place a gmail manages, and the archive's track of it.",
+        "properties": {
+          "enabled": {
+            "description": "The conductor's switch; off, its track is not walked, whatever its own switch.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The conductor's id.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The GBP's name, at the conductor.",
+            "type": "string"
+          },
+          "place_id": {
+            "description": "The Google place id.",
+            "type": "string"
+          },
+          "state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OnGoogle"
+              }
+            ],
+            "description": "Where the GBP is in its life; only a verified one's track is walked."
+          },
+          "track": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LocationSummary"
+              }
+            ],
+            "description": "Its place as tracked here."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "place_id",
+          "enabled",
+          "state",
+          "track"
+        ],
+        "type": "object"
+      },
+      "JobAccepted": {
+        "description": "`202`: the job was queued.",
+        "properties": {
+          "job_id": {
+            "description": "Poll `GET /jobs/{job_id}`.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "type": "object"
+      },
+      "JobDto": {
+        "description": "A job and, once done, what it saw.",
+        "properties": {
+          "created_at": {
+            "description": "When it was queued.",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it failed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "description": "When it ended.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Its id.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JobKind"
+              }
+            ],
+            "description": "What it does."
+          },
+          "reviews": {
+            "description": "On `done`: the reviews the run listed, newest first, with their capture URLs — only\nthe requested ones, for a capture of named reviews.",
+            "items": {
+              "$ref": "#/components/schemas/ReviewDto"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunDto"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run it made."
+          },
+          "started_at": {
+            "description": "When the browser took it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JobStatus"
+              }
+            ],
+            "description": "Where it is."
+          },
+          "target_id": {
+            "description": "The target it scans (for a capture, the implicit one its results are kept under).",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "target_id",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "error",
+          "run",
+          "reviews"
+        ],
+        "type": "object"
+      },
+      "JobKind": {
+        "description": "What a job does. Stored as its lowercase name.\n\n- `scan`: A registered target's scan, now.\n- `capture`: An ad-hoc capture of a place.",
+        "enum": [
+          "scan",
+          "capture"
+        ],
+        "type": "string"
+      },
+      "JobStatus": {
+        "description": "Where a job is. Stored as its lowercase name.\n\n- `queued`: Waiting for the browser.\n- `running`: In the browser now.\n- `done`: Finished; `reviews` holds what it saw.\n- `failed`: See `error`.",
+        "enum": [
+          "queued",
+          "running",
+          "done",
+          "failed"
+        ],
+        "type": "string"
+      },
+      "LayoutDto": {
+        "description": "A dock layout published as the one fresh browsers start from: `GET /layouts/{dock}`.",
+        "properties": {
+          "band": {
+            "description": "`sm`, `md` or `xl`: the dock's width band.",
+            "type": "string"
+          },
+          "layout": {
+            "description": "The dock's own layout JSON.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "band",
+          "layout"
+        ],
+        "type": "object"
+      },
+      "LocationSummary": {
+        "description": "A tracked place, as the member's overview shows it.",
+        "properties": {
+          "captured": {
+            "description": "Reviews with a screenshot stored, gone ones too.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "corrupted": {
+            "description": "Of which every screenshot is corrupted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "enabled": {
+            "description": "This GMB's track of it is on; it is scanned while any track of it is.",
+            "type": "boolean"
+          },
+          "favorite": {
+            "description": "Marked a favorite on this GMB.",
+            "type": "boolean"
+          },
+          "held": {
+            "description": "Not scanned: every member tracking it is out of tokens.",
+            "type": "boolean"
+          },
+          "last_run_at": {
+            "description": "When its latest finished run ended.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_run_error": {
+            "description": "Why it failed, or what it warned of: the first line of its `error`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_run_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How it went."
+          },
+          "latest_post": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PostDto"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The owner's post seen most recently first."
+          },
+          "listed": {
+            "description": "How many reviews Google says the place has, as of the last scan that read it.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "live": {
+            "description": "Reviews listed now.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "new_7d": {
+            "description": "Reviews posted over the last 7 days, as their dates are estimated; gone ones too.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "non_five_star": {
+            "description": "Of which rated under 5 stars, or not rated.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "posts_7d": {
+            "description": "Owner's posts published over the last 7 days, as their dates are estimated.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "rating": {
+            "description": "Its star average, as Google gave it on the last scan that read it.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "reinstating": {
+            "description": "Gone, with an open appeal under this GMB.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "removed": {
+            "description": "Gone with fewer stars, or none, with no open appeal under this GMB.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "responded": {
+            "description": "Of which the owner has replied to.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A scan of it under way or waiting."
+          },
+          "scan_cost": {
+            "description": "What its latest scheduled walk spent; a first screen's worth for a place never walked.\n`null` while no walk starts: walks unpriced, or a first screen past the hour's limit.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "snapshots_30d": {
+            "description": "Screenshots taken over the last 30 days.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "snapshots_7d": {
+            "description": "Screenshots taken over the last 7 days.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "suspended": {
+            "description": "Gone with 5 stars, with no open appeal under this GMB.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "target": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TargetDto"
+              }
+            ],
+            "description": "The place."
+          }
+        },
+        "required": [
+          "target",
+          "enabled",
+          "favorite",
+          "new_7d",
+          "posts_7d",
+          "latest_post",
+          "snapshots_7d",
+          "snapshots_30d",
+          "live",
+          "responded",
+          "non_five_star",
+          "captured",
+          "corrupted",
+          "listed",
+          "rating",
+          "suspended",
+          "removed",
+          "reinstating",
+          "last_run_at",
+          "last_run_status",
+          "last_run_error",
+          "held",
+          "scan",
+          "scan_cost"
+        ],
+        "type": "object"
+      },
+      "Me": {
+        "description": "`GET /me`: who is signed in.",
+        "properties": {
+          "email": {
+            "description": "Their concierge email.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Their person id, what `X-Member` and `/members/{id}` name.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Their concierge name.",
+            "type": "string"
+          },
+          "permissions": {
+            "description": "What they may do here: `sa:review_archive:*` permissions.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "permissions"
+        ],
+        "type": "object"
+      },
+      "MemberDto": {
+        "description": "`GET /members`: someone who signed in here, or an address from before people had ids.",
+        "properties": {
+          "balance": {
+            "description": "The tokens they hold, as the archive reckons them: the conductor's last word on their\nbalance less the walks charged since.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "claimed": {
+            "description": "`false`: nobody signed in with this address since people got ids.",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "Their concierge email, as of their last sign-in.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Their person id.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Empty until they sign in.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "claimed",
+          "balance"
+        ],
+        "type": "object"
+      },
+      "MyGmbs": {
+        "description": "`GET /me/gmbs`: the archive's tag on each of the member's GMBs, for the conductor's page.",
+        "properties": {
+          "gmbs": {
+            "additionalProperties": false,
+            "description": "By GMB id; removed GMBs are left out.",
+            "patternProperties": {
+              "^-?\\d+$": {
+                "$ref": "#/components/schemas/GmbReviews"
+              }
+            },
+            "type": "object"
+          },
+          "places_tracked": {
+            "description": "Places with a track on under a verified GMB switched on, now.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "gmbs",
+          "places_tracked"
+        ],
+        "type": "object"
+      },
+      "NewLayout": {
+        "description": "`PUT /layouts/{dock}/{band}`.",
+        "properties": {
+          "layout": {
+            "description": "The dock's own layout JSON.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layout"
+        ],
+        "type": "object"
+      },
+      "NewTarget": {
+        "description": "`POST /targets`: watch a place. One of `place` and `maps_url`.",
+        "properties": {
+          "gbp": {
+            "description": "`<account>/<location>`: read reviews through the Business Profile API.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "interval": {
+            "description": "`6h`, `1d`, or seconds; at least an hour.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "description": "The place's name when unset.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lang": {
+            "description": "UI language of the Maps page, e.g. `fr`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maps_url": {
+            "description": "A Google Maps URL; resolved with the Places API when it carries no place id.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "place": {
+            "description": "A place id (or a Maps URL; either field takes both).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "NewWebhook": {
+        "description": "`POST /webhooks`.",
+        "properties": {
+          "events": {
+            "description": "What to deliver.",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            },
+            "type": "array"
+          },
+          "secret": {
+            "description": "The HMAC-SHA256 key deliveries are signed with (`X-Signature: sha256=<hex>`); 16+\ncharacters. Never returned.",
+            "type": "string"
+          },
+          "url": {
+            "description": "Where deliveries are POSTed; `http` or `https`, to a host the archive allows.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "events",
+          "secret"
+        ],
+        "type": "object"
+      },
+      "OnGoogle": {
+        "description": "A [`State`] on Google: every one but a draft.\n\n- `verifying`: Waiting on Google's verification.\n- `verified`: Live: its track is walked.\n- `suspended`: Suspended by Google.",
+        "enum": [
+          "verifying",
+          "verified",
+          "suspended"
+        ],
+        "type": "string"
+      },
+      "PostDto": {
+        "description": "A post by a place's owner.",
+        "properties": {
+          "first_seen": {
+            "description": "When the archive first saw it.",
+            "type": "string"
+          },
+          "published_est": {
+            "description": "When it was posted, estimated when first seen; `null` when the page printed a date.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "description": "Line breaks kept.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "published_est",
+          "first_seen"
+        ],
+        "type": "object"
+      },
+      "ReinstatementDto": {
+        "description": "An appeal of a removed review.",
+        "properties": {
+          "reinstated_at": {
+            "description": "When a scan listed the review again, if one has.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requested_at": {
+            "description": "When it was requested.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requested_at",
+          "reinstated_at"
+        ],
+        "type": "object"
+      },
+      "ReviewDetail": {
+        "description": "A review with its full history.",
+        "properties": {
+          "author": {
+            "description": "The reviewer's display name.",
+            "type": "string"
+          },
+          "author_url": {
+            "description": "The reviewer's public profile.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capture_corrupted": {
+            "description": "See [`CaptureDto::corrupted`].",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "capture_pending": {
+            "description": "No screenshot of it yet.",
+            "type": "boolean"
+          },
+          "capture_sha256": {
+            "description": "The first capture's hash, the one that shows the review as it first appeared; the first\ncorrupted one only while no other was taken.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capture_url": {
+            "description": "Where the API serves that capture: `/captures/<sha256>.webp`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "captured_at": {
+            "description": "When that capture was taken.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "captures": {
+            "description": "Every screenshot, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/CaptureDto"
+            },
+            "type": "array"
+          },
+          "first_seen": {
+            "description": "When the archive first saw it.",
+            "type": "string"
+          },
+          "gone_at": {
+            "description": "Set while a scan that looked where it was did not list it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Its id in the archive.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "last_seen": {
+            "description": "When a scan last listed it.",
+            "type": "string"
+          },
+          "photo_count": {
+            "description": "Photos attached.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "published_est": {
+            "description": "When it was published, estimated when first seen.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "published_raw": {
+            "description": "The date as the source printed it when `published_est` was made from it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rating": {
+            "description": "1–5 stars, as last seen.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reply": {
+            "description": "The owner's response, as last seen.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_review_id": {
+            "description": "The source's id for it.",
+            "type": "string"
+          },
+          "target_id": {
+            "description": "The target it belongs to.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "text": {
+            "description": "The text, as last seen.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "versions": {
+            "description": "Every distinct content, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/VersionDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "target_id",
+          "source_review_id",
+          "author",
+          "author_url",
+          "rating",
+          "text",
+          "reply",
+          "photo_count",
+          "published_raw",
+          "published_est",
+          "first_seen",
+          "last_seen",
+          "gone_at",
+          "capture_pending",
+          "capture_sha256",
+          "captured_at",
+          "capture_url",
+          "capture_corrupted",
+          "versions",
+          "captures"
+        ],
+        "type": "object"
+      },
+      "ReviewDto": {
+        "description": "A review as archived.",
+        "properties": {
+          "author": {
+            "description": "The reviewer's display name.",
+            "type": "string"
+          },
+          "author_url": {
+            "description": "The reviewer's public profile.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capture_corrupted": {
+            "description": "See [`CaptureDto::corrupted`].",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "capture_pending": {
+            "description": "No screenshot of it yet.",
+            "type": "boolean"
+          },
+          "capture_sha256": {
+            "description": "The first capture's hash, the one that shows the review as it first appeared; the first\ncorrupted one only while no other was taken.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capture_url": {
+            "description": "Where the API serves that capture: `/captures/<sha256>.webp`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "captured_at": {
+            "description": "When that capture was taken.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "first_seen": {
+            "description": "When the archive first saw it.",
+            "type": "string"
+          },
+          "gone_at": {
+            "description": "Set while a scan that looked where it was did not list it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Its id in the archive.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "last_seen": {
+            "description": "When a scan last listed it.",
+            "type": "string"
+          },
+          "photo_count": {
+            "description": "Photos attached.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "published_est": {
+            "description": "When it was published, estimated when first seen.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "published_raw": {
+            "description": "The date as the source printed it when `published_est` was made from it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rating": {
+            "description": "1–5 stars, as last seen.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reply": {
+            "description": "The owner's response, as last seen.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_review_id": {
+            "description": "The source's id for it.",
+            "type": "string"
+          },
+          "target_id": {
+            "description": "The target it belongs to.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "text": {
+            "description": "The text, as last seen.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "target_id",
+          "source_review_id",
+          "author",
+          "author_url",
+          "rating",
+          "text",
+          "reply",
+          "photo_count",
+          "published_raw",
+          "published_est",
+          "first_seen",
+          "last_seen",
+          "gone_at",
+          "capture_pending",
+          "capture_sha256",
+          "captured_at",
+          "capture_url",
+          "capture_corrupted"
+        ],
+        "type": "object"
+      },
+      "RunDto": {
+        "description": "A run of a scan.",
+        "properties": {
+          "changed": {
+            "description": "A new version recorded.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "error": {
+            "description": "The failure, or the warnings of a partial run.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "description": "When it ended; `null` while running.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gone": {
+            "description": "Newly marked gone.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "description": "Its id.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "new": {
+            "description": "Archived for the first time.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seen": {
+            "description": "Distinct reviews listed.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "started_at": {
+            "description": "When it began.",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` until it ends."
+          },
+          "target_id": {
+            "description": "The target scanned.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tokens": {
+            "description": "What its walk cost, paid or not.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "target_id",
+          "started_at",
+          "finished_at",
+          "status",
+          "error",
+          "seen",
+          "new",
+          "changed",
+          "gone",
+          "tokens"
+        ],
+        "type": "object"
+      },
+      "RunStatus": {
+        "description": "How a scan went. Stored as its lowercase name.\n\n- `ok`: Everything it tried worked.\n- `partial`: Stored what it saw, with warnings (a missed screenshot, a walk cut short).\n- `failed`: Nothing stored; see the error.",
+        "enum": [
+          "ok",
+          "partial",
+          "failed"
+        ],
+        "type": "string"
+      },
+      "ScanState": {
+        "description": "A scan of a place under way or waiting.",
+        "oneOf": [
+          {
+            "description": "Waiting for the browser.",
+            "properties": {
+              "ahead": {
+                "description": "Jobs before it in the queue.",
+                "format": "int64",
+                "type": "integer"
+              },
+              "since": {
+                "description": "When it was asked for.",
+                "type": "string"
+              },
+              "state": {
+                "const": "queued",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "since",
+              "ahead"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Walking.",
+            "properties": {
+              "since": {
+                "description": "When it started.",
+                "type": "string"
+              },
+              "state": {
+                "const": "running",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "since"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Setting": {
+        "description": "One of [`Settings`].",
+        "properties": {
+          "chosen": {
+            "description": "`null`: never chosen, or reset.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "default": {
+            "description": "The service's.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "chosen",
+          "default"
+        ],
+        "type": "object"
+      },
+      "Settings": {
+        "description": "`GET /me/settings`: what the member chose, each beside what they get without choosing.",
+        "properties": {
+          "interval_secs": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Setting"
+              }
+            ],
+            "description": "Seconds between scans of each place the member pays for; a place several pay for goes by\nthe shortest."
+          }
+        },
+        "required": [
+          "interval_secs"
+        ],
+        "type": "object"
+      },
+      "SettingsPatch": {
+        "description": "`PATCH /me/settings`: absent fields stay; `DELETE /me/settings` resets them all.",
+        "properties": {
+          "interval": {
+            "description": "`6h`, `1d`, or seconds; at least `schedule.min_interval`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TargetDetail": {
+        "description": "A target with how it is doing.",
+        "properties": {
+          "address": {
+            "description": "The place's address as Google last showed it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "captures": {
+            "description": "Screenshots archived.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "When it was added.",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Disabled targets keep their archive but are not scanned.",
+            "type": "boolean"
+          },
+          "gbp_account": {
+            "description": "Set for `gbp` targets.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gbp_location": {
+            "description": "Set for `gbp` targets.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gone": {
+            "description": "Of which currently gone.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Its id in the archive.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "interval_secs": {
+            "description": "Seconds between scans, before jitter.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TargetKind"
+              }
+            ],
+            "description": "`maps` or `gbp`."
+          },
+          "label": {
+            "description": "What it is shown as: a person's label, else the place's name, else its place id.",
+            "type": "string"
+          },
+          "lang": {
+            "description": "UI language of the Maps page.",
+            "type": "string"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunDto"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its latest finished run."
+          },
+          "next_scan_at": {
+            "description": "When the scheduler scans it next; `null` for a disabled target.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "place_id": {
+            "description": "The Google place id.",
+            "type": "string"
+          },
+          "reviews": {
+            "description": "Reviews archived.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind",
+          "place_id",
+          "address",
+          "gbp_account",
+          "gbp_location",
+          "lang",
+          "interval_secs",
+          "enabled",
+          "created_at",
+          "last_run",
+          "reviews",
+          "gone",
+          "captures",
+          "next_scan_at"
+        ],
+        "type": "object"
+      },
+      "TargetDto": {
+        "description": "A watched place.",
+        "properties": {
+          "address": {
+            "description": "The place's address as Google last showed it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "description": "When it was added.",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Disabled targets keep their archive but are not scanned.",
+            "type": "boolean"
+          },
+          "gbp_account": {
+            "description": "Set for `gbp` targets.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gbp_location": {
+            "description": "Set for `gbp` targets.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Its id in the archive.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "interval_secs": {
+            "description": "Seconds between scans, before jitter.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TargetKind"
+              }
+            ],
+            "description": "`maps` or `gbp`."
+          },
+          "label": {
+            "description": "What it is shown as: a person's label, else the place's name, else its place id.",
+            "type": "string"
+          },
+          "lang": {
+            "description": "UI language of the Maps page.",
+            "type": "string"
+          },
+          "place_id": {
+            "description": "The Google place id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind",
+          "place_id",
+          "address",
+          "gbp_account",
+          "gbp_location",
+          "lang",
+          "interval_secs",
+          "enabled",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "TargetKind": {
+        "description": "Where a target's reviews are read from: `maps` or `gbp`, as stored and as the API\nspells it.\n\n- `maps`: The public Google Maps page, in a browser.\n- `gbp`: A Business Profile we manage, through the official API.",
+        "enum": [
+          "maps",
+          "gbp"
+        ],
+        "type": "string"
+      },
+      "TargetPatch": {
+        "description": "`PATCH /targets/{id}`: what to change; absent fields stay.",
+        "properties": {
+          "enabled": {
+            "description": "Enable or disable scanning.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "interval": {
+            "description": "New interval: `6h`, `1d`, or seconds.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "description": "New label.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lang": {
+            "description": "New Maps UI language.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TrackPatch": {
+        "description": "`PATCH /me/gmbs/{gmb}/tracks/{target}`: what to change; absent fields stay.",
+        "properties": {
+          "enabled": {
+            "description": "Switch the track on or off.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "favorite": {
+            "description": "Mark the place a favorite of this GMB's, or unmark it.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "VersionDto": {
+        "description": "One version of a review's content.",
+        "properties": {
+          "content_hash": {
+            "description": "Its hash.",
+            "type": "string"
+          },
+          "rating": {
+            "description": "Stars.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reply": {
+            "description": "Owner's reply.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seen_at": {
+            "description": "When this content was first seen.",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "seen_at",
+          "content_hash",
+          "rating",
+          "text",
+          "reply"
+        ],
+        "type": "object"
+      },
+      "WebhookDto": {
+        "description": "A webhook, without its secret.",
+        "properties": {
+          "created_at": {
+            "description": "When it was added.",
+            "type": "string"
+          },
+          "events": {
+            "description": "What it gets.",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "Its id.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "url": {
+            "description": "Where deliveries go.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "created_at"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Archive of public place reviews: a WebP screenshot of every review as it first appears, plus data for statistics.",
+    "title": "review_archive",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/captures": {
+      "post": {
+        "description": "Its results are kept under an implicit, disabled target (the place's existing one, if any),\nso nothing is lost. `max_reviews` and the number of `review_ids` are at most\n`max_reviews_initial`. With `wait`, answers the finished job if it finishes by then; else\nthe job's id, to poll. Past the queue's `max_queued_jobs`, 429.",
+        "operationId": "capture_place",
+        "parameters": [
+          {
+            "description": "Hold the request up to this many seconds (at most 120) and answer with the finished\njob if it finishes by then.",
+            "in": "query",
+            "name": "wait",
+            "schema": {
+              "description": "Hold the request up to this many seconds (at most 120) and answer with the finished\njob if it finishes by then.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptureRequest"
+              }
+            }
+          },
+          "description": "`POST /captures`: capture a place without registering it. One of `place` and `maps_url`.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDto"
+                }
+              }
+            },
+            "description": "A job and, once done, what it saw."
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            },
+            "description": "`202`: the job was queued."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`too_large`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Captures a place without registering it.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "too_large": 413,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/captures/{file}": {
+      "get": {
+        "description": "Only what the archive recorded; for a member, only what shows a review of a place they track.",
+        "operationId": "capture_webp",
+        "parameters": [
+          {
+            "description": "`<sha256>.webp`.",
+            "in": "path",
+            "name": "file",
+            "required": true,
+            "schema": {
+              "description": "`<sha256>.webp`.",
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/webp": {}
+            },
+            "description": "the capture, its provenance in Exif"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "A capture's WebP, provenance in its Exif.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/jobs/{id}": {
+      "get": {
+        "operationId": "get_job",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDto"
+                }
+              }
+            },
+            "description": "A job and, once done, what it saw."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "A job: `queued`, `running`, `done` or `failed`; on `done`, the reviews its run listed with their capture URLs (for a capture of `review_ids`, those of them it found).",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/layouts/{dock}": {
+      "get": {
+        "operationId": "list_layouts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dock",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LayoutDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Every band's published layout of a dock: what a browser without one of its own starts from.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/layouts/{dock}/{band}": {
+      "put": {
+        "operationId": "publish_layout",
+        "parameters": [
+          {
+            "description": "`sm`, `md` or `xl`.",
+            "in": "path",
+            "name": "band",
+            "required": true,
+            "schema": {
+              "description": "`sm`, `md` or `xl`.",
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "in": "path",
+            "name": "dock",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewLayout"
+              }
+            }
+          },
+          "description": "`PUT /layouts/{dock}/{band}`.",
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "no content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`too_large`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Publishes a dock's layout at a band for every browser without one of its own.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "too_large": 413,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/me": {
+      "get": {
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "`GET /me`: who is signed in."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Who is signed in.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/gmbs": {
+      "get": {
+        "operationId": "my_gmbs",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyGmbs"
+                }
+              }
+            },
+            "description": "`GET /me/gmbs`: the archive's tag on each of the member's GMBs, for the conductor's page."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "The archive's tag on each of the member's GMBs, for the conductor's page.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/gmbs/{gmb}/reinstatements/{review}": {
+      "delete": {
+        "operationId": "withdraw_reinstatement",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The conductor's id of the member's GMB.",
+            "in": "path",
+            "name": "gmb",
+            "required": true,
+            "schema": {
+              "description": "The conductor's id of the member's GMB.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The removed review.",
+            "in": "path",
+            "name": "review",
+            "required": true,
+            "schema": {
+              "description": "The removed review.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "no content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Withdraws the open request; it stays on record as withdrawn.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      },
+      "put": {
+        "description": "Asking again while one is open answers the open one.",
+        "operationId": "reinstate",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The conductor's id of the member's GMB.",
+            "in": "path",
+            "name": "gmb",
+            "required": true,
+            "schema": {
+              "description": "The conductor's id of the member's GMB.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The removed review.",
+            "in": "path",
+            "name": "review",
+            "required": true,
+            "schema": {
+              "description": "The removed review.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReinstatementDto"
+                }
+              }
+            },
+            "description": "An appeal of a removed review."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Records that the removed review's reinstatement was asked of Google, now.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/gmbs/{gmb}/tracks/{target}": {
+      "patch": {
+        "operationId": "patch_track",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The conductor's id of the member's GMB.",
+            "in": "path",
+            "name": "gmb",
+            "required": true,
+            "schema": {
+              "description": "The conductor's id of the member's GMB.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The target the GMB's track is on.",
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "description": "The target the GMB's track is on.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackPatch"
+              }
+            }
+          },
+          "description": "`PATCH /me/gmbs/{gmb}/tracks/{target}`: what to change; absent fields stay.",
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "no content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`too_large`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Switches the GMB's track of a place on or off, or marks it a favorite; the place's target stays as it is.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "too_large": 413,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/gmbs/{gmb}/tracks/{target}/board": {
+      "get": {
+        "operationId": "track_board",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The conductor's id of the member's GMB.",
+            "in": "path",
+            "name": "gmb",
+            "required": true,
+            "schema": {
+              "description": "The conductor's id of the member's GMB.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The target the GMB's track is on.",
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "description": "The target the GMB's track is on.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                }
+              }
+            },
+            "description": "One tracked place's reviews in three columns."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "A tracked place's reviews in four columns: snapshotted, suspended, removed, reinstating.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/gmbs/{gmb}/tracks/{target}/relink": {
+      "post": {
+        "operationId": "relink_track",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The conductor's id of the member's GMB.",
+            "in": "path",
+            "name": "gmb",
+            "required": true,
+            "schema": {
+              "description": "The conductor's id of the member's GMB.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The target the GMB's track is on.",
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "description": "The target the GMB's track is on.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TargetDto"
+                }
+              }
+            },
+            "description": "A watched place."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Asks Google about a tracked place again: its id, name and address become what Google gives now.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/gmbs/{gmb}/tracks/{target}/runs": {
+      "get": {
+        "operationId": "track_runs",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The conductor's id of the member's GMB.",
+            "in": "path",
+            "name": "gmb",
+            "required": true,
+            "schema": {
+              "description": "The conductor's id of the member's GMB.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The target the GMB's track is on.",
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "description": "The target the GMB's track is on.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "At most this many, newest first (default 20, at most 500).",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "At most this many, newest first (default 20, at most 500).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "A tracked place's runs, newest first.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/gmbs/{gmb}/tracks/{target}/scan": {
+      "post": {
+        "description": "429 when the GMB is switched off or not verified, Maps is paused, the member is out of\ntokens, or the queue is full.",
+        "operationId": "scan_track",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The conductor's id of the member's GMB.",
+            "in": "path",
+            "name": "gmb",
+            "required": true,
+            "schema": {
+              "description": "The conductor's id of the member's GMB.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The target the GMB's track is on.",
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "description": "The target the GMB's track is on.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            },
+            "description": "`202`: the job was queued."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Queues a scan of a tracked place, on top of its schedule; the member who asks pays for it in tokens.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-spends": [
+          "walk.open",
+          "walk.reviews",
+          "walk.sort",
+          "walk.sort_retry",
+          "walk.step"
+        ]
+      }
+    },
+    "/me/overview": {
+      "get": {
+        "operationId": "my_overview",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GmailOverview"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "The member's gmails, each with its GMBs and their places as tracked, by screenshots over the last 7 days.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/settings": {
+      "delete": {
+        "operationId": "reset_my_settings",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            },
+            "description": "`GET /me/settings`: what the member chose, each beside what they get without choosing."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Every setting back to its default.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      },
+      "get": {
+        "operationId": "my_settings",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            },
+            "description": "`GET /me/settings`: what the member chose, each beside what they get without choosing."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "What the member chose, each beside its default.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      },
+      "patch": {
+        "operationId": "patch_my_settings",
+        "parameters": [
+          {
+            "description": "The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.",
+            "in": "header",
+            "name": "x-member",
+            "schema": {
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "description": "`PATCH /me/settings`: absent fields stay; `DELETE /me/settings` resets them all.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            },
+            "description": "`GET /me/settings`: what the member chose, each beside what they get without choosing."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`too_large`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Chooses what the patch names; the rest stays.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "too_large": 413,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/members": {
+      "get": {
+        "operationId": "list_members",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Everyone who signed in here, and the addresses from before people had ids, with what they hold.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:members:act_as"
+      }
+    },
+    "/reviews/{id}": {
+      "get": {
+        "operationId": "get_review",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewDetail"
+                }
+              }
+            },
+            "description": "A review with its full history."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "A review with every version and capture.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/stats": {
+      "get": {
+        "description": "`gone` counts what the runs of that day marked gone, whether or not it came back later.\n`Accept: text/csv` for CSV, the histogram as `stars_1` … `stars_5`.",
+        "operationId": "stats",
+        "parameters": [
+          {
+            "description": "`YYYY-MM-DD`, inclusive.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "`YYYY-MM-DD`, inclusive.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "One target; every target when unset.",
+            "in": "query",
+            "name": "target",
+            "schema": {
+              "description": "One target; every target when unset.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`YYYY-MM-DD`, inclusive.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "`YYYY-MM-DD`, inclusive.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DayStats"
+                  },
+                  "type": "array"
+                }
+              },
+              "text/csv": {}
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Per target and UTC day: new, changed, gone, mean rating, histogram.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/targets": {
+      "get": {
+        "operationId": "list_targets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TargetDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Every watched place.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      },
+      "post": {
+        "operationId": "add_target",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTarget"
+              }
+            }
+          },
+          "description": "`POST /targets`: watch a place. One of `place` and `maps_url`.",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TargetDto"
+                }
+              }
+            },
+            "description": "A watched place."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`too_large`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Watches a place: a place id, or a Maps URL, resolved through Places.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "too_large": 413,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/targets/{id}": {
+      "delete": {
+        "operationId": "disable_target",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TargetDto"
+                }
+              }
+            },
+            "description": "A watched place."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Disables the target. Nothing archived is deleted.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      },
+      "get": {
+        "operationId": "get_target",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TargetDetail"
+                }
+              }
+            },
+            "description": "A target with how it is doing."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "A target with its last run, what is archived, and the next scheduled scan.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      },
+      "patch": {
+        "operationId": "patch_target",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TargetPatch"
+              }
+            }
+          },
+          "description": "`PATCH /targets/{id}`: what to change; absent fields stay.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TargetDto"
+                }
+              }
+            },
+            "description": "A watched place."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`too_large`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Changes what the patch names; the rest stays.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "too_large": 413,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/targets/{id}/export.zip": {
+      "get": {
+        "operationId": "export_zip",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "`YYYY-MM-DD` or RFC 3339: reviews first seen at or after.",
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "description": "`YYYY-MM-DD` or RFC 3339: reviews first seen at or after.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {}
+            },
+            "description": "`manifest.json` and the first capture of each review"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "The target's archive: `manifest.json` and the first capture of each review.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/targets/{id}/reviews": {
+      "get": {
+        "operationId": "list_reviews",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "Only gone (`true`) or only listed (`false`) reviews.",
+            "in": "query",
+            "name": "gone",
+            "schema": {
+              "description": "Only gone (`true`) or only listed (`false`) reviews.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`YYYY-MM-DD` or RFC 3339: first seen at or after.",
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "description": "`YYYY-MM-DD` or RFC 3339: first seen at or after.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "The target's reviews as archived.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/targets/{id}/runs": {
+      "get": {
+        "operationId": "list_runs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "At most this many, newest first (default 20, at most 500).",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "At most this many, newest first (default 20, at most 500).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "The target's runs, newest first.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/targets/{id}/scan": {
+      "post": {
+        "description": "The same scan already queued is not queued twice: its id comes back. Past the queue's\n`max_queued_jobs`, 429.",
+        "operationId": "scan_target",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            },
+            "description": "`202`: the job was queued."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Scans the target now, ahead of the scheduled scans.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/webhooks": {
+      "get": {
+        "operationId": "list_webhooks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WebhookDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Every hook, never its secret.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      },
+      "post": {
+        "description": "Deliveries are POSTed with `X-Signature: sha256=<hex HMAC-SHA256 of the body under the\nsecret>`, `X-Event` and `X-Delivery-Id`; a non-2xx answer is retried with backoff for about a\nday. The body is an `EventPayload`: `event`, `occurred_at`, `target_id`, and the `review` or\n`run`. The URL is `http(s)`, and may not point at a local or private address unless the\narchive's `webhooks.allowed_hosts` names its host; a non-empty `allowed_hosts` is the whole\nlist of hosts hooks may go to. Redirects are not followed.",
+        "operationId": "add_webhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewWebhook"
+              }
+            }
+          },
+          "description": "`POST /webhooks`.",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookDto"
+                }
+              }
+            },
+            "description": "A webhook, without its secret."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`too_large`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Subscribes to events.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "too_large": 413,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    },
+    "/webhooks/{id}": {
+      "delete": {
+        "operationId": "delete_webhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "no content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Removes the hook and whatever it was still owed.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        },
+        "x-permission": "sa:review_archive:archive:operate"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "x-views": {
+    "carried": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "views": {
+      "mine.gmail": {
+        "description": "A gmail's GMBs.",
+        "params": {
+          "properties": {
+            "gmail": {
+              "description": "The conductor's id of the gmail.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "gmail"
+          ],
+          "type": "object"
+        },
+        "path": "/gmails/{gmail}",
+        "query": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      "mine.gmb": {
+        "description": "A GMB's board: its place's reviews in lanes.",
+        "params": {
+          "properties": {
+            "gmb": {
+              "description": "The conductor's id of the GMB.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "gmb"
+          ],
+          "type": "object"
+        },
+        "path": "/gmbs/{gmb}",
+        "query": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      "mine.home": {
+        "description": "Every GMB of the member's, by gmail.",
+        "params": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "path": "/",
+        "query": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      "mine.settings": {
+        "description": "The member's settings.",
+        "params": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "path": "/settings",
+        "query": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      "pick": {
+        "description": "The pick of a member to open a tab for.",
+        "needs": "sa:review_archive:members:act_as",
+        "params": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "path": "/act-as",
+        "query": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      "theirs.gmail": {
+        "description": "A gmail's GMBs.",
+        "needs": "sa:review_archive:members:act_as",
+        "params": {
+          "properties": {
+            "gmail": {
+              "description": "The conductor's id of the gmail.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "member": {
+              "description": "Their person id (`GET /members`).",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "gmail",
+            "member"
+          ],
+          "type": "object"
+        },
+        "path": "/members/{member}/gmails/{gmail}",
+        "query": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      "theirs.gmb": {
+        "description": "A GMB's board: its place's reviews in lanes.",
+        "needs": "sa:review_archive:members:act_as",
+        "params": {
+          "properties": {
+            "gmb": {
+              "description": "The conductor's id of the GMB.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "member": {
+              "description": "Their person id (`GET /members`).",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "gmb",
+            "member"
+          ],
+          "type": "object"
+        },
+        "path": "/members/{member}/gmbs/{gmb}",
+        "query": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      "theirs.home": {
+        "description": "Every GMB of the member's, by gmail.",
+        "needs": "sa:review_archive:members:act_as",
+        "params": {
+          "properties": {
+            "member": {
+              "description": "Their person id (`GET /members`).",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "member"
+          ],
+          "type": "object"
+        },
+        "path": "/members/{member}",
+        "query": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      },
+      "theirs.settings": {
+        "description": "The member's settings.",
+        "needs": "sa:review_archive:members:act_as",
+        "params": {
+          "properties": {
+            "member": {
+              "description": "Their person id (`GET /members`).",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "member"
+          ],
+          "type": "object"
+        },
+        "path": "/members/{member}/settings",
+        "query": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      }
+    }
+  }
+}

@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 
 axum = { workspace = true, features = ["macros"] }
+base64.workspace = true
 clap.workspace = true
 color-eyre.workspace = true
 concierge_iam = { workspace = true, features = ["catalog"] }
@@ -29,19 +30,21 @@ rand.workspace = true
 review_archive = { workspace = true, features = ["maps", "settings", "store"] }
 review_archive_core = { workspace = true, features = ["openapi"] }
 sa_alerts.workspace = true
-sa_auth = { workspace = true, features = ["catalog"] }
+sa_auth = { workspace = true, features = ["axum", "catalog"] }
+sa_core = { workspace = true, features = ["api"] }
 sa_places = { workspace = true, features = ["settings"] }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 smart-default.workspace = true
+strum.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["io"] }
 toml.workspace = true
-tower = { workspace = true, features = ["limit"] }
-tower-http = { workspace = true, features = ["fs", "timeout"] }
+tower = { workspace = true, features = ["limit", "timeout"] }
+tower-http = { workspace = true, features = ["fs"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 v_utils = { workspace = true, features = ["cli", "xdg"] }
@@ -51,6 +54,7 @@ ev_lib = { workspace = true, features = ["api_docs"] }
 
 [dev-dependencies]
 browser_manipulation.workspace = true
+ev_lib = { workspace = true, features = ["api_gen"] }
 miette = { workspace = true, features = ["fancy"] }
 reqwest.workspace = true
 thiserror.workspace = true

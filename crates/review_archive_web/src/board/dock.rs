@@ -54,7 +54,7 @@ const DOCK_THEME: [(&str, &str); 11] = [
 
 #[component]
 pub fn Lanes(gmb: i64, target: i64) -> Element {
-	let Api(api) = use_context();
+	let Api(api, tab) = use_context();
 	let Refresh(refresh) = use_context();
 	// a layout saved without some tile would never show it
 	let dock_key = format!("review-archive-board{}", LANES.iter().map(|l| format!("-{}", l.1)).collect::<String>());
@@ -64,7 +64,7 @@ pub fn Lanes(gmb: i64, target: i64) -> Element {
 			let api = api.clone();
 			async move {
 				refresh();
-				api.board(gmb, target).await.map_err(shown)
+				api.track_board(gmb, target, tab).await.map_err(shown)
 			}
 		}
 	});
@@ -72,7 +72,7 @@ pub fn Lanes(gmb: i64, target: i64) -> Element {
 		let (api, dock_key) = (api.clone(), dock_key.clone());
 		move || {
 			let (api, dock_key) = (api.clone(), dock_key.clone());
-			async move { api.layouts(&dock_key).await.map_err(shown) }
+			async move { api.list_layouts(&dock_key).await.map_err(shown) }
 		}
 	});
 	let dragging = use_signal(|| None::<Drag>);
@@ -201,8 +201,8 @@ fn Lane(column: Column, cards: Vec<BoardCard>, gmb: i64, dragging: Signal<Option
 				let Some(d) = dragging.take() else { return };
 				let review = d.review;
 				match d.onto(column) {
-					Some(true) => act(move |c| async move { c.reinstate(gmb, review).await.map(drop) }),
-					Some(false) => act(move |c| async move { c.withdraw_reinstatement(gmb, review).await }),
+					Some(true) => act(move |c, tab| async move { c.reinstate(gmb, review, tab).await.map(drop) }),
+					Some(false) => act(move |c, tab| async move { c.withdraw_reinstatement(gmb, review, tab).await }),
 					None => {}
 				}
 			},

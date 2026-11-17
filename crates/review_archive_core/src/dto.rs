@@ -108,9 +108,12 @@ pub struct ReviewDto {
 	pub capture_corrupted: Option<bool>,
 }
 
+/// The operation that serves a capture, its `file` `<sha256>.webp`: its route's path.
+pub const CAPTURE: &str = "/captures/{file}";
+
 /// Where the API serves a capture.
 pub fn capture_url(sha256: &str) -> String {
-	format!("/captures/{sha256}.webp")
+	CAPTURE.replace("{file}", &format!("{sha256}.webp"))
 }
 
 /// One target's activity on one UTC day.
@@ -520,14 +523,6 @@ pub struct EventPayload {
 	pub run: Option<RunDto>,
 }
 
-/// An error response.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
-pub struct ErrorBody {
-	/// What went wrong; `internal error` for a 5xx, whose details stay in the server log.
-	pub error: String,
-}
-
 /// `GET /targets/{id}/reviews`.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -884,7 +879,7 @@ pub struct DayReviews {
 	pub lost: u32,
 }
 
-/// A page of one of the conductor's feeds: `GET /api/conductor/charges`, `GET /api/conductor/notifications`.
+/// A page of one of the conductor's feeds (`sa_core::feeds`): charges, usage, notifications.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct FeedQuery {

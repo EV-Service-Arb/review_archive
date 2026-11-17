@@ -31,6 +31,7 @@
 
 #![warn(missing_docs)]
 
+pub mod dashboards;
 pub mod dto;
 pub mod gbp;
 pub mod maps;
@@ -38,6 +39,7 @@ pub mod reconcile;
 pub mod relative_date;
 pub mod schedule;
 pub mod tokens;
+pub mod views;
 
 use std::{collections::HashMap, fmt, str::FromStr};
 

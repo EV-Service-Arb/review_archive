@@ -1,199 +1,101 @@
-//! Who is calling: the person the Service-Arb panel vouches for, in the assertion it signs on
-//! every request it forwards ([`sa_auth`]), checked with its public keys
-//! (`PANEL_ASSERTION_KEYS`). What they may do is its `sa:review_archive:*` permissions; who
-//! they are here is a person found or made by its `sub`. The conductor's assertion names no one,
-//! and opens only its own reads.
+//! Who is calling: the person the conductor vouches for in the assertion it signs on every
+//! request it forwards ([`sa_auth`]), found or made here by its `sub`, or the conductor itself.
+//! What a person may do is their `sa:review_archive:*` permissions, as the route's gate checks.
 
-use axum::{
-	Json,
-	extract::{FromRequestParts, Request, State},
-	http::{StatusCode, request::Parts},
-	middleware::Next,
-	response::{IntoResponse, Response},
-};
+use axum::{extract::FromRequestParts, http::request::Parts};
 use ev_lib::api::{
-	GenContext, OperationInput,
-	openapi::{HeaderStyle, Operation, Parameter, ParameterData, ParameterSchemaOrContent, ReferenceOr, SchemaObject},
+	GenContext, OperationInput, OperationOutput, Refusal,
+	openapi::{HeaderStyle, Operation, Parameter, ParameterData, ParameterSchemaOrContent, ReferenceOr, Response, SchemaObject, StatusCode},
 	schemars::json_schema,
 };
 use review_archive::store::people::{Claim, Seen};
-use review_archive_core::{
-	PersonId,
-	dto::{ErrorBody, MEMBER_HEADER},
-};
-use sa_auth::{PermissionSet, Service};
+use review_archive_core::{PersonId, dto::MEMBER_HEADER};
+use sa_auth::{Gate, Principal, User, Vouch};
 
-use crate::http::AppState;
+use crate::http::{AppState, Code};
 
-/// Who a request is from.
-#[derive(Clone, Debug)]
-pub struct Caller {
-	pub person: PersonId,
-	pub email: String,
-	pub permissions: PermissionSet,
-}
-
-/// Whose word a caller is taken on.
-pub enum Auth {
-	/// The panel's.
-	Panel(sa_auth::Keys),
-	/// `serve --dev-member`: every request is this one person, for a local dashboard.
-	Dev { person: PersonId, email: String, permissions: PermissionSet },
-}
-
-fn refuse(status: StatusCode, why: &str) -> Response {
-	(status, Json(ErrorBody { error: why.into() })).into_response()
-}
-
-fn unauthorized() -> Response {
-	refuse(StatusCode::UNAUTHORIZED, "unauthorized")
-}
-
-/// The panel's assertion on `req`, checked; a refusal is answered 401.
-fn asserted(keys: &sa_auth::Keys, req: &Request) -> Result<sa_auth::Assertion, Response> {
-	let Some(token) = req.headers().get(sa_auth::HEADER).and_then(|v| v.to_str().ok()) else {
-		return Err(unauthorized());
-	};
-	let now = jiff::Timestamp::now().as_second();
-	sa_auth::verify(keys, token, Service::ReviewArchive, req.method().as_str(), req.uri().path(), None, now).map_err(|e| {
-		tracing::warn!(%e, "an assertion refused");
-		unauthorized()
-	})
-}
-
-/// Every operation: puts the [`Caller`] in the request.
-pub async fn authenticate(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
-	let seen = match &*state.auth {
-		Auth::Dev { person, email, permissions } => {
-			req.extensions_mut().insert(Caller {
-				person: *person,
-				email: email.clone(),
-				permissions: permissions.clone(),
-			});
-			return next.run(req).await;
-		}
-		Auth::Panel(keys) => match asserted(keys, &req) {
-			Ok(sa_auth::Assertion {
-				principal: sa_auth::Principal::User(user),
-				..
-			}) => user,
-			Ok(a) => {
-				tracing::warn!(principal = ?a.principal, "an assertion names no user");
-				return unauthorized();
-			}
-			Err(refused) => return refused,
-		},
-	};
-	let claim = state
-		.archive
-		.person(&Seen {
-			sub: &seen.sub,
-			email: &seen.email,
-			email_verified: seen.email_verified,
-			name: &seen.name,
-		})
-		.await;
-	let person = match claim {
-		Ok(Claim::Person(p)) => p,
-		Ok(Claim::Refused(why)) => {
-			tracing::error!(email = seen.email, sub = seen.sub, %why, "a sign-in matches an address's rows it may not claim");
-			return refuse(
-				StatusCode::FORBIDDEN,
-				&format!("records under {} wait for their owner, and this sign-in cannot claim them: {why}. Ask an admin.", seen.email),
-			);
-		}
-		Err(e) => return crate::http::ApiError::from(e).into_response(),
-	};
-	req.extensions_mut().insert(Caller {
-		person,
-		email: seen.email,
-		permissions: seen.permissions,
-	});
-	next.run(req).await
-}
-
-/// What an operation's caller holds beyond a sign-in.
+/// The person a request is from, as the archive knows them.
 #[derive(Clone, Copy, Debug)]
-pub enum Section {
-	/// The archive's own: targets, scans, captures, hooks, stats, export.
-	Operate,
-	/// The members' list: whom one may act as.
-	ActAs,
-}
+pub struct Caller(pub PersonId);
 
-impl Section {
-	pub fn permission(self) -> &'static str {
-		match self {
-			Self::Operate => sa_auth::Archive::Operate.as_str(),
-			Self::ActAs => sa_auth::Members::ActAs.as_str(),
+/// The assertion, then the person it names: claimed in the gate, so no handler's reads include it.
+impl<F: Sync> Vouch<F> for AppState {
+	type Refusal = Code;
+
+	const REFUSALS: &'static [Code] = &[Code::Unauthenticated, Code::Unclaimable, Code::Internal];
+
+	async fn vouch(&self, _: &Gate<F>, parts: &mut Parts) -> Result<Principal, Refusal<Code>> {
+		let user = match self.verifier.principal(parts)? {
+			Principal::User(user) => user,
+			other => return Ok(other),
+		};
+		let seen = Seen {
+			sub: &user.sub,
+			email: &user.email,
+			email_verified: user.email_verified,
+			name: &user.name,
+		};
+		match self.archive.person(&seen).await? {
+			Claim::Person(person) => {
+				parts.extensions.insert(Caller(person));
+				Ok(Principal::User(user))
+			}
+			Claim::Refused(why) => {
+				tracing::error!(email = user.email, sub = user.sub, %why, "a sign-in matches an address's rows it may not claim");
+				Err(Refusal::new(
+					Code::Unclaimable,
+					format!("records under {} wait for their owner, and this sign-in cannot claim them: {why}. Ask an admin.", user.email),
+				))
+			}
 		}
 	}
 }
 
-/// Layered under [`authenticate`]: the caller holds the section's permission.
-pub async fn require(State(section): State<Section>, req: Request, next: Next) -> Response {
-	let p = section.permission();
-	let held = req.extensions().get::<Caller>().expect("layered under authenticate").permissions.iter().any(|held| held == p);
-	match held {
-		true => next.run(req).await,
-		false => refuse(StatusCode::FORBIDDEN, &format!("this route needs {p}")),
+impl<S: Send + Sync> FromRequestParts<S> for Caller {
+	type Rejection = std::convert::Infallible;
+
+	async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+		Ok(*parts.extensions.get::<Caller>().expect("the gate's vouch puts the person of the user it admits"))
 	}
 }
 
-/// Who the assertion is from, when only `admits` may call.
-async fn principal(state: &AppState, admits: fn(&sa_auth::Principal) -> bool, req: Request, next: Next) -> Response {
-	let Auth::Panel(keys) = &*state.auth else {
-		return unauthorized(); // `--dev-member` has no conductor to hear from
-	};
-	match asserted(keys, &req) {
-		Ok(a) if admits(&a.principal) => next.run(req).await,
-		Ok(a) => {
-			tracing::warn!(principal = ?a.principal, path = req.uri().path(), "a route asked by someone it does not admit");
-			unauthorized()
-		}
-		Err(refused) => refused,
-	}
-}
-
-/// `/api/conductor/*` and `/dashboards`: the conductor's own assertion, and nobody else's.
-pub async fn conductor(State(state): State<AppState>, req: Request, next: Next) -> Response {
-	principal(&state, |p| matches!(p, sa_auth::Principal::Conductor), req, next).await
-}
-
-/// `/openapi.json`: the conductor's pull, or anyone signed in.
-pub async fn conductor_or_user(State(state): State<AppState>, req: Request, next: Next) -> Response {
-	if let Auth::Dev { .. } = &*state.auth {
-		return next.run(req).await;
-	}
-	principal(&state, |p| matches!(p, sa_auth::Principal::Conductor | sa_auth::Principal::User(_)), req, next).await
-}
+impl OperationInput for Caller {}
 
 /// Whose `/me` this is: the caller, or the person `X-Member` names: the caller again, or anyone
 /// for one who may act as others.
 pub struct Member(pub PersonId);
 
 impl FromRequestParts<AppState> for Member {
-	type Rejection = Response;
+	type Rejection = Refusal<Code>;
 
-	async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Response> {
-		let caller = parts.extensions.get::<Caller>().expect("layered under authenticate");
+	async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Refusal<Code>> {
+		let Caller(caller) = Caller::from_request_parts(parts, state).await.expect("infallible");
 		let Some(named) = parts.headers.get(MEMBER_HEADER) else {
-			return Ok(Self(caller.person));
+			return Ok(Self(caller));
 		};
 		let id = named
 			.to_str()
 			.ok()
 			.and_then(|v| v.trim().parse::<i64>().ok())
 			.map(PersonId)
-			.ok_or_else(|| refuse(StatusCode::BAD_REQUEST, "X-Member is not a person id"))?;
-		if id == caller.person {
+			.ok_or_else(|| Refusal::new(Code::Invalid, "X-Member is not a person id"))?;
+		if id == caller {
 			return Ok(Self(id));
 		}
-		if !caller.permissions.may(sa_auth::Members::ActAs) {
-			return Err(refuse(StatusCode::FORBIDDEN, "acting as another member needs sa:review_archive:members:act_as"));
+		let user = parts.extensions.get::<User>().expect("the gate puts the user it admitted");
+		if !user.permissions.may(sa_auth::Members::ActAs) {
+			return Err(Refusal::new(Code::Forbidden, "acting as another member needs sa:review_archive:members:act_as"));
 		}
-		state.archive.check_person(id).await.map_err(|e| crate::http::ApiError::from(e).into_response())?;
+		state.archive.check_person(id).await?;
 		Ok(Self(id))
+	}
+}
+
+impl sa_core::prices::Payer for Member {
+	type Who = PersonId;
+
+	fn payer(&self) -> PersonId {
+		self.0
 	}
 }
 
@@ -218,14 +120,49 @@ impl OperationInput for Member {
 			style: HeaderStyle::Simple,
 		}));
 	}
+
+	fn inferred_early_responses(ctx: &mut GenContext, op: &mut Operation) -> Vec<(Option<StatusCode>, Response)> {
+		Refusal::<Code>::inferred_responses(ctx, op)
+	}
 }
 
-impl OperationInput for Caller {}
+/// `serve --dev-member`: a request without an assertion gets one for `user`, signed by a key made
+/// here and held by nothing else, so a local dashboard goes through the same gate as the conductor's.
+#[derive(Clone)]
+pub struct Dev {
+	signer: std::sync::Arc<sa_auth::Signer>,
+	user: User,
+}
 
-impl<S: Send + Sync> FromRequestParts<S> for Caller {
-	type Rejection = std::convert::Infallible;
+impl Dev {
+	pub fn new(user: User) -> Self {
+		use base64::{Engine, engine::general_purpose::STANDARD};
+		let seed: [u8; 32] = rand::random();
+		let signer = format!("dev:{}", STANDARD.encode(seed)).parse().expect("a kid and a 32-byte seed");
+		Self {
+			signer: std::sync::Arc::new(signer),
+			user,
+		}
+	}
 
-	async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-		Ok(parts.extensions.get::<Caller>().expect("layered under authenticate").clone())
+	/// The gate's keys: only this one's.
+	pub fn verifier(&self) -> sa_auth::Verifier {
+		sa_auth::Verifier::new(self.signer.public().parse().expect("a Signer's public key parses"), sa_auth::Service::ReviewArchive)
+	}
+
+	pub(crate) async fn sign(self, mut req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+		if !req.headers().contains_key(sa_auth::HEADER) {
+			let now = jiff::Timestamp::now().as_second();
+			let assertion = sa_auth::Assertion {
+				aud: sa_auth::Service::ReviewArchive,
+				principal: Principal::User(self.user.clone()),
+				method: req.method().to_string(),
+				path: req.uri().path().to_owned(),
+				exp: now + sa_auth::TTL,
+			};
+			let token = self.signer.sign(&assertion).parse().expect("a JWS is base64url and dots");
+			req.headers_mut().insert(sa_auth::HEADER, token);
+		}
+		next.run(req).await
 	}
 }

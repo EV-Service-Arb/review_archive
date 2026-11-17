@@ -10,10 +10,10 @@ use review_archive::{
 	Archive,
 	config::Config,
 	core::{
-		Coverage, Known, Observed, OwnerPost, PersonId, Scan, Target,
+		Coverage, Known, Observed, OwnerPost, Scan, Target,
 		dto::{
-			CaptureRequest, Country, Event, JobStatus, LocationSummary, Managed, Me, MemberDto, NewTarget, NewWebhook, OnGoogle, Setting, Settings, SettingsPatch, Snapshot, TargetPatch,
-			TrackPatch,
+			CaptureRequest, Country, Event, JobAccepted, JobStatus, LocationSummary, Managed, Me, MemberDto, NewTarget, NewWebhook, OnGoogle, Setting, Settings, SettingsPatch, Snapshot,
+			TargetPatch, TrackPatch,
 		},
 		schedule::Schedule,
 		tokens::{Meter, Tokens},
@@ -25,9 +25,9 @@ use review_archive::{
 		people::{Claim, Seen},
 	},
 };
-use review_archive_client::{Captured, Client};
+use review_archive_client::{CapturePlace, Client};
 use review_archive_server::{
-	auth::Auth,
+	auth::Dev,
 	http::{AppState, HttpConfig, router},
 	worker::Signals,
 };
@@ -124,6 +124,10 @@ struct Env {
 }
 
 async fn env() -> Env {
+	env_with(HttpConfig::default()).await
+}
+
+async fn env_with(http: HttpConfig) -> Env {
 	let dir = tempfile::tempdir().unwrap();
 	let mut config = Config {
 		data_dir: Some(dir.path().to_owned()),
@@ -149,8 +153,8 @@ async fn env() -> Env {
 			}
 		})
 	};
-	let auth = Auth::Panel(signer.public().parse().unwrap());
-	let app = router(AppState::new(archive.clone(), auth, signals.clone(), HttpConfig::default()), None, None).layer(panel);
+	let verifier = sa_auth::Verifier::new(signer.public().parse().unwrap(), sa_auth::Service::ReviewArchive);
+	let app = router(AppState::new(archive.clone(), verifier, signals.clone(), http), None, None).layer(panel);
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let base = format!("http://{}", listener.local_addr().unwrap());
 	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -236,7 +240,16 @@ impl Env {
 
 /// The place a member's GMB tracks.
 async fn track_of(member: &Client, gmb: i64) -> review_archive::core::dto::TargetDto {
-	member.overview().await.unwrap().into_iter().flat_map(|g| g.gmbs).find(|b| b.id == gmb).unwrap().track.target
+	member
+		.my_overview(None)
+		.await
+		.unwrap()
+		.into_iter()
+		.flat_map(|g| g.gmbs)
+		.find(|b| b.id == gmb)
+		.unwrap()
+		.track
+		.target
 }
 
 /// The first GMB's place, as its member's overview shows it.
@@ -332,15 +345,15 @@ async fn targets_crud_and_errors() {
 		.await
 		.unwrap();
 	assert_eq!((t.label.as_str(), t.interval_secs, t.enabled), ("Tour Eiffel", 12 * 3600, true));
-	assert_eq!(e.client.targets().await.unwrap(), vec![t.clone()]);
+	assert_eq!(e.client.list_targets().await.unwrap(), vec![t.clone()]);
 
-	let detail = e.client.target(t.id).await.unwrap();
+	let detail = e.client.get_target(t.id).await.unwrap();
 	assert_eq!((detail.reviews, detail.last_run), (0, None));
 	assert!(detail.next_scan_at.is_some(), "never scanned: due now");
 
 	let patched = e
 		.client
-		.update_target(
+		.patch_target(
 			t.id,
 			&TargetPatch {
 				label: Some("Eiffel".into()),
@@ -353,12 +366,12 @@ async fn targets_crud_and_errors() {
 	assert_eq!((patched.label.as_str(), patched.interval_secs, patched.lang.as_str()), ("Eiffel", 86_400, "fr"));
 	let disabled = e.client.disable_target(t.id).await.unwrap();
 	assert!(!disabled.enabled);
-	assert_eq!(e.client.target(t.id).await.unwrap().next_scan_at, None);
+	assert_eq!(e.client.get_target(t.id).await.unwrap().next_scan_at, None);
 
 	// the caller's mistakes are 4xx with a reason, not 500s
 	let too_often = e
 		.client
-		.update_target(
+		.patch_target(
 			t.id,
 			&TargetPatch {
 				interval: Some("10m".into()),
@@ -369,9 +382,9 @@ async fn targets_crud_and_errors() {
 		.unwrap_err();
 	assert_eq!(too_often.status(), Some(StatusCode::BAD_REQUEST));
 	assert!(too_often.to_string().contains("at least 1h"), "{too_often}");
-	assert_eq!(e.client.target(999).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(e.client.runs(999, None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(e.client.scan(999).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(e.client.get_target(999).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(e.client.list_runs(999, None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(e.client.scan_target(999).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	let not_a_place = e
 		.client
 		.add_target(&NewTarget {
@@ -398,18 +411,18 @@ async fn scans_and_captures_are_jobs_with_their_reviews() {
 		.unwrap();
 
 	// a scan now: queued until the worker takes it
-	let job = e.client.scan(t.id).await.unwrap();
-	assert_eq!(e.client.job(job).await.unwrap().status, JobStatus::Queued);
+	let job = e.client.scan_target(t.id).await.unwrap().job_id;
+	assert_eq!(e.client.get_job(job).await.unwrap().status, JobStatus::Queued);
 	work_one(&e, vec![review("a"), review("b")]).await;
-	let done = e.client.job(job).await.unwrap();
+	let done = e.client.get_job(job).await.unwrap();
 	assert_eq!(done.status, JobStatus::Done);
 	let reviews = done.reviews.unwrap();
 	assert_eq!(reviews.iter().map(|r| r.source_review_id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
 	assert_eq!(done.run.unwrap().counts.new, 2);
-	let runs = e.client.runs(t.id, Some(5)).await.unwrap();
+	let runs = e.client.list_runs(t.id, Some(5)).await.unwrap();
 	assert_eq!(runs.len(), 1);
 
-	let detail = e.client.review(reviews[0].id).await.unwrap();
+	let detail = e.client.get_review(reviews[0].id).await.unwrap();
 	assert_eq!(detail.versions.len(), 1);
 	assert!(detail.captures.is_empty());
 
@@ -425,7 +438,7 @@ async fn scans_and_captures_are_jobs_with_their_reviews() {
 	let waiting = {
 		let client = e.client.clone();
 		let req = req.clone();
-		tokio::spawn(async move { client.capture(&req, Some(10)).await })
+		tokio::spawn(async move { client.capture_place(Some(10), &req).await })
 	};
 	// wait for the capture to be queued, then do the worker's part
 	let mut queued = false;
@@ -438,7 +451,7 @@ async fn scans_and_captures_are_jobs_with_their_reviews() {
 	}
 	assert!(queued);
 	work_one(&e, vec![review("c"), review("a")]).await;
-	let Captured::Done(capture) = waiting.await.unwrap().unwrap() else {
+	let CapturePlace::Ok(capture) = waiting.await.unwrap().unwrap() else {
 		panic!("finished within the wait")
 	};
 	assert_eq!(capture.target_id, t.id);
@@ -449,16 +462,16 @@ async fn scans_and_captures_are_jobs_with_their_reviews() {
 		place: Some("ChIJotherotherotherother".into()),
 		..Default::default()
 	};
-	let Captured::Queued(id) = e.client.capture(&other, None).await.unwrap() else {
+	let CapturePlace::Accepted(JobAccepted { job_id: id }) = e.client.capture_place(None, &other).await.unwrap() else {
 		panic!("nothing works the queue here")
 	};
-	let implicit = e.client.target(e.client.job(id).await.unwrap().target_id).await.unwrap();
+	let implicit = e.client.get_target(e.client.get_job(id).await.unwrap().target_id).await.unwrap();
 	assert_eq!(
 		(implicit.target.enabled, implicit.target.label.as_str()),
 		(false, "ChIJotherotherotherother"),
 		"named by its first walk"
 	);
-	let bad = e.client.capture(&CaptureRequest::default(), None).await.unwrap_err();
+	let bad = e.client.capture_place(None, &CaptureRequest::default()).await.unwrap_err();
 	assert_eq!(bad.status(), Some(StatusCode::BAD_REQUEST));
 
 	// export.zip: the manifest lists the target's reviews
@@ -485,7 +498,7 @@ async fn webhooks() {
 		.await
 		.unwrap();
 	assert_eq!(hook.events, [Event::ReviewNew, Event::RunFailed]);
-	let listed = e.client.webhooks().await.unwrap();
+	let listed = e.client.list_webhooks().await.unwrap();
 	assert_eq!(listed, vec![hook.clone()]);
 	assert!(!serde_json::to_string(&listed).unwrap().contains("0123456789abcdef"), "the secret is never returned");
 	let weak = e
@@ -574,6 +587,7 @@ async fn every_route_but_health_wants_an_assertion() {
 		("GET", "/api/conductor/charges"),
 		("GET", "/api/conductor/usage"),
 		("GET", "/api/conductor/notifications"),
+		("GET", "/api/conductor/changes"),
 		("GET", &format!("/api/conductor/captures/{}.png", "0".repeat(64))),
 		("GET", "/dashboards"),
 		("GET", "/openapi.json"),
@@ -636,7 +650,7 @@ async fn a_forged_or_expired_assertion_is_no_sign_in() {
 #[tokio::test]
 async fn reviews_of_an_unknown_target_are_a_404() {
 	let e = env().await;
-	let err = e.client.reviews(999, None, None).await.unwrap_err();
+	let err = e.client.list_reviews(999, None, None).await.unwrap_err();
 	assert_eq!(err.status(), Some(StatusCode::NOT_FOUND), "{err}");
 	e.server.abort();
 }
@@ -661,7 +675,7 @@ async fn an_interval_too_large_to_store_is_a_400() {
 	let id = add_place(&e).await;
 	let patch = e
 		.client
-		.update_target(
+		.patch_target(
 			id,
 			&TargetPatch {
 				interval: Some(huge.into()),
@@ -674,8 +688,8 @@ async fn an_interval_too_large_to_store_is_a_400() {
 	e.server.abort();
 }
 
-/// The API speaks JSON in and out, errors included: a body or a query it cannot read gets
-/// the same `{"error": …}` as every other 4xx.
+/// The API speaks JSON in and out, errors included: a body or a query it cannot read is
+/// refused `{"code": "bad_request", "error": …}`.
 #[tokio::test]
 async fn an_unreadable_body_or_query_gets_a_json_error_body() {
 	let e = env().await;
@@ -688,13 +702,11 @@ async fn an_unreadable_body_or_query_gets_a_json_error_body() {
 		.await
 		.unwrap();
 	assert!(bad_body.status().is_client_error(), "{}", bad_body.status());
-	let text = bad_body.text().await.unwrap();
-	assert!(serde_json::from_str::<review_archive::core::dto::ErrorBody>(&text).is_ok(), "not an ErrorBody: {text:?}");
+	assert_eq!(bad_body.json::<serde_json::Value>().await.unwrap()["code"], "bad_request");
 
 	let bad_query = http.get(format!("{}/targets/1/reviews?gone=maybe", e.base)).send().await.unwrap();
 	assert!(bad_query.status().is_client_error(), "{}", bad_query.status());
-	let text = bad_query.text().await.unwrap();
-	assert!(serde_json::from_str::<review_archive::core::dto::ErrorBody>(&text).is_ok(), "not an ErrorBody: {text:?}");
+	assert_eq!(bad_query.json::<serde_json::Value>().await.unwrap()["code"], "bad_request");
 	e.server.abort();
 }
 
@@ -703,23 +715,23 @@ async fn a_capture_is_served_only_once_recorded_and_by_its_exact_name() {
 	let e = env().await;
 	let t = add_place(&e).await;
 	record(&e, t, vec![captured("a")]).await;
-	let a = e.client.reviews(t, None, None).await.unwrap().remove(0);
-	let url = a.capture_url.clone().expect("a capture was recorded");
-	let sha = a.capture_sha256.clone().unwrap();
+	let a = e.client.list_reviews(t, None, None).await.unwrap().remove(0);
+	let sha = a.capture_sha256.clone().expect("a capture was recorded");
+	assert_eq!(a.capture_url.as_deref(), Some(format!("/captures/{sha}.webp").as_str()));
 
-	let webp = e.client.capture_webp(&url).await.unwrap();
+	let webp = e.client.capture_webp(&format!("{sha}.webp")).await.unwrap();
 	assert_eq!((&webp[..4], &webp[8..12]), (&b"RIFF"[..], &b"WEBP"[..]));
 	let blobs = review_archive::store::blobs::BlobStore::new(e.dir.path().join("blobs"));
 	assert_eq!(webp, std::fs::read(blobs.path_of(&sha).unwrap()).unwrap());
 
 	// a file in the blob dir that no capture row names is not served
 	let stray = blobs.put(b"not a recorded capture").await.unwrap();
-	assert_eq!(e.client.capture_webp(&format!("/captures/{stray}.webp")).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	let never_recorded = format!("/captures/{}.webp", "0".repeat(64));
+	assert_eq!(e.client.capture_webp(&format!("{stray}.webp")).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	let never_recorded = format!("{}.webp", "0".repeat(64));
 	assert_eq!(e.client.capture_webp(&never_recorded).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(e.client.capture_webp(&format!("/captures/{sha}")).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(e.client.capture_webp(&sha).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	assert_eq!(
-		e.client.capture_webp(&format!("/captures/{}.webp", sha.to_uppercase())).await.unwrap_err().status(),
+		e.client.capture_webp(&format!("{}.webp", sha.to_uppercase())).await.unwrap_err().status(),
 		Some(StatusCode::NOT_FOUND)
 	);
 	e.server.abort();
@@ -730,7 +742,7 @@ async fn export_zip_holds_each_first_capture_under_its_manifest_name() {
 	let e = env().await;
 	let t = add_place(&e).await;
 	record(&e, t, vec![captured("a"), review("b")]).await;
-	let a = e.client.reviews(t, None, None).await.unwrap().into_iter().find(|r| r.source_review_id == "a").unwrap();
+	let a = e.client.list_reviews(t, None, None).await.unwrap().into_iter().find(|r| r.source_review_id == "a").unwrap();
 
 	let zip = e.client.export_zip(t, None).await.unwrap();
 	let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
@@ -750,7 +762,7 @@ async fn export_zip_holds_each_first_capture_under_its_manifest_name() {
 
 	let mut in_zip = Vec::new();
 	archive.by_name(&a_file).unwrap().read_to_end(&mut in_zip).unwrap();
-	assert_eq!(in_zip, e.client.capture_webp(a.capture_url.as_deref().unwrap()).await.unwrap());
+	assert_eq!(in_zip, e.client.capture_webp(&format!("{}.webp", a.capture_sha256.as_deref().unwrap())).await.unwrap());
 
 	// `since` filters on first sight: nothing was first seen in the future
 	let later = e.client.export_zip(t, Some("2999-01-01")).await.unwrap();
@@ -777,17 +789,17 @@ async fn patch_changes_only_what_it_names_and_delete_only_disables() {
 		.await
 		.unwrap();
 
-	let same = e.client.update_target(t.id, &TargetPatch::default()).await.unwrap();
+	let same = e.client.patch_target(t.id, &TargetPatch::default()).await.unwrap();
 	assert_eq!(same, t, "an empty patch changes nothing");
 
 	let gone = e.client.disable_target(t.id).await.unwrap();
 	let gone_again = e.client.disable_target(t.id).await.unwrap();
 	assert_eq!((gone.enabled, gone_again.enabled), (false, false), "DELETE is idempotent");
-	assert_eq!(e.client.targets().await.unwrap().len(), 1, "a deleted target is kept");
+	assert_eq!(e.client.list_targets().await.unwrap().len(), 1, "a deleted target is kept");
 
 	let back = e
 		.client
-		.update_target(
+		.patch_target(
 			t.id,
 			&TargetPatch {
 				enabled: Some(true),
@@ -798,11 +810,11 @@ async fn patch_changes_only_what_it_names_and_delete_only_disables() {
 		.unwrap();
 	assert_eq!((back.enabled, back.label.as_str(), back.lang.as_str()), (true, "Eiffel", "fr"));
 
-	assert_eq!(e.client.update_target(999, &TargetPatch::default()).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(e.client.patch_target(999, &TargetPatch::default()).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	assert_eq!(e.client.disable_target(999).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	let bad = e
 		.client
-		.update_target(
+		.patch_target(
 			t.id,
 			&TargetPatch {
 				interval: Some("soon".into()),
@@ -821,13 +833,13 @@ async fn stats_come_back_as_json_through_the_client_and_as_csv_on_request() {
 	let t = add_place(&e).await;
 	record(&e, t, vec![review("a"), review("b")]).await;
 	// the UTC day the archive recorded them on
-	let today = e.client.reviews(t, None, None).await.unwrap()[0].first_seen[..10].to_owned();
+	let today = e.client.list_reviews(t, None, None).await.unwrap()[0].first_seen[..10].to_owned();
 
-	let rows = e.client.stats(Some(t), Some(&today), Some(&today)).await.unwrap();
+	let rows = e.client.stats(Some(&today), Some(t), Some(&today)).await.unwrap();
 	assert_eq!(rows.len(), 1, "{rows:?}");
 	assert_eq!((rows[0].day.as_str(), rows[0].new, rows[0].histogram), (today.as_str(), 2, [0, 0, 0, 0, 2]));
 	assert_eq!(rows[0].mean_rating, Some(5.0));
-	assert!(e.client.stats(Some(t), Some("2999-01-01"), None).await.unwrap().is_empty());
+	assert!(e.client.stats(Some("2999-01-01"), Some(t), None).await.unwrap().is_empty());
 
 	let csv = http_as(&operator())
 		.get(format!("{}/stats?target={t}", e.base))
@@ -847,6 +859,39 @@ async fn stats_come_back_as_json_through_the_client_and_as_csv_on_request() {
 	e.server.abort();
 }
 
+/// A request past `http.request_timeout` is refused like any other: a code the client reads.
+#[tokio::test]
+async fn a_request_past_its_time_is_refused_timed_out() {
+	let e = env_with(HttpConfig {
+		request_timeout: "1s".into(),
+		..HttpConfig::default()
+	})
+	.await;
+	add_place(&e).await;
+	let req = CaptureRequest {
+		place: Some(PLACE.into()),
+		..Default::default()
+	};
+	match e.client.capture_place(Some(60), &req).await {
+		Err(review_archive_client::Error::Api { status, code, .. }) => assert_eq!((status, code.as_str()), (StatusCode::REQUEST_TIMEOUT, "timed_out")),
+		other => panic!("nothing works the queue, so the wait outlives the request: {other:?}"),
+	}
+	e.server.abort();
+}
+
+/// A member reads the runs of a place they track, and of no other.
+#[tokio::test]
+async fn a_member_reads_the_runs_of_their_tracks() {
+	let e = env().await;
+	let (alice, bob) = (e.member(ALICE), e.member(BOB));
+	let g = e.gmb(ALICE, "alice@gmail.com", PLACE).await;
+	let t = track_of(&alice, g).await.id;
+	record(&e, t, vec![review("a")]).await;
+	assert_eq!(alice.track_runs(g, t, Some(5), None).await.unwrap().len(), 1);
+	assert_eq!(bob.track_runs(g, t, Some(5), None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	e.server.abort();
+}
+
 /// `?wait=` far beyond the 120 s cap is capped, not added to the clock as is.
 #[tokio::test]
 async fn a_wait_beyond_the_cap_still_answers_when_the_job_ends() {
@@ -858,7 +903,7 @@ async fn a_wait_beyond_the_cap_still_answers_when_the_job_ends() {
 	};
 	let waiting = {
 		let client = e.client.clone();
-		tokio::spawn(async move { client.capture(&req, Some(u64::MAX)).await })
+		tokio::spawn(async move { client.capture_place(Some(u64::MAX), &req).await })
 	};
 	let store = e.archive.store().unwrap();
 	let mut queued = false;
@@ -872,7 +917,7 @@ async fn a_wait_beyond_the_cap_still_answers_when_the_job_ends() {
 	assert!(queued, "the capture was queued");
 	work_one(&e, vec![review("a")]).await;
 	let got = tokio::time::timeout(Duration::from_secs(10), waiting).await.expect("answered once the job ended").unwrap();
-	assert!(matches!(got, Ok(Captured::Done(ref job)) if job.status == JobStatus::Done), "{got:?}");
+	assert!(matches!(got, Ok(CapturePlace::Ok(ref job)) if job.status == JobStatus::Done), "{got:?}");
 	e.server.abort();
 }
 
@@ -882,11 +927,70 @@ async fn archive_routes_need_archive_operate() {
 	let e = env().await;
 	let all_but = e.caller(&Who::member("root").may(&[sa_auth::Members::ActAs.as_str()]));
 	for c in [all_but, e.member(ALICE)] {
-		assert_eq!(c.targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-		assert_eq!(c.webhooks().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
+		assert_eq!(c.list_targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
+		assert_eq!(c.list_webhooks().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 		assert_eq!(c.export_zip(1, None).await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 	}
-	assert_eq!(e.client.targets().await.unwrap(), vec![]);
+	assert_eq!(e.client.list_targets().await.unwrap(), vec![]);
+	e.server.abort();
+}
+
+/// The conductor's change feed tells a write by the tables it committed to, and a read names the
+/// tables it read: a write through the API refreshes the reads of what it touched, and only those.
+#[tokio::test]
+async fn a_write_is_told_on_the_feed_by_the_tables_a_read_names() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let g = e.gmb(ALICE, "alice@gmail.com", PLACE).await;
+	let t = track_of(&alice, g).await.id;
+	let board = http_as(&Who::member(ALICE)).get(format!("{}/me/gmbs/{g}/tracks/{t}/board", e.base)).send().await.unwrap();
+	let read: Vec<String> = board.headers()["x-sa-reads"].to_str().unwrap().split(", ").map(str::to_owned).collect();
+	assert!(read.iter().any(|r| r == "review_archive.tracks"), "{read:?}");
+
+	let feed = sa_core::feeds::CHANGES;
+	let conductor = e.signer.sign(&sa_auth::Assertion {
+		aud: sa_auth::Service::ReviewArchive,
+		principal: sa_auth::Principal::Conductor,
+		method: "GET".into(),
+		path: feed.into(),
+		exp: alive(),
+	});
+	let mut feed = reqwest::Client::new().get(format!("{}{feed}", e.base)).header(sa_auth::HEADER, conductor).send().await.unwrap();
+	assert_eq!(feed.status(), StatusCode::OK);
+	let mut lines = String::new();
+	let mut next = async || {
+		while !lines.contains('\n') {
+			lines.push_str(std::str::from_utf8(&feed.chunk().await.unwrap().expect("the feed stays open")).unwrap());
+		}
+		let (line, rest) = lines.split_once('\n').unwrap();
+		let line: sa_core::feeds::Line = serde_json::from_str(line).unwrap();
+		lines = rest.to_owned();
+		line
+	};
+	assert_eq!(next().await, sa_core::feeds::Line::Resync, "a reader reads all first");
+
+	let favorite = TrackPatch {
+		favorite: Some(true),
+		..Default::default()
+	};
+	alice.patch_track(g, t, None, &favorite).await.unwrap();
+	let mut told = std::collections::BTreeSet::new();
+	while let Ok(line) = tokio::time::timeout(Duration::from_millis(500), next()).await {
+		let sa_core::feeds::Line::Changed { topic } = line else { panic!("{line:?} amid a write") };
+		told.insert(topic);
+	}
+	assert_eq!(told, ["review_archive.tracks".to_owned()].into(), "the write's tables, and only those");
+	e.server.abort();
+}
+
+/// A read names the tables its handler read, for the conductor to re-read it by: who is calling
+/// is the gate's to find, so a sign-in that claims a person does not refresh every member's screen.
+#[tokio::test]
+async fn a_read_names_its_tables_and_not_the_callers() {
+	let e = env().await;
+	let read = http_as(&Who::member(ALICE)).get(format!("{}/layouts/ra-location", e.base)).send().await.unwrap();
+	assert_eq!(read.status(), StatusCode::OK);
+	assert_eq!(read.headers()["x-sa-reads"], "review_archive.layouts");
 	e.server.abort();
 }
 
@@ -905,7 +1009,7 @@ async fn me_is_open_to_anyone_signed_in() {
 			permissions: vec![],
 		}
 	);
-	assert_eq!(alice.overview().await.unwrap(), vec![]);
+	assert_eq!(alice.my_overview(None).await.unwrap(), vec![]);
 	e.server.abort();
 }
 
@@ -916,7 +1020,7 @@ async fn members_need_act_as() {
 	let alice = e.member(ALICE);
 	let a = id(&alice).await;
 	for c in [&e.client, &alice] {
-		assert_eq!(c.members().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
+		assert_eq!(c.list_members().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 	}
 	let actor = e.caller(&Who::member("root").may(&[sa_auth::Members::ActAs.as_str()]));
 	let root = id(&actor).await;
@@ -928,7 +1032,7 @@ async fn members_need_act_as() {
 		balance,
 	};
 	assert_eq!(
-		actor.members().await.unwrap(),
+		actor.list_members().await.unwrap(),
 		vec![member(a, ALICE, 0), member(root, "root", 0)],
 		"no balance from the conductor yet"
 	);
@@ -944,21 +1048,20 @@ async fn acting_as_a_member_needs_members_act_as() {
 	let g = e.gmb(ALICE, "alice@gmail.com", PLACE).await;
 	let a = id(&alice).await;
 	let admin = e.admin();
-	assert_eq!(admin.overview().await.unwrap(), vec![], "without the header, the admin's own");
-	let as_alice = admin.clone().as_member(a);
-	assert_eq!(as_alice.overview().await.unwrap(), alice.overview().await.unwrap());
+	assert_eq!(admin.my_overview(None).await.unwrap(), vec![], "without the header, the admin's own");
+	assert_eq!(admin.my_overview(Some(a)).await.unwrap(), alice.my_overview(None).await.unwrap());
 	let favorite = TrackPatch {
 		favorite: Some(true),
 		..Default::default()
 	};
-	as_alice.patch_track(g, track_of(&alice, g).await.id, &favorite).await.unwrap();
-	assert!(first(&alice.overview().await.unwrap()).favorite, "the admin's write is alice's");
-	assert_eq!(as_alice.me().await.unwrap().email, "root@x.com");
-	assert_eq!(admin.as_member(9999).overview().await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	admin.patch_track(g, track_of(&alice, g).await.id, Some(a), &favorite).await.unwrap();
+	assert!(first(&alice.my_overview(None).await.unwrap()).favorite, "the admin's write is alice's");
+	assert_eq!(admin.me().await.unwrap().email, "root@x.com");
+	assert_eq!(admin.my_overview(Some(9999)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	for c in [e.client.clone(), e.member(BOB)] {
-		assert_eq!(c.as_member(a).overview().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
+		assert_eq!(c.my_overview(Some(a)).await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 	}
-	assert_eq!(alice.clone().as_member(a).overview().await.unwrap(), alice.overview().await.unwrap());
+	assert_eq!(alice.my_overview(Some(a)).await.unwrap(), alice.my_overview(None).await.unwrap());
 	e.server.abort();
 }
 
@@ -991,6 +1094,19 @@ async fn an_address_another_account_holds_cannot_be_claimed() {
 	e.server.abort();
 }
 
+const TEST: &str = "00000000-0000-0000-0000-00000000007e";
+
+/// The `--dev-member` the dev tests sign for, holding nothing.
+fn test_user() -> sa_auth::User {
+	sa_auth::User {
+		sub: TEST.into(),
+		email: "test@localhost".into(),
+		email_verified: true,
+		name: "test".into(),
+		permissions: Vec::<String>::new().into_iter().collect(),
+	}
+}
+
 /// `serve --dev-member`: every request is that member, so a dashboard runs without the panel.
 #[tokio::test]
 async fn a_dev_member_stands_in_for_a_missing_sign_in() {
@@ -1000,14 +1116,13 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 		..Config::default()
 	};
 	let archive = Archive::open(config).await.unwrap();
-	const TEST: &str = "00000000-0000-0000-0000-00000000007e";
 	let seen = Seen {
 		sub: TEST,
 		email: "test@localhost",
 		email_verified: true,
 		name: "test",
 	};
-	let Claim::Person(test) = archive.person(&seen).await.unwrap() else {
+	let Claim::Person(_) = archive.person(&seen).await.unwrap() else {
 		panic!("nobody else holds the address")
 	};
 	let snapshot = Snapshot {
@@ -1029,34 +1144,28 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 		prices: Default::default(),
 	};
 	archive.apply_snapshot(&snapshot).await.unwrap();
-	let auth = Auth::Dev {
-		person: test,
-		email: "test@localhost".into(),
-		permissions: Vec::<String>::new().into_iter().collect(),
-	};
+	let dev = Dev::new(test_user());
 	let mfe = tempfile::tempdir().unwrap();
-	let app = router(AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()), Some(mfe.path()), Some("/"));
+	let app = router(
+		AppState::new(archive, dev.verifier(), Arc::new(Signals::default()), HttpConfig::default()),
+		Some(mfe.path()),
+		Some(dev),
+	);
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let base = format!("http://{}", listener.local_addr().unwrap());
 	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
 	let nobody = Client::ambient(reqwest::Client::new(), &base).unwrap();
-	assert_eq!(nobody.overview().await.unwrap()[0].gmail.gmail, "ops@gmail.com");
+	assert_eq!(nobody.my_overview(None).await.unwrap()[0].gmail.gmail, "ops@gmail.com");
 	assert_eq!(nobody.me().await.unwrap().email, "test@localhost");
-	assert_eq!(nobody.targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN), "a member, not the operator");
-	for view in [
-		"/",
-		"/gmbs",
-		"/gmbs/1",
-		"/gmbs/1/tracks/2",
-		"/gmails/1",
-		"/members/3",
-		"/members/3/",
-		"/members/3/gmbs/1/tracks/2",
-	] {
+	assert_eq!(nobody.list_targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN), "a member, not the operator");
+	for view in ["/", "/gmbs/1", "/gmails/1", "/settings", "/act-as", "/members/3", "/members/3/", "/members/3/gmbs/1"] {
 		let page = reqwest::get(format!("{base}{view}")).await.unwrap();
 		assert_eq!(page.status(), StatusCode::OK, "{view} is the dashboard's page");
 		assert!(page.text().await.unwrap().contains("mfe-review-archive-dashboard"));
+	}
+	for nowhere in ["/gmbs", "/gmbs/1/tracks/2", "/members/x"] {
+		assert_eq!(reqwest::get(format!("{base}{nowhere}")).await.unwrap().status(), StatusCode::NOT_FOUND, "{nowhere} is no view");
 	}
 	assert_eq!(
 		reqwest::get(format!("{base}/dashboards")).await.unwrap().status(),
@@ -1066,8 +1175,8 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	server.abort();
 }
 
-/// `/dashboards` is every file of `grafana/dashboards/`, to the conductor alone, each querying
-/// the conductor's `review_archive` datasource.
+/// `/dashboards` is every dashboard the page frames, to the conductor alone, each querying the
+/// conductor's `review_archive` datasource, and naming no variable it does not declare.
 #[tokio::test]
 async fn the_conductor_alone_is_served_every_dashboard() {
 	let e = env().await;
@@ -1103,15 +1212,19 @@ async fn the_conductor_alone_is_served_every_dashboard() {
 	assert_eq!(served.status(), StatusCode::OK);
 	let etag = served.headers()["etag"].to_str().unwrap().to_owned();
 	assert!(etag.starts_with('"'), "a strong tag: {etag}");
-	let mut served: Vec<serde_json::Value> = served.json().await.unwrap();
-	let mut on_disk: Vec<serde_json::Value> = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../grafana/dashboards"))
-		.unwrap()
-		.map(|f| serde_json::from_slice(&std::fs::read(f.unwrap().path()).unwrap()).unwrap())
-		.collect();
+	let served: Vec<serde_json::Value> = served.json().await.unwrap();
 	let uid = |d: &serde_json::Value| d["uid"].as_str().expect("the conductor files a dashboard by its uid").to_owned();
-	served.sort_by_key(uid);
-	on_disk.sort_by_key(uid);
-	assert_eq!(served, on_disk);
+	let mut uids: Vec<String> = served.iter().map(uid).collect();
+	uids.sort();
+	assert_eq!(uids, [review_archive::core::dashboards::LOCATION, review_archive::core::dashboards::OVERVIEW]);
+	for d in &served {
+		let declared: Vec<&str> = d["templating"]["list"].as_array().unwrap().iter().map(|v| v["name"].as_str().unwrap()).collect();
+		let text = d.to_string();
+		for named in text.split("${").skip(1) {
+			let name = named.split(['}', ':']).next().unwrap();
+			assert!(name.starts_with("__") || declared.contains(&name), "{}: ${{{name}}} is no variable of its", uid(d));
+		}
+	}
 
 	fn infinity_uids(v: &serde_json::Value, uids: &mut Vec<String>) {
 		match v {
@@ -1175,7 +1288,7 @@ async fn the_conductor_pulls_the_document_and_a_member_may_read_it() {
 	assert_eq!(doc["servers"][0]["url"], "/", "the conductor finds its forward by the base");
 	let scan = &doc["paths"]["/me/gmbs/{gmb}/tracks/{target}/scan"]["post"];
 	assert_eq!(scan["operationId"], "scan_track");
-	assert_eq!(scan["x-spends"], true);
+	assert_eq!(scan["x-spends"], serde_json::json!(["walk.open", "walk.reviews", "walk.sort", "walk.sort_retry", "walk.step"]));
 	assert_eq!(doc["paths"]["/targets"]["get"]["x-permission"], sa_auth::Archive::Operate.as_str());
 	assert!(doc["paths"].get("/api/conductor/charges").is_none(), "the conductor's own calls are no operation");
 
@@ -1208,12 +1321,12 @@ async fn a_new_bundle_is_never_answered_from_an_old_ones_cache() {
 		})
 		.await
 		.unwrap();
-		let auth = Auth::Dev {
-			person: PersonId(1),
-			email: "test@localhost".into(),
-			permissions: Vec::<String>::new().into_iter().collect(),
-		};
-		let app = router(AppState::new(archive, auth, Arc::new(Signals::default()), HttpConfig::default()), Some(mfe.path()), Some("/"));
+		let dev = Dev::new(test_user());
+		let app = router(
+			AppState::new(archive, dev.verifier(), Arc::new(Signals::default()), HttpConfig::default()),
+			Some(mfe.path()),
+			Some(dev),
+		);
 		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let base = format!("http://{}", listener.local_addr().unwrap());
 		(dir, base, tokio::spawn(async move { axum::serve(listener, app).await.unwrap() }))
@@ -1264,7 +1377,7 @@ async fn members_share_places_but_see_only_their_own() {
 
 	let t = track_of(&alice, a).await;
 	assert_eq!(track_of(&bob, b).await.id, t.id, "one place, one target");
-	assert_eq!(e.client.targets().await.unwrap().len(), 1);
+	assert_eq!(e.client.list_targets().await.unwrap().len(), 1);
 
 	// the overview counts screenshots by when they were taken: one today, one a fortnight ago
 	let taken = |id: &str, days_ago: i64| {
@@ -1279,7 +1392,7 @@ async fn members_share_places_but_see_only_their_own() {
 		..review("r3")
 	};
 	record(&e, t.id, vec![taken("r1", 0), taken("r2", 14), replied]).await;
-	let overview = alice.overview().await.unwrap();
+	let overview = alice.my_overview(None).await.unwrap();
 	assert_eq!(overview.len(), 1);
 	let loc = first(&overview);
 	assert_eq!(
@@ -1303,51 +1416,56 @@ async fn members_share_places_but_see_only_their_own() {
 	for p in [post("Closed for renovation", 12), post("Open on Sunday", 1), post("Open on Sunday", 1)] {
 		e.archive.record(&p, &target).await.unwrap();
 	}
-	let loc = first(&alice.overview().await.unwrap()).clone();
+	let loc = first(&alice.my_overview(None).await.unwrap()).clone();
 	assert_eq!(loc.posts_7d, 1, "one post, seen twice, in the last week");
 	assert_eq!(loc.latest_post.map(|p| p.text).as_deref(), Some("Open on Sunday"));
 	assert_eq!((loc.last_run_status, loc.last_run_error), (Some(review_archive::core::dto::RunStatus::Ok), None));
 	e.archive.record(&Fails, &target).await.unwrap();
-	let loc = first(&alice.overview().await.unwrap()).clone();
+	let loc = first(&alice.my_overview(None).await.unwrap()).clone();
 	assert_eq!(
 		(loc.last_run_status, loc.last_run_error.as_deref()),
 		(Some(review_archive::core::dto::RunStatus::Failed), Some("the page did not load")),
 		"the card says why"
 	);
 
-	let board = alice.board(a, t.id).await.unwrap();
-	let url = board.snapshotted.iter().find_map(|c| c.review.capture_url.clone()).expect("r1 was captured");
+	let board = alice.track_board(a, t.id, None).await.unwrap();
+	let url = board
+		.snapshotted
+		.iter()
+		.find_map(|c| c.review.capture_sha256.as_ref())
+		.map(|sha| format!("{sha}.webp"))
+		.expect("r1 was captured");
 	assert_eq!(&alice.capture_webp(&url).await.unwrap()[8..12], b"WEBP");
 	assert!(e.client.capture_webp(&url).await.is_ok(), "the operator sees everything");
-	assert_eq!(bob.board(a, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(bob.track_board(a, t.id, None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 
 	let favorite = |on| TrackPatch {
 		favorite: Some(on),
 		..Default::default()
 	};
-	alice.patch_track(a, t.id, &favorite(true)).await.unwrap();
-	let loc = first(&alice.overview().await.unwrap()).clone();
+	alice.patch_track(a, t.id, None, &favorite(true)).await.unwrap();
+	let loc = first(&alice.my_overview(None).await.unwrap()).clone();
 	assert!(loc.favorite && loc.enabled, "a favorite leaves the switch as it was");
-	assert!(!first(&bob.overview().await.unwrap()).favorite, "alice's favorite is not bob's");
-	assert_eq!(bob.patch_track(a, t.id, &favorite(true)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	alice.patch_track(a, t.id, &favorite(false)).await.unwrap();
-	assert!(!first(&alice.overview().await.unwrap()).favorite);
+	assert!(!first(&bob.my_overview(None).await.unwrap()).favorite, "alice's favorite is not bob's");
+	assert_eq!(bob.patch_track(a, t.id, None, &favorite(true)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	alice.patch_track(a, t.id, None, &favorite(false)).await.unwrap();
+	assert!(!first(&alice.my_overview(None).await.unwrap()).favorite);
 
 	assert_eq!(
-		alice.relink(a, t.id).await.unwrap_err().status(),
+		alice.relink_track(a, t.id, None).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"no Google account with a Places key to ask with"
 	);
-	assert_eq!(bob.relink(a, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(bob.relink_track(a, t.id, None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 
 	// once bob's GMB is removed, the place's screenshots are no longer his to see
 	assert!(bob.capture_webp(&url).await.is_ok());
 	e.remove(b).await;
 	assert_eq!(bob.capture_webp(&url).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(bob.overview().await.unwrap(), vec![]);
+	assert_eq!(bob.my_overview(None).await.unwrap(), vec![]);
 	assert_eq!(track_of(&alice, a).await.id, t.id, "alice's track stays");
 	e.remove(a).await;
-	assert_eq!(e.client.targets().await.unwrap().len(), 1, "untracked by all, the target and its archive stay");
+	assert_eq!(e.client.list_targets().await.unwrap().len(), 1, "untracked by all, the target and its archive stay");
 	e.server.abort();
 }
 
@@ -1372,34 +1490,34 @@ async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 		(ids(&b.snapshotted), ids(&b.suspended), ids(&b.removed), ids(&b.reinstating))
 	};
 	let counts = |l: &review_archive::core::dto::LocationSummary| (l.suspended, l.removed, l.reinstating);
-	let board = alice.board(g, t.id).await.unwrap();
+	let board = alice.track_board(g, t.id, None).await.unwrap();
 	assert_eq!(columns(&board), (vec!["kept".into()], vec!["suspended".into()], vec!["removed".into()], vec![]));
-	assert_eq!(counts(first(&alice.overview().await.unwrap())), (1, 1, 0));
+	assert_eq!(counts(first(&alice.my_overview(None).await.unwrap())), (1, 1, 0));
 	let (kept, suspended) = (board.snapshotted[0].review.id, board.suspended[0].review.id);
 
 	assert_eq!(
-		alice.reinstate(g, kept).await.unwrap_err().status(),
+		alice.reinstate(g, kept, None).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"a listed review has nothing to appeal"
 	);
-	let asked = alice.reinstate(g, suspended).await.unwrap();
-	assert_eq!(alice.reinstate(g, suspended).await.unwrap(), asked, "asking twice is the one appeal");
+	let asked = alice.reinstate(g, suspended, None).await.unwrap();
+	assert_eq!(alice.reinstate(g, suspended, None).await.unwrap(), asked, "asking twice is the one appeal");
 	assert_eq!(
-		columns(&alice.board(g, t.id).await.unwrap()),
+		columns(&alice.track_board(g, t.id, None).await.unwrap()),
 		(vec!["kept".into()], vec![], vec!["removed".into()], vec!["suspended".into()])
 	);
-	assert_eq!(counts(first(&alice.overview().await.unwrap())), (0, 1, 1));
+	assert_eq!(counts(first(&alice.my_overview(None).await.unwrap())), (0, 1, 1));
 
-	alice.withdraw_reinstatement(g, suspended).await.unwrap();
-	assert_eq!(alice.withdraw_reinstatement(g, suspended).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	alice.withdraw_reinstatement(g, suspended, None).await.unwrap();
+	assert_eq!(alice.withdraw_reinstatement(g, suspended, None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	assert_eq!(
-		columns(&alice.board(g, t.id).await.unwrap()),
+		columns(&alice.track_board(g, t.id, None).await.unwrap()),
 		(vec!["kept".into()], vec!["suspended".into()], vec!["removed".into()], vec![])
 	);
-	alice.reinstate(g, suspended).await.unwrap();
+	alice.reinstate(g, suspended, None).await.unwrap();
 
 	record(&e, t.id, vec![review("kept"), review("suspended"), low]).await;
-	let board = alice.board(g, t.id).await.unwrap();
+	let board = alice.track_board(g, t.id, None).await.unwrap();
 	assert_eq!(
 		columns(&board),
 		(vec!["removed".into(), "suspended".into(), "kept".into()], vec![], vec![], vec![]),
@@ -1423,7 +1541,7 @@ async fn my_gmbs_tags_what_needs_the_operator() {
 	record(&e, t, vec![review("kept")]).await;
 	record(&e, q, vec![review("kept")]).await;
 	let appealed = alice
-		.board(troubled, t)
+		.track_board(troubled, t, None)
 		.await
 		.unwrap()
 		.suspended
@@ -1432,9 +1550,9 @@ async fn my_gmbs_tags_what_needs_the_operator() {
 		.unwrap()
 		.review
 		.id;
-	alice.reinstate(troubled, appealed).await.unwrap();
+	alice.reinstate(troubled, appealed, None).await.unwrap();
 
-	let tag = async |g| alice.my_gmbs().await.unwrap().gmbs[&g].clone();
+	let tag = async |g| alice.my_gmbs(None).await.unwrap().gmbs[&g].clone();
 	let ok = tag(troubled).await;
 	assert_eq!((ok.suspended, ok.reinstating, ok.failing), (1, 1, false));
 
@@ -1471,7 +1589,7 @@ async fn my_gmbs_draws_live_reviews_by_collected_day() {
 	walk(|| Timestamp::now() - SignedDuration::from_hours(24), vec![review("a"), review("b")]).await;
 	walk(Timestamp::now, vec![review("a"), review("b"), review("d")]).await;
 
-	let days = alice.my_gmbs().await.unwrap().gmbs[&g].live_30d.clone();
+	let days = alice.my_gmbs(None).await.unwrap().gmbs[&g].live_30d.clone();
 	assert_eq!(days.len(), 30, "today last");
 	let collected: Vec<_> = days.iter().enumerate().filter_map(|(i, d)| d.map(|d| (i, d.live, d.lost))).collect();
 	assert_eq!(collected, vec![(26, 3, 0), (28, 2, 1), (29, 3, 0)]);
@@ -1498,32 +1616,32 @@ async fn a_place_is_scanned_while_anyone_has_it_on() {
 		.id;
 	let scanned = async || {
 		let due = e.archive.due(Timestamp::now()).await.unwrap().into_iter().map(|t| t.id.0).collect::<Vec<_>>();
-		let next = e.client.target(t).await.unwrap().next_scan_at.is_some();
+		let next = e.client.get_target(t).await.unwrap().next_scan_at.is_some();
 		assert_eq!(due.contains(&t), next, "the schedule and the target's detail agree");
 		assert!(due.contains(&untracked), "a target no one tracks keeps its own flag");
 		next
 	};
 	assert!(scanned().await);
-	let overview = alice.overview().await.unwrap();
+	let overview = alice.my_overview(None).await.unwrap();
 	assert!(first(&overview).enabled, "on by default");
 
 	let switch = |on| TrackPatch {
 		enabled: Some(on),
 		..Default::default()
 	};
-	alice.patch_track(a, t, &switch(false)).await.unwrap();
-	assert!(!first(&alice.overview().await.unwrap()).enabled);
+	alice.patch_track(a, t, None, &switch(false)).await.unwrap();
+	assert!(!first(&alice.my_overview(None).await.unwrap()).enabled);
 	assert!(scanned().await, "bob still has it on");
-	bob.patch_track(b, t, &switch(false)).await.unwrap();
+	bob.patch_track(b, t, None, &switch(false)).await.unwrap();
 	assert!(!scanned().await, "nobody has it on");
-	assert!(e.client.target(t).await.unwrap().target.enabled, "the shared target is untouched");
+	assert!(e.client.get_target(t).await.unwrap().target.enabled, "the shared target is untouched");
 
 	assert_eq!(
-		bob.patch_track(a, t, &switch(true)).await.unwrap_err().status(),
+		bob.patch_track(a, t, None, &switch(true)).await.unwrap_err().status(),
 		Some(StatusCode::NOT_FOUND),
 		"alice's GMB is not bob's"
 	);
-	bob.patch_track(b, t, &switch(true)).await.unwrap();
+	bob.patch_track(b, t, None, &switch(true)).await.unwrap();
 	assert!(scanned().await);
 	e.server.abort();
 }
@@ -1537,15 +1655,15 @@ async fn a_members_interval_schedules_every_place_they_pay_for() {
 	let (alice, bob) = (e.member(ALICE), e.member(BOB));
 	let (a, b) = (e.gmb(ALICE, "alice@gmail.com", PLACE).await, e.gmb(BOB, "bob@gmail.com", PLACE).await);
 	let t = track_of(&alice, a).await;
-	let scheduled = async || e.client.target(t.id).await.unwrap().target.interval_secs;
+	let scheduled = async || e.client.get_target(t.id).await.unwrap().target.interval_secs;
 	let every = |interval: &str| SettingsPatch { interval: Some(interval.into()) };
 	let day = 86_400;
 	let interval = |chosen| Settings {
 		interval_secs: Setting { chosen, default: day },
 	};
-	assert_eq!(alice.settings().await.unwrap(), interval(None));
+	assert_eq!(alice.my_settings(None).await.unwrap(), interval(None));
 	e.client
-		.update_target(
+		.patch_target(
 			t.id,
 			&TargetPatch {
 				interval: Some("12h".into()),
@@ -1556,28 +1674,28 @@ async fn a_members_interval_schedules_every_place_they_pay_for() {
 		.unwrap();
 	assert_eq!(scheduled().await, day, "paid for, the place's own interval is not what it goes by");
 
-	assert_eq!(alice.patch_settings(&every("6h")).await.unwrap(), interval(Some(6 * 3600)));
-	bob.patch_settings(&every("2d")).await.unwrap();
+	assert_eq!(alice.patch_my_settings(None, &every("6h")).await.unwrap(), interval(Some(6 * 3600)));
+	bob.patch_my_settings(None, &every("2d")).await.unwrap();
 	assert_eq!(scheduled().await, 6 * 3600);
-	assert_eq!(first(&bob.overview().await.unwrap()).target.interval_secs, 6 * 3600, "the place is shared");
-	assert_eq!(alice.patch_settings(&SettingsPatch::default()).await.unwrap(), interval(Some(6 * 3600)), "absent stays");
+	assert_eq!(first(&bob.my_overview(None).await.unwrap()).target.interval_secs, 6 * 3600, "the place is shared");
+	assert_eq!(alice.patch_my_settings(None, &SettingsPatch::default()).await.unwrap(), interval(Some(6 * 3600)), "absent stays");
 
 	let switch = |on| TrackPatch {
 		enabled: Some(on),
 		..Default::default()
 	};
-	alice.patch_track(a, t.id, &switch(false)).await.unwrap();
+	alice.patch_track(a, t.id, None, &switch(false)).await.unwrap();
 	assert_eq!(scheduled().await, 2 * day, "alice pays for nothing while her track is off");
-	alice.patch_track(a, t.id, &switch(true)).await.unwrap();
+	alice.patch_track(a, t.id, None, &switch(true)).await.unwrap();
 
-	assert_eq!(alice.reset_settings().await.unwrap(), interval(None));
+	assert_eq!(alice.reset_my_settings(None).await.unwrap(), interval(None));
 	assert_eq!(scheduled().await, day, "alice is back on the default, sooner than bob's");
 	e.remove(a).await;
 	e.remove(b).await;
 	assert_eq!(scheduled().await, 12 * 3600, "nobody pays: the place's own");
 
 	assert_eq!(
-		alice.patch_settings(&every("1m")).await.unwrap_err().status(),
+		alice.patch_my_settings(None, &every("1m")).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"below schedule.min_interval"
 	);
@@ -1606,7 +1724,7 @@ async fn as_conductor(e: &Env, path_and_query: &str) -> reqwest::Response {
 async fn notes(e: &Env, after: i64, limit: u32) -> sa_alerts::NotePage {
 	let page: sa_alerts::NotePage = as_conductor(e, &format!("/api/conductor/notifications?after={after}&limit={limit}")).await.json().await.unwrap();
 	for n in &page.notes {
-		n.check(sa_alerts::Origin::ReviewArchive).unwrap();
+		n.check(sa_auth::Service::ReviewArchive).unwrap();
 	}
 	page
 }
@@ -1627,7 +1745,7 @@ async fn the_conductor_pulls_alerts_on_tracked_places() {
 		enabled: Some(false),
 		..Default::default()
 	};
-	bob.patch_track(b, t, &off).await.unwrap();
+	bob.patch_track(b, t, None, &off).await.unwrap();
 	let other = track_of(&carol, c).await.id;
 	let hook = e
 		.client

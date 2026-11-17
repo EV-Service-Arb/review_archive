@@ -2,7 +2,7 @@
 //! history, captures, runs. Captures live beside it in [`blobs`].
 //!
 //! Every write that reads first takes the database's write lock up front (`BEGIN
-//! IMMEDIATE`): `serve`'s worker, its HTTP side and a hand-run `scan` write at once, and a
+//! IMMEDIATE`): `serve`'s worker, its HTTP side and a rolling update's second `serve` write at once, and a
 //! read-then-write transaction that only asks for the lock at its first write fails when
 //! another writer got in between.
 
@@ -38,7 +38,7 @@ use review_archive_core::{
 use sa_core::prices::Item;
 use sqlx::{
 	FromRow, SqliteConnection, Transaction,
-	sqlite::{Sqlite, SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+	sqlite::{Sqlite, SqliteConnectOptions, SqliteJournalMode},
 };
 pub use tokens::{Bill, Rail};
 use v_utils::Timeframe;
@@ -57,6 +57,8 @@ pub(crate) fn sat_u32(n: impl TryInto<u32>) -> u32 {
 #[derive(Clone, Debug)]
 pub struct Store {
 	pool: sqlx::SqlitePool,
+	/// `review_archive.<table>` of each committed write, once per table (`ev_lib::sqlite`).
+	changes: tokio::sync::broadcast::Sender<String>,
 	/// What a member who chose none scans by.
 	default_interval: Timeframe,
 	/// [`target_columns`] at `default_interval`.
@@ -417,19 +419,29 @@ impl Store {
 			.create_if_missing(true)
 			.journal_mode(SqliteJournalMode::Wal)
 			.foreign_keys(true)
-			// `serve` and a hand-run `scan` may write at the same time
+			// a rolling update's two `serve`s may write at the same time
 			.busy_timeout(Duration::from_secs(30));
-		let pool = SqlitePoolOptions::new()
-			.max_connections(4)
-			.connect_with(opts)
+		let (changes, _) = tokio::sync::broadcast::channel(1024);
+		let told = changes.clone();
+		let pool = ev_lib::sqlite::pool("review_archive", opts, 4, Duration::from_secs(30), move |topic| {
+			// nobody subscribed (no feed open, or a library's archive) is nobody to tell
+			let _ = told.send(topic.to_owned());
+		});
+		sqlx::migrate!("./migrations")
+			.run(&pool)
 			.await
-			.wrap_err_with(|| format!("opening {}", db_path.display()))?;
-		sqlx::migrate!("./migrations").run(&pool).await.wrap_err("applying migrations")?;
+			.wrap_err_with(|| format!("opening and migrating {}", db_path.display()))?;
 		Ok(Self {
 			pool,
+			changes,
 			default_interval,
 			target_columns: target_columns(default_interval).into(),
 		})
+	}
+
+	/// What commits from here on: `review_archive.<table>` per table written.
+	pub fn changes(&self) -> tokio::sync::broadcast::Receiver<String> {
+		self.changes.subscribe()
 	}
 
 	/// A write transaction that holds the write lock from its start.
@@ -1147,7 +1159,7 @@ async fn run_by_id<'e, E: sqlx::SqliteExecutor<'e>>(db: E, id: RunId) -> eyre::R
 
 /// Ends the run, and its job with it: a failed run fails the job, anything else is done.
 async fn finish(tx: &mut SqliteConnection, end: RunEnd<'_>, counts: Counts, seen: &[ReviewId], now: Timestamp) -> eyre::Result<()> {
-	// a hand-run scan outliving a restart: its usage went out as `fail_interrupted` found it kept, and a feed row never changes
+	// a walk in another process outliving a restart: its usage went out as `fail_interrupted` found it kept, and a feed row never changes
 	let swept: bool = sqlx::query_scalar("SELECT finished_at IS NOT NULL FROM runs WHERE id = ?")
 		.bind(end.run.0)
 		.fetch_one(&mut *tx)

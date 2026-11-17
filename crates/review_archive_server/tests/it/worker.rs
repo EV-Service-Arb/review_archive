@@ -38,6 +38,14 @@ impl Drop for TempDir {
 	}
 }
 
+/// The place, walked on Maps.
+fn maps_target() -> NewTarget {
+	NewTarget {
+		place: Some(PLACE.into()),
+		..Default::default()
+	}
+}
+
 async fn gbp_target(archive: &Archive, disabled: bool) -> TargetId {
 	let req = NewTarget {
 		place: Some(PLACE.into()),
@@ -151,7 +159,6 @@ fn serve_whose_worker_cannot_go_on_exits_78() {
 		c.arg("--config").arg(&config).args(args).env("APP_ENV", "development");
 		c
 	};
-	assert!(cli(&["target", "add", PLACE]).status().unwrap().success());
 	tokio::runtime::Runtime::new().unwrap().block_on(async {
 		let archive = Archive::open(Config {
 			data_dir: Some(dir.0.join("data")),
@@ -159,6 +166,7 @@ fn serve_whose_worker_cannot_go_on_exits_78() {
 		})
 		.await
 		.unwrap();
+		archive.add_target(&maps_target()).await.unwrap();
 		archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 		archive.close().await;
 	});
@@ -190,7 +198,6 @@ fn serve_with_every_account_signed_out_exits_78_at_boot() {
 		c.arg("--config").arg(&config).args(args).env("APP_ENV", "development");
 		c
 	};
-	assert!(cli(&["target", "add", PLACE, "--interval", "1d"]).status().unwrap().success());
 	let rt = tokio::runtime::Runtime::new().unwrap();
 	let target = rt.block_on(async {
 		let archive = Archive::open(Config {
@@ -199,6 +206,13 @@ fn serve_with_every_account_signed_out_exits_78_at_boot() {
 		})
 		.await
 		.unwrap();
+		archive
+			.add_target(&NewTarget {
+				interval: Some("1d".into()),
+				..maps_target()
+			})
+			.await
+			.unwrap();
 		archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 		archive.store().unwrap().mark_signed_out(&data.join("chromium-profile"), Timestamp::now()).await.unwrap();
 		let target = archive.targets().await.unwrap()[0].id;
@@ -249,7 +263,6 @@ fn serve_without_the_login_check_outlives_every_account_signed_out() {
 		c.arg("--config").arg(&config).args(args).env("APP_ENV", "development");
 		c
 	};
-	assert!(cli(&["target", "add", PLACE, "--interval", "1d"]).status().unwrap().success());
 	let rt = tokio::runtime::Runtime::new().unwrap();
 	let open = || async {
 		Archive::open(Config {
@@ -261,6 +274,13 @@ fn serve_without_the_login_check_outlives_every_account_signed_out() {
 	};
 	let target = rt.block_on(async {
 		let archive = open().await;
+		archive
+			.add_target(&NewTarget {
+				interval: Some("1d".into()),
+				..maps_target()
+			})
+			.await
+			.unwrap();
 		archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 		archive.store().unwrap().mark_signed_out(&data.join("chromium-profile"), Timestamp::now()).await.unwrap();
 		let target = archive.targets().await.unwrap()[0].id;

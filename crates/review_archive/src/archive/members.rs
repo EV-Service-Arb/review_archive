@@ -5,10 +5,14 @@
 use jiff::Timestamp;
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, TargetId,
-	dto::{Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch, UsagePage},
+	dto::{
+		Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch,
+		UsagePage,
+	},
 	parse_interval,
 };
 use sa_alerts::NotePage;
+use sa_core::prices::{Spender, WalkStep};
 
 use super::Archive;
 use crate::store::people::{Claim, Seen};
@@ -83,7 +87,8 @@ impl Archive {
 
 	/// Queues a scan of a place the member's GMB tracks, on top of its schedule; the member
 	/// pays for it. Returns the job id.
-	pub async fn scan_tracked(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<i64> {
+	pub async fn scan_tracked(&self, by: Spender<WalkStep, PersonId>, gmb: i64, target: TargetId) -> eyre::Result<i64> {
+		let member = by.user();
 		let store = self.store()?;
 		store.check_track(member, gmb, target).await?;
 		match store.gmb_switch(gmb).await? {
@@ -107,6 +112,12 @@ impl Archive {
 	/// A tracked place's reviews: snapshotted, suspended, removed, reinstating.
 	pub async fn board(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<Board> {
 		self.store()?.board(member, gmb, target).await
+	}
+
+	/// A tracked place's runs, newest first: the ones its target shares with every member who tracks it.
+	pub async fn track_runs(&self, member: PersonId, gmb: i64, target: TargetId, q: &RunsQuery) -> eyre::Result<Vec<RunDto>> {
+		self.store()?.check_track(member, gmb, target).await?;
+		self.runs(target, q).await
 	}
 
 	/// Records that the review's reinstatement was asked of Google, now.

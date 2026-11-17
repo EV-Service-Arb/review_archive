@@ -20,9 +20,11 @@ settings = ["dep:clap", "dep:schemars", "v_utils/cli"]
 [dependencies]
 clap = { workspace = true, optional = true }
 csv.workspace = true
+ev_lib = { workspace = true, features = ["views"] }
 eyre.workspace = true
 jiff.workspace = true
 miette.workspace = true
+sa_auth.workspace = true
 sa_core.workspace = true
 schemars = { workspace = true, optional = true }
 scraper.workspace = true

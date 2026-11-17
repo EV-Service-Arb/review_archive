@@ -1,10 +1,10 @@
-//! The locations overview drawn by Grafana (`grafana/dashboards/ra-overview.json`) in place of the
-//! cards, and a place's board (`ra-location`: its lanes and runs, tiled by the tilers plugin,
+//! The locations overview drawn by Grafana ([`OVERVIEW`], built by the server's `dashboards.rs`) in place of the
+//! cards, and a place's board ([`LOCATION`]: its lanes and runs, tiled by the tilers plugin,
 //! `evmain-tilers-app`). One frame from the host's Grafana (the element's `grafana`) starts with the page
 //! and lives as long: its boot takes seconds, moving it to another dashboard or vars does not. A
 //! [`Slot`] says where it shows and what; the frame is laid over the slot on screen and steered
-//! there, never reloaded. Both post up what is done in them: the overview's clicks (`ra-open`,
-//! `ra-scan`, `ra-enable`), the board's drops (`ra-reinstate`, `ra-withdraw`).
+//! there, never reloaded. Both post up what is done in them ([`up`]): the overview's clicks, the
+//! board's drops.
 
 use dioxus::{
 	core::{Runtime, current_scope_id},
@@ -12,11 +12,12 @@ use dioxus::{
 	web::WebEventExt,
 };
 use review_archive_client::dto::{NewLayout, TrackPatch};
+use review_archive_core::dashboards::{LOCATION, OVERVIEW, up, var};
 use strum::IntoEnumIterator;
 use wasm_bindgen::{JsCast, prelude::*};
 
 use crate::{
-	Picked, Refresh, Route, Selection, View, act,
+	Picked, Refresh, Route, Selection, act,
 	filter::reviews::{Review, Reviews},
 	may,
 };
@@ -109,7 +110,11 @@ pub fn Host(me: i64, children: Element) -> Element {
 			}
 			if path == steered {
 				let gmbs = |url: reqwest::Url| {
-					let mut v: Vec<String> = url.query_pairs().filter(|(k, _)| k == "var-gmbs").map(|(_, v)| v.into_owned()).collect();
+					let mut v: Vec<String> = url
+						.query_pairs()
+						.filter(|(k, _)| k.strip_prefix("var-") == Some(var::GMBS))
+						.map(|(_, v)| v.into_owned())
+						.collect();
 					v.sort();
 					v
 				};
@@ -169,7 +174,7 @@ pub fn Host(me: i64, children: Element) -> Element {
 					match tilers.as_str() {
 						"ready" => {
 							spawn(async move {
-								match crate::api().layouts(&uid).await {
+								match crate::api().list_layouts(&uid).await {
 									Ok(layouts) => {
 										let published = js_sys::Object::new();
 										for l in layouts {
@@ -198,27 +203,27 @@ pub fn Host(me: i64, children: Element) -> Element {
 				let kind = field("kind").as_string();
 				let id = |k| field(k).as_f64().unwrap_or_else(|| panic!("{kind:?}'s {k} is not an id: {:?}", field(k))) as i64;
 				let up = match kind.as_deref() {
-					Some("ra-open") => Up::Open { gmb: id("gmb") },
-					Some("ra-scan") => Up::Scan {
+					Some(up::OPEN) => Up::Open { gmb: id("gmb") },
+					Some(up::SCAN) => Up::Scan {
 						gmb: id("gmb"),
 						target: id("target"),
 					},
-					Some("ra-enable") => Up::Enable {
+					Some(up::ENABLE) => Up::Enable {
 						gmb: id("gmb"),
 						target: id("target"),
 						on: field("on").as_bool().unwrap_or_else(|| panic!("ra-enable's on is not a bool: {:?}", field("on"))),
 					},
-					Some("ra-favorite") => Up::Favorite {
+					Some(up::FAVORITE) => Up::Favorite {
 						gmb: id("gmb"),
 						target: id("target"),
 						on: field("on").as_bool().unwrap_or_else(|| panic!("ra-favorite's on is not a bool: {:?}", field("on"))),
 					},
-					Some("ra-relink") => Up::Relink {
+					Some(up::RELINK) => Up::Relink {
 						gmb: id("gmb"),
 						target: id("target"),
 					},
-					Some("ra-reinstate") => Up::Reinstate { review: id("review") },
-					Some("ra-withdraw") => Up::Withdraw { review: id("review") },
+					Some(up::REINSTATE) => Up::Reinstate { review: id("review") },
+					Some(up::WITHDRAW) => Up::Withdraw { review: id("review") },
 					_ => return,
 				};
 				// a click can only come from the slot the frame is over
@@ -238,7 +243,7 @@ pub fn Host(me: i64, children: Element) -> Element {
 			.expect("removing a listener");
 	});
 	// it boots on the caller's overview, the likeliest first look, and is steered from there
-	let src = use_hook(|| format!("{}d/ra-overview/{KIOSK}&var-member={me}", grafana()));
+	let src = use_hook(|| format!("{}d/{OVERVIEW}/{KIOSK}&var-{}={me}", grafana(), var::MEMBER));
 	rsx! {
 		div {
 			class: "relative flex min-h-0 flex-1 flex-col",
@@ -302,27 +307,34 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 	// a member's tab is not the host's selection: its `gmbs` stays the frame's own
 	let gmbs = match (tab, selection()) {
 		(Some(_), _) => String::new(),
-		(None, Picked::All) => "&var-gmbs=$__all".into(),
-		(None, Picked::Only(ids)) if ids.is_empty() => "&var-gmbs=".into(),
+		(None, Picked::All) => format!("&var-{}=$__all", var::GMBS),
+		(None, Picked::Only(ids)) if ids.is_empty() => format!("&var-{}=", var::GMBS),
 		(None, Picked::Only(ids)) => {
 			let mut ids: Vec<_> = ids.into_iter().collect();
 			ids.sort_unstable();
-			ids.iter().map(|id| format!("&var-gmbs={id}")).collect()
+			ids.iter().map(|id| format!("&var-{}={id}", var::GMBS)).collect()
 		}
 		(None, Picked::Unknown) => unreachable!("the overview shows once the selection is known"),
 	};
-	let path = format!("d/ra-overview/{KIOSK_PICKS}&var-member={member}&var-gmail={gmail}&var-keys={keys}{gmbs}&var-rev={}", refresh());
+	let path = format!(
+		"d/{OVERVIEW}/{KIOSK_PICKS}&var-{}={member}&var-{}={gmail}&var-{}={keys}{gmbs}&var-{}={}",
+		var::MEMBER,
+		var::GMAIL,
+		var::KEYS,
+		var::REV,
+		refresh()
+	);
 	let on = move |up: Up| match up {
 		Up::Select(picked) if tab.is_none() => crate::select(&picked),
 		Up::Select(_) => {}
 		Up::Open { gmb } => {
 			reviews.set(Reviews::default());
-			navigator().push(Route::at(tab, View::Gmb(gmb)));
+			navigator().push(Route::at(tab, review_archive_core::views::Board::Gmb { gmb }));
 		}
-		Up::Scan { gmb, target } => act(move |c| async move { c.scan_tracked(gmb, target).await.map(drop) }),
-		Up::Enable { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
-		Up::Favorite { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
-		Up::Relink { gmb, target } => act(move |c| async move { c.relink(gmb, target).await.map(drop) }),
+		Up::Scan { gmb, target } => act(move |c, tab| async move { c.scan_track(gmb, target, tab).await.map(drop) }),
+		Up::Enable { gmb, target, on } => act(move |c, tab| async move { c.patch_track(gmb, target, tab, &TrackPatch { enabled: Some(on), favorite: None }).await }),
+		Up::Favorite { gmb, target, on } => act(move |c, tab| async move { c.patch_track(gmb, target, tab, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
+		Up::Relink { gmb, target } => act(move |c, tab| async move { c.relink_track(gmb, target, tab).await.map(drop) }),
 		Up::Reinstate { .. } | Up::Withdraw { .. } => unreachable!("the overview has no lanes"),
 	};
 	rsx! {
@@ -343,12 +355,17 @@ pub fn Location(gmb: i64, target: i64, tab: Option<i64>) -> Element {
 		.map(|r| format!("&var-{r:?}={}", reviews.read().0.get(&r).map(bool::to_string).unwrap_or_default()))
 		.collect();
 	let path = format!(
-		"a/evmain-tilers-app/d/ra-location{KIOSK}&_tilers.host&var-member={member}&var-gmb={gmb}&var-target={target}&var-api={api}{narrowed}&var-rev={}",
+		"a/evmain-tilers-app/d/{LOCATION}{KIOSK}&_tilers.host&var-{}={member}&var-{}={gmb}&var-{}={target}&var-{}={api}{narrowed}&var-{}={}",
+		var::MEMBER,
+		var::GMB,
+		var::TARGET,
+		var::API,
+		var::REV,
 		refresh()
 	);
 	let on = move |up: Up| match up {
-		Up::Reinstate { review } => act(move |c| async move { c.reinstate(gmb, review).await.map(drop) }),
-		Up::Withdraw { review } => act(move |c| async move { c.withdraw_reinstatement(gmb, review).await }),
+		Up::Reinstate { review } => act(move |c, tab| async move { c.reinstate(gmb, review, tab).await.map(drop) }),
+		Up::Withdraw { review } => act(move |c, tab| async move { c.withdraw_reinstatement(gmb, review, tab).await }),
 		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } | Up::Favorite { .. } | Up::Relink { .. } | Up::Select(_) => unreachable!("a board has no location cards nor gmbs"),
 	};
 	rsx! {

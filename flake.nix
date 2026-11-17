@@ -67,7 +67,7 @@
           jobs.default = true;
           lfs = false;
           gitignore.extra = ''
-            # the data dir of a local `serve` / `scan`: the database, the PNGs and the browser profile
+            # the data dir of a local `serve`: the database, the PNGs and the browser profile
             /data/
           '';
         };
@@ -164,6 +164,18 @@
               cargo build -p review_archive_web --target wasm32-unknown-unknown
               bash crates/review_archive_web/package.sh target/wasm32-unknown-unknown/debug/review_archive_web.wasm '$out'
             "
+          '';
+        };
+
+        # `nix run .#gen`: what is derived from the document and committed (the client's operations,
+        # openapi.json), written; `cargo test` fails while either is stale.
+        gen = pkgs.writeShellApplication {
+          name = "gen";
+          runtimeInputs = [ pkgs.git ];
+          text = ''
+            repo="$(git rev-parse --show-toplevel)"
+            cd "$repo"
+            REVIEW_ARCHIVE_GEN=1 nix develop "$repo" --command cargo test -p review_archive_server --test generated
           '';
         };
 
@@ -273,6 +285,7 @@
             nix build .#mfe                   the dashboard bundle (served under /mfe/)
             nix run .#dev-mfe [-- <held>]     the dashboard, built and served locally at /, holding those permissions
             nix run .#build-mfe -- <dir>      the dashboard's bundle, debug, into <dir>
+            nix run .#gen                     the client's operations and openapi.json, from the document
             nix run .#publish -- major|minor|patch [note]
                                               live tests, then tag the next vX.Y.Z and push it: CI ships the image
             nix run .#help                    this
@@ -324,6 +337,7 @@
           help = { type = "app"; program = lib.getExe help; };
           dev-mfe = { type = "app"; program = lib.getExe (devMfe { name = "dev-mfe"; }); };
           build-mfe = { type = "app"; program = lib.getExe buildMfe; };
+          gen = { type = "app"; program = lib.getExe gen; };
           publish = { type = "app"; program = lib.getExe publish; };
         };
 

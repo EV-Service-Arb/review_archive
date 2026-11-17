@@ -3,31 +3,21 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use ev_lib::uikit_dioxus::{Button, ButtonVariant, Size};
 use review_archive_client::dto::BoardCard;
+pub(crate) use review_archive_core::dashboards::Review;
 use strum::IntoEnumIterator;
 
 use super::Tri;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, strum::Display, strum::EnumIter)]
-pub(crate) enum Review {
-	#[strum(to_string = "5-star")]
-	FiveStar,
-	#[strum(to_string = "responded")]
-	Responded,
-	#[strum(to_string = "new 7d")]
-	New7d,
-}
-
-impl Review {
-	fn holds(self, c: &BoardCard) -> bool {
-		match self {
-			Self::FiveStar => c.review.rating == Some(5),
-			Self::Responded => c.review.reply.is_some(),
-			Self::New7d => c
-				.review
-				.published_est
-				.as_deref()
-				.is_some_and(|t| t.parse::<jiff::Timestamp>().expect("the archive writes timestamps as RFC 3339").as_second() >= js_sys::Date::now() as i64 / 1000 - 7 * 86_400),
-		}
+/// What the location board's JSONata holds the same card to (`dashboards.rs`).
+fn holds(r: Review, c: &BoardCard) -> bool {
+	match r {
+		Review::FiveStar => c.review.rating == Some(5),
+		Review::Responded => c.review.reply.is_some(),
+		Review::New7d => c
+			.review
+			.published_est
+			.as_deref()
+			.is_some_and(|t| t.parse::<jiff::Timestamp>().expect("the archive writes timestamps as RFC 3339").as_second() >= js_sys::Date::now() as i64 / 1000 - 7 * 86_400),
 	}
 }
 
@@ -41,7 +31,7 @@ impl Reviews {
 	}
 
 	pub(crate) fn keep(&self, cards: Vec<BoardCard>) -> Vec<BoardCard> {
-		cards.into_iter().filter(|c| self.0.iter().all(|(r, want)| r.holds(c) == *want)).collect()
+		cards.into_iter().filter(|c| self.0.iter().all(|(r, want)| holds(*r, c) == *want)).collect()
 	}
 }
 

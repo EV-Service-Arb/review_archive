@@ -30,6 +30,7 @@ review_archive = { workspace = true, features = ["maps", "store"] }
 review_archive_server.workspace = true
 sa_alerts.workspace = true
 sa_auth.workspace = true
+sa_core.workspace = true
 sqlx.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }

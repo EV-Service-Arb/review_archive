@@ -10,6 +10,8 @@ crates/review_archive_core/     no I/O: no browser, database, network or clock
                                 what callers type in (intervals, langs, dates) and Rejected
   src/reconcile.rs              a scan against what is stored → new / changed / unchanged / gone / reappeared
   src/schedule.rs               when a target is next due: interval, jitter, backoff
+  src/dashboards.rs             the Grafana dashboards' uids, variables and what they post up, for the server and the page
+  src/views.rs                  the dashboard's views (ev_lib `Views`): the document's `x-views`, the page's routes
   src/tokens.rs                 the account's hourly limit, a walk's steps at the conductor's prices, and the walk's meter (what it spent, and each step done)
   src/relative_date.rs          "il y a 3 semaines" → an estimated timestamp, and its earliest bound
   src/maps/selectors.rs         every assumption about Google's markup, and the in-page scripts
@@ -22,7 +24,8 @@ crates/review_archive/          the engine (features: maps, store)
   src/archive/members.rs        what a member does, scoped to them
   src/browser/                  the `Browser` handle over `browser_manipulation`: consent, sorting, the walk, screenshots
   src/sources/                  the `ReviewSource` port; the maps and gbp adapters
-  src/store/                    SQLite (runtime sqlx queries, embedded migrations/), WebP blobs, export
+  src/store/                    SQLite (runtime sqlx queries, embedded migrations/), WebP blobs, export; the pool is
+                                `ev_lib::sqlite`'s: a GET answers `x-sa-reads`, each committed write is told as `review_archive.<table>`
   src/store/jobs.rs             the job queue (on-demand scans and ad-hoc captures)
   src/store/events.rs           events into the outbox (hooks) and the conductor's Alerts feed, in the scan's own transaction
   src/store/members.rs          per-member state: track switches, reinstatements
@@ -34,20 +37,25 @@ crates/review_archive/          the engine (features: maps, store)
   src/failure.rs                the typed errors (miette codes and help), `describe`, and who a failure waits for
     src/webhooks.rs               where a hook may point; delivering the outbox: signature, retries
 crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, background loops; thin over `Archive`
-  src/http.rs                   the API's operations, one table (ev_lib `api`), and the document derived from it; `/mfe/`, the page at `/`,
-                                `GET /dashboards`: `grafana/dashboards/`, compiled in, for the conductor's Grafana
-  src/auth.rs                   who is calling: the panel's assertion (`sa_auth`), a person by `sub`, the conductor;
-                                the operations' gates (`Section`) and the conductor's; whose `/me` it is (`X-Member`)
+  src/http.rs                   the API's operations, one table (ev_lib `api`), and the document derived from it, its views
+                                the core's; `/mfe/`, the page (`--dev-member`) at every path a view parses,
+                                `GET /dashboards`: the conductor's Grafana's, built in `http/dashboards.rs` over the document
+                                (`sa_core::dashboards`: each panel names its operation, its JSONata held to the answer);
+                                the conductor's own calls at `sa_core::feeds`' paths, the change feed among them
+                                (`review_archive.<table>` per committed write, ended at shutdown and at a takeover)
+  src/auth.rs                   who is calling: the conductor's assertion (`sa_auth`'s gate, its `Vouch` claiming the person
+                                by `sub`); whose `/me` it is (`X-Member`); `--dev-member`'s signer
   src/worker.rs                 the browser's worker (queued jobs, then due targets) and the deliverer
   src/settings.rs               the environment (ev_lib `settings!`): secrets, APP_ENV
   src/config.rs                 the config (v_utils `Settings`): data dir, bind, and every library and server section
-crates/review_archive_client/   typed async client of the HTTP API through the panel, on the core's DTOs; native and wasm
+crates/review_archive_client/   typed async client of the HTTP API through the panel, on the core's DTOs; native and wasm:
+                                `src/generated.rs` one method per operation (`ev_lib::api::rust_client`), and
+                                `crates/review_archive_server/openapi.json` the document the conductor vendors, both
+                                written by `nix run .#gen` and held to the document by `tests/generated.rs`
 crates/review_archive_web/      the dashboard MFE (dioxus, wasm), over the client; `package.sh` lays out /mfe/, `index.html` is `/`;
                                 with `ui="grafana"`, or `?grafana=true` (kept per browser tab), it frames the host's Grafana (its `grafana` attribute):
                                 the overview and a place's board in one frame, booted with the page and steered between them; the board is `ra-location` through the
                                 tilers plugin (`evmain-tilers-app`): the lanes and the runs, each a panel, drops posted up to the page
-grafana/                        those dashboards, over the API through the conductor's Infinity datasource `review_archive`;
-                                each written by its `examples/grafana_*.py`
 ```
 
 ## Using the library
@@ -86,40 +94,40 @@ with its own platform implements `sources::ReviewSource` and records through
 
 ## The API
 
-JSON; errors `{"error": "…"}` with 400 / 401 / 403 / 404 / 409 / 429, and a bare `internal error`
-for a 5xx. A person reaches it through the conductor (`/api/review_archive/*`, under its
+JSON; a refusal is `{"code", "error"}`, its codes per operation in the document's `x-errors`, and a
+bare `internal error` for a 5xx; past `http.request_timeout` it is `timed_out` (408). A person reaches it through the conductor (`/api/review_archive/*`, under its
 assertion).
 
 **One table, everything derived** (ev_lib `api`): `http::routes` is what the router is built
 from; each operation's request and answer are its handler's signature, its description the
-handler's `///`, its id the handler's name, its permission its `Section` (`x-permission`), and
-whether the caller pays for it said by hand (`x-spends`). `GET /openapi.json` is that document,
-served under `/`, tagged by its digest (`ETag`, `If-None-Match` → 304): the conductor pulls it as
+handler's `///`, its id the handler's name, its permission its `sa_auth` gate's (`x-permission`), what
+it refuses its `x-errors`, and what the caller pays its `Spends` (`x-spends`). `GET /openapi.json` is that document,
+served under `/` (`ev_lib::api::serve`: `ETag`, `If-None-Match` → 304): the conductor pulls it as
 it pulls `/dashboards`, under its own assertion, and a person signed in may read it too. The
 conductor's own calls (`/api/conductor/*`, `/dashboards`) are no operation of the table: nobody
 but the conductor may make them. Below, the overview (a test holds it to the table); what each
 takes and answers is in the document. An export is not held to `http.request_timeout`.
 
 ```text
-GET    /targets                                        Operate
-POST   /targets                                        Operate
-GET    /targets/{id}                                   Operate
-PATCH  /targets/{id}                                   Operate
-DELETE /targets/{id}                                   Operate
-GET    /targets/{id}/{reviews,runs}                    Operate
-POST   /targets/{id}/scan                              Operate
-GET    /targets/{id}/export.zip                        Operate, untimed
-POST   /captures                                       Operate
+GET    /targets                                        archive:operate
+POST   /targets                                        archive:operate
+GET    /targets/{id}                                   archive:operate
+PATCH  /targets/{id}                                   archive:operate
+DELETE /targets/{id}                                   archive:operate
+GET    /targets/{id}/{reviews,runs}                    archive:operate
+POST   /targets/{id}/scan                              archive:operate
+GET    /targets/{id}/export.zip                        archive:operate, untimed
+POST   /captures                                       archive:operate
 GET    /captures/{file}
-GET    /jobs/{id}                                      Operate
-GET    /reviews/{id}                                   Operate
-GET    /stats                                          Operate
-GET    /webhooks                                       Operate
-POST   /webhooks                                       Operate
-DELETE /webhooks/{id}                                  Operate
+GET    /jobs/{id}                                      archive:operate
+GET    /reviews/{id}                                   archive:operate
+GET    /stats                                          archive:operate
+GET    /webhooks                                       archive:operate
+POST   /webhooks                                       archive:operate
+DELETE /webhooks/{id}                                  archive:operate
 GET    /layouts/{dock}
-PUT    /layouts/{dock}/{band}                          Operate
-GET    /members                                        ActAs
+PUT    /layouts/{dock}/{band}                          archive:operate
+GET    /members                                        members:act_as
 GET    /me
 GET    /me/{overview,gmbs,settings}
 PATCH  /me/settings
@@ -127,7 +135,7 @@ DELETE /me/settings
 PATCH  /me/gmbs/{gmb}/tracks/{target}
 POST   /me/gmbs/{gmb}/tracks/{target}/relink
 POST   /me/gmbs/{gmb}/tracks/{target}/scan             spends
-GET    /me/gmbs/{gmb}/tracks/{target}/board
+GET    /me/gmbs/{gmb}/tracks/{target}/{board,runs}
 PUT    /me/gmbs/{gmb}/reinstatements/{review}
 DELETE /me/gmbs/{gmb}/reinstatements/{review}
 ```
@@ -200,11 +208,12 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
   `partial`.
 - **One process per browser profile.** `review_archive.lock` in each profile says so, taken
   before Chromium starts on it (`browser_manipulation`'s own lock, which clears stale `Singleton*`
-  files, is only taken at launch). The profile is claimed before a run is recorded, so a second `scan` while `serve`
-  holds it fails with that reason and leaves no run behind. A browser that failed under a walk
+  files, is only taken at launch). The profile is claimed before a run is recorded, so a second process walking on a profile
+  `serve` holds fails with that reason and leaves no run behind. A browser that failed under a walk
   is closed; the next walk starts a new one.
 - **Markup knowledge lives in `selectors.rs`.** A Maps change is fixed there, against fixtures
-  refreshed with `scan --dump-html`, and checked by `cargo insta review`.
+  refreshed with `serve --dump-html <dir>` and a scan of the place (`POST /targets/{id}/scan`), and
+  checked by `cargo insta review`.
 - **The core has no I/O.** Time comes in as an argument or through `Recorder::now` (a plain
   `fn`, pinned in tests); jitter is derived from the target and its last run, so asking twice
   gives one answer.
@@ -212,7 +221,7 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
   answers `NotFound`, `Invalid` or `Busy` for what the caller got wrong; the server only maps
   them to 404, 400 and 429, and anything else to a logged 500.
 - **One write lock per transaction.** A write that reads first begins `IMMEDIATE`, so `serve`'s
-  worker, its HTTP side and a hand-run `scan` never fail on each other's writes. A scan's
+  worker, its HTTP side and a rolling update's second `serve` never fail on each other's writes. A scan's
   reviews, events, cut, run end, job end, its charge row and its usage rows commit together; so does a
   conductor's snapshot, whole.
 - **One `serve` per data dir does the background work.** `serve.lock` in the data dir, held
@@ -224,8 +233,7 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
     (`POST /targets/{id}/scan`, `POST /captures`), oldest first — but no more than `worker.jobs_in_a_row`
   while a target is overdue — then the most overdue target, with a `schedule.pause_{min,max}` pause
   between any two. The queue is bounded (`defaults.max_queued_jobs`) and a job already queued is not
-  queued twice. Jobs live in SQLite; a restart keeps the queued ones and fails the job and the runs that were running — a
-  hand-run `scan` still going then included, until it records how it really ended. An ad-hoc capture is stored under the place's `maps` target for its
+  queued twice. Jobs live in SQLite; a restart keeps the queued ones and fails the job and the runs that were running. An ad-hoc capture is stored under the place's `maps` target for its
   language, or a new disabled one: nothing captured is lost, nothing extra gets scheduled, and
   its run does not count for the target's schedule. No job's run does: a scan a member asks
   for is extra, and never moves the schedule or adds to its backoff.
@@ -260,8 +268,7 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
   walk did into the usage feed (`GET /api/conductor/usage`, `sa_core::usage`): a row per
   `walk.*` step it did, its count, from the same meter. The steps are kept on the open run every
   10 s; a run a restart cut off is counted from them when the next start fails it. Rows are
-  written once, as the run ends, and never change: a hand-run `scan` that outlives that start
-  stays counted as it was found. The archive never calls
+  written once, as the run ends, and never change. The archive never calls
   the conductor: the conductor reads the feeds and pushes the snapshot, under a Conductor assertion.
 - **Events are an outbox.** `review.new/changed/gone/reappeared` and `run.failed` are written
   to `webhook_deliveries` in the same transaction as what they report, a row per hook, and

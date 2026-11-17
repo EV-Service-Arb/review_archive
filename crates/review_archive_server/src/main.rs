@@ -13,20 +13,9 @@ use std::{
 use clap::{Args, Parser, Subcommand};
 use ev_lib::{alerts, error_monitoring};
 use eyre::WrapErr;
-use review_archive::{
-	Archive, SCANNER_VERSION,
-	browser::Browser,
-	store::{
-		export::Destination,
-		people::{Claim, Seen},
-	},
-};
-use review_archive_core::{
-	PersonId, TargetId,
-	dto::{ExportQuery, NewTarget, StatsQuery, TargetPatch},
-	schedule::Schedule,
-};
-use review_archive_server::{auth::Auth, http, report, worker};
+use review_archive::{Archive, SCANNER_VERSION, browser::Browser};
+use review_archive_core::PersonId;
+use review_archive_server::{auth::Dev, http, report, worker};
 use tokio::sync::watch;
 
 use crate::{config::AppConfig, settings::Settings};
@@ -50,65 +39,11 @@ enum Cmd {
 		#[command(subcommand)]
 		cmd: config::SettingsCommand,
 	},
-	/// Manage the watched places.
-	#[command(subcommand)]
-	Target(TargetCmd),
-	/// One pass now, with a summary per target.
-	Scan(ScanArgs),
-	/// Scheduler + HTTP API.
+	/// Scheduler + HTTP API: what the archive does, every write through its operations.
 	Serve(ServeArgs),
 	/// Starts Chromium as a walk does, on a throwaway profile, and shoots an element as a walk
 	/// shoots a card: whether this host runs the configured browser.
 	CheckBrowser,
-	/// Captures + manifest.json of one target, to a directory or a .zip.
-	Export {
-		#[arg(long)]
-		target: i64,
-		/// YYYY-MM-DD or RFC 3339; filters on when a review was first seen.
-		#[arg(long)]
-		since: Option<String>,
-		#[arg(long)]
-		out: PathBuf,
-	},
-	/// Per target and per day: new, changed, gone, mean rating, rating histogram.
-	Stats {
-		#[arg(long)]
-		target: Option<i64>,
-		/// YYYY-MM-DD, inclusive.
-		#[arg(long)]
-		from: Option<String>,
-		/// YYYY-MM-DD, inclusive.
-		#[arg(long)]
-		to: Option<String>,
-		#[arg(long)]
-		csv: bool,
-	},
-}
-
-#[derive(Subcommand)]
-enum TargetCmd {
-	/// Watch a place, by place id or Google Maps URL.
-	Add {
-		place: String,
-		#[arg(long)]
-		label: Option<String>,
-		/// UI language of the Maps page, e.g. fr.
-		#[arg(long)]
-		lang: Option<String>,
-		/// e.g. 6h, 12h, 1d; at least 1h.
-		#[arg(long)]
-		interval: Option<String>,
-		/// Read reviews through the Business Profile API: `<account>/<location>`.
-		#[arg(long)]
-		gbp: Option<String>,
-	},
-	List,
-	Disable {
-		id: i64,
-	},
-	Enable {
-		id: i64,
-	},
 }
 
 #[derive(Args)]
@@ -125,14 +60,7 @@ struct ServeArgs {
 	/// in, and every account found signed out fails walks instead of ending `serve` with exit 78.
 	#[arg(long)]
 	no_login_check: bool,
-}
-
-#[derive(Args)]
-struct ScanArgs {
-	target: Option<i64>,
-	#[arg(long, conflicts_with = "target")]
-	all: bool,
-	/// Save the review cards' HTML of every step here, to refresh the parser fixtures.
+	/// Save the review cards' HTML of every walk's every step here, to refresh the parser fixtures.
 	#[arg(long)]
 	dump_html: Option<PathBuf>,
 }
@@ -166,7 +94,7 @@ fn main() -> eyre::Result<()> {
 		traces_sample_rate: error_monitoring::Config::traces_sample_rate_for(&settings.app_env),
 	});
 	let mut config = AppConfig::load(cli.settings_flags.clone())?;
-	if let Cmd::Scan(args) = &cli.cmd {
+	if let Cmd::Serve(args) = &cli.cmd {
 		config.browser.dump_html = args.dump_html.clone();
 	}
 	let alerts = match settings.alert_webhooks()? {
@@ -249,118 +177,8 @@ async fn run(cli: Cli, config: AppConfig, settings: Settings) -> eyre::Result<()
 
 	match cli.cmd {
 		Cmd::Config { .. } | Cmd::CheckBrowser => unreachable!("handled before the archive opens"),
-		Cmd::Target(cmd) => target_cmd(&archive, cmd).await,
-		Cmd::Scan(args) => scan(&archive, &config.schedule, args).await,
 		Cmd::Serve(args) => serve(archive, &config, &settings, args).await,
-		Cmd::Export { target, since, out } => {
-			let done = archive.export(TargetId(target), &ExportQuery { since }, Destination::Path(out.clone())).await?;
-			println!("{} reviews, {} captures → {}", done.reviews, done.captures, out.display());
-			Ok(())
-		}
-		Cmd::Stats { target, from, to, csv } => {
-			let rows = archive.stats(&StatsQuery { target, from, to }).await?;
-			if csv {
-				print!("{}", review_archive_core::dto::stats_csv(&rows)?);
-			} else {
-				println!("{}", serde_json::to_string_pretty(&rows)?);
-			}
-			Ok(())
-		}
 	}
-}
-
-async fn target_cmd(archive: &Archive, cmd: TargetCmd) -> eyre::Result<()> {
-	match cmd {
-		TargetCmd::Add { place, label, lang, interval, gbp } => {
-			let added = archive
-				.add_target(&NewTarget {
-					place: Some(place.clone()),
-					label,
-					lang,
-					interval,
-					gbp,
-					..Default::default()
-				})
-				.await?;
-			if let Some(r) = &added.resolved {
-				println!(
-					"resolved {place:?} → {} ({})",
-					r.place_id,
-					[r.name.as_deref(), r.address.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(", ")
-				);
-			}
-			println!("added target {}", added.target.id);
-			Ok(())
-		}
-		TargetCmd::List => {
-			for t in archive.targets().await? {
-				let last = archive.last_run(t.id).await?;
-				println!(
-					"#{:<3} {:<4} {:<8} {:<24} {} lang={} every {}{}{}",
-					t.id,
-					t.kind.as_ref(),
-					if t.enabled { "enabled" } else { "disabled" },
-					t.to_string(),
-					t.place_id,
-					t.lang,
-					t.interval,
-					t.gbp.map(|g| format!(" gbp={}/{}", g.account, g.location)).unwrap_or_default(),
-					last.map(|l| format!(
-						" last run {}{}",
-						l.finished_at,
-						if l.consecutive_failures > 0 {
-							format!(" ({} failed in a row)", l.consecutive_failures)
-						} else {
-							String::new()
-						}
-					))
-					.unwrap_or_default(),
-				);
-			}
-			Ok(())
-		}
-		TargetCmd::Disable { id } => set_enabled(archive, id, false).await,
-		TargetCmd::Enable { id } => set_enabled(archive, id, true).await,
-	}
-}
-
-async fn set_enabled(archive: &Archive, id: i64, enabled: bool) -> eyre::Result<()> {
-	let patch = TargetPatch {
-		enabled: Some(enabled),
-		..Default::default()
-	};
-	archive.update_target(TargetId(id), &patch).await?;
-	Ok(())
-}
-
-async fn scan(archive: &Archive, schedule: &Schedule, args: ScanArgs) -> eyre::Result<()> {
-	let targets = match (args.target, args.all) {
-		(Some(id), false) => vec![archive.target(TargetId(id)).await?],
-		(None, true) => archive.targets().await?.into_iter().filter(|t| t.enabled).collect(),
-		_ => eyre::bail!("name a target id, or pass --all"),
-	};
-	let mut failed = 0;
-	for (i, t) in targets.iter().enumerate() {
-		if i > 0 {
-			tokio::time::sleep(schedule.pause(rand::random::<f64>())).await;
-		}
-		match archive.scan(t).await {
-			Ok(r) => {
-				if let Some(e) = r.failure {
-					failed += 1;
-					report(&e.wrap_err(format!("scan of target {} ({t})", t.id)), "scan failed");
-				}
-				println!("{}", r.summary);
-			}
-			Err(e) => {
-				archive.close().await;
-				return Err(e);
-			}
-		}
-	}
-	archive.close().await;
-	eyre::ensure!(failed == 0, "{failed} of {} scans failed", targets.len());
-	Ok(())
 }
 
 async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: ServeArgs) -> eyre::Result<()> {
@@ -375,29 +193,24 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 	);
 	let signals = std::sync::Arc::new(worker::Signals::default());
 	// the page at `/` is the dev member's only: behind the panel, the panel's page mounts the bundle
-	let (auth, sign_in) = match &args.dev_member {
-		Some(held) => {
-			let (person, email) = dev_person(&archive, args.dev_as).await?;
-			(
-				Auth::Dev {
-					person,
-					email,
-					permissions: dev_permissions(held)?,
-				},
-				Some("/".to_owned()),
-			)
-		}
-		None => (Auth::Panel(settings.panel_keys()?), None),
+	let dev = match &args.dev_member {
+		Some(held) => Some(Dev::new(dev_user(&archive, args.dev_as, dev_permissions(held)?).await?)),
+		None => None,
 	};
+	let verifier = match &dev {
+		Some(dev) => dev.verifier(),
+		None => sa_auth::Verifier::new(settings.panel_keys()?, sa_auth::Service::ReviewArchive),
+	};
+	let page = dev.is_some();
 	let app = http::router(
-		http::AppState::new(archive.clone(), auth, signals.clone(), config.http.clone()),
+		http::AppState::new(archive.clone(), verifier, signals.clone(), config.http.clone()),
 		config.mfe_dir.as_deref(),
-		sign_in.as_deref(),
+		dev,
 	);
 	let listener = tokio::net::TcpListener::bind(bind).await.wrap_err_with(|| format!("binding {bind}"))?;
 	tracing::info!(%bind, "serving");
-	match (&config.mfe_dir, &sign_in) {
-		(Some(_), Some(_)) => {
+	match (&config.mfe_dir, page) {
+		(Some(_), true) => {
 			println!(
 				"▶ dashboard: http://{bind}/{}",
 				args.dev_member.as_ref().map(|m| format!("  (signed in holding {m})")).unwrap_or_default()
@@ -417,12 +230,17 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 			.await
 			.wrap_err("HTTP server")
 	};
-	let signal = async move {
-		shutdown_signal().await;
-		tracing::info!("shutting down");
-		// every receiver is alive until both futures below end, so this cannot fail meaningfully
-		let _ = tx.send(true);
-		Ok::<_, eyre::Report>(())
+	let signal = {
+		let signals = signals.clone();
+		async move {
+			shutdown_signal().await;
+			tracing::info!("shutting down");
+			// the change feeds would hold the graceful shutdown open
+			signals.feeds_end.send_replace(());
+			// every receiver is alive until both futures below end, so this cannot fail meaningfully
+			let _ = tx.send(true);
+			Ok::<_, eyre::Report>(())
+		}
 	};
 	let mut leader_stop = rx.clone();
 	let deliver = worker::deliver(&archive, &config.worker, rx.clone());
@@ -467,6 +285,7 @@ async fn serve(archive: Archive, config: &AppConfig, settings: &Settings, args: 
 		}
 		if logged {
 			tracing::info!("took over the data dir");
+			signals.feeds_end.send_replace(());
 		}
 		if !args.no_login_check {
 			match archive.check_signed_in(jiff::Timestamp::now()).await {
@@ -511,37 +330,42 @@ async fn shutdown_signal() {
 
 /// `--dev-member`'s person: the one member with GMBs, so the dashboard shows what the worker
 /// scans; before anyone has one, a made-up `dev`.
-async fn dev_person(archive: &Archive, named: Option<i64>) -> eyre::Result<(PersonId, String)> {
+async fn dev_user(archive: &Archive, named: Option<i64>, permissions: sa_auth::PermissionSet) -> eyre::Result<sa_auth::User> {
 	let all = archive.members().await?;
-	if let Some(id) = named {
-		let m = all.into_iter().find(|m| m.id == id).ok_or_else(|| eyre::eyre!("--dev-as: nobody has person id {id}"))?;
-		return Ok((PersonId(m.id), m.email));
-	}
-	let mut managing = Vec::new();
-	for m in all {
-		if !archive.overview(PersonId(m.id)).await?.is_empty() {
-			managing.push(m);
-		}
-	}
-	match managing.as_slice() {
-		[] => {
-			let seen = Seen {
-				sub: "dev",
-				email: "dev@localhost",
-				email_verified: true,
-				name: "dev",
-			};
-			match archive.person(&seen).await? {
-				Claim::Person(p) => Ok((p, seen.email.to_owned())),
-				Claim::Refused(why) => eyre::bail!("--dev-member: dev@localhost's rows wait for another owner: {why}"),
+	let chosen = match named {
+		Some(id) => Some(all.into_iter().find(|m| m.id == id).ok_or_else(|| eyre::eyre!("--dev-as: nobody has person id {id}"))?),
+		None => {
+			let mut managing = Vec::new();
+			for m in all {
+				if !archive.overview(PersonId(m.id)).await?.is_empty() {
+					managing.push(m);
+				}
+			}
+			match managing.len() {
+				0 => None,
+				1 => managing.pop(),
+				_ => eyre::bail!(
+					"--dev-member: {} have GMBs; name one with --dev-as <person id>",
+					managing.iter().map(|m| format!("{} (#{})", m.email, m.id)).collect::<Vec<_>>().join(", ")
+				),
 			}
 		}
-		[m] => Ok((PersonId(m.id), m.email.clone())),
-		many => eyre::bail!(
-			"--dev-member: {} have GMBs; name one with --dev-as <person id>",
-			many.iter().map(|m| format!("{} (#{})", m.email, m.id)).collect::<Vec<_>>().join(", ")
-		),
-	}
+	};
+	let (sub, email, name) = match chosen {
+		Some(m) => {
+			let person = archive.store()?.person_by_id(PersonId(m.id)).await?.expect("listed among the members");
+			let sub = person.sub.ok_or_else(|| eyre::eyre!("--dev-member: {} never signed in, so has no sub to sign for", m.email))?;
+			(sub, person.email, person.name)
+		}
+		None => ("dev".to_owned(), "dev@localhost".to_owned(), "dev".to_owned()),
+	};
+	Ok(sa_auth::User {
+		sub,
+		email,
+		email_verified: true,
+		name,
+		permissions,
+	})
 }
 
 /// `--dev-member`: an alias's `sa:review_archive:*` part, such permissions listed, or `none`.
