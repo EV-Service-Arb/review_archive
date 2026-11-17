@@ -2022,21 +2022,39 @@ checksum = "562d5db20f34579aac60e6b217460a3493278fa12ae3a0923d68285f38006f87"
 dependencies = [
  "aide",
  "axum",
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ev_lib"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8703f93d48bb9388c809cce5c9027ed59abac1d2a42c189bd2d221442aabd76"
+dependencies = [
+ "aide",
+ "axum",
  "dioxus",
  "ev_lib_classes 0.20.0",
+ "ev_lib_macros",
+ "form_urlencoded",
  "inventory",
  "jiff",
  "js-sys",
+ "libsqlite3-sys",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
+ "percent-encoding",
  "reqwest 0.13.5",
  "schemars",
  "sentry",
  "serde",
  "serde_json",
+ "sqlx",
  "strum",
  "syn 2.0.119",
  "tailwind_fuse",
@@ -2069,6 +2087,17 @@ checksum = "aa7774a212ddeff688b7928c807ad857416135d27c7b3861d2d68d66328453a5"
 dependencies = [
  "strum",
  "tailwind_fuse",
+]
+
+[[package]]
+name = "ev_lib_macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd680513be34eae4399823a484cc91353b8cce7f1dd389146465db046a155dee"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -4833,6 +4862,7 @@ dependencies = [
  "axum",
  "browser_manipulation",
  "clap",
+ "ev_lib 0.34.0",
  "eyre",
  "futures",
  "hmac 0.13.0",
@@ -4879,6 +4909,7 @@ dependencies = [
  "review_archive_server",
  "sa_alerts",
  "sa_auth",
+ "sa_core",
  "serde",
  "serde_json",
  "sqlx",
@@ -4894,10 +4925,12 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "csv",
+ "ev_lib 0.34.0",
  "eyre",
  "insta",
  "jiff",
  "miette",
+ "sa_auth",
  "sa_core",
  "schemars",
  "scraper",
@@ -4917,11 +4950,12 @@ name = "review_archive_server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "browser_manipulation",
  "clap",
  "color-eyre",
  "concierge_iam",
- "ev_lib 0.33.0",
+ "ev_lib 0.34.0",
  "eyre",
  "jiff",
  "miette",
@@ -4938,6 +4972,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "smart-default",
+ "strum",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -4955,7 +4990,7 @@ name = "review_archive_web"
 version = "0.1.0"
 dependencies = [
  "dioxus",
- "ev_lib 0.33.0",
+ "ev_lib 0.34.0",
  "ev_lib_classes 0.20.0",
  "getrandom 0.3.4",
  "jiff",
@@ -4963,6 +4998,7 @@ dependencies = [
  "regex-lite",
  "reqwest 0.13.5",
  "review_archive_client",
+ "review_archive_core",
  "sa_auth",
  "sa_ui",
  "strum",
@@ -5179,9 +5215,11 @@ name = "sa_auth"
 version = "0.1.0"
 source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
 dependencies = [
+ "axum",
  "base64 0.22.1",
  "concierge_iam",
  "ed25519-dalek",
+ "ev_lib 0.33.0",
  "hex",
  "schemars",
  "serde",
@@ -5189,6 +5227,7 @@ dependencies = [
  "sha2 0.11.0",
  "strum",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
