@@ -17,7 +17,7 @@ use serde::Deserialize;
 
 const OWNER: &str = "00000000-0000-0000-0000-00000000000a";
 
-#[path = "../../review_archive/tests/support/busy.rs"]
+#[path = "../../../review_archive/tests/support/busy.rs"]
 mod busy;
 
 const SHORT: &str = "Shiny Maids";
