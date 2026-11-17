@@ -10,6 +10,7 @@ crates/review_archive_core/     no I/O: no browser, database, network or clock
                                 what callers type in (intervals, langs, dates) and Rejected
   src/reconcile.rs              a scan against what is stored → new / changed / unchanged / gone / reappeared
   src/schedule.rs               when a target is next due: interval, jitter, backoff
+  src/dashboards.rs             the Grafana dashboards' uids, variables and what they post up, for the server and the page
   src/views.rs                  the dashboard's views (ev_lib `Views`): the document's `x-views`, the page's routes
   src/tokens.rs                 the account's hourly limit, a walk's steps at the conductor's prices, and the walk's meter (what it spent, and each step done)
   src/relative_date.rs          "il y a 3 semaines" → an estimated timestamp, and its earliest bound
@@ -38,7 +39,8 @@ crates/review_archive/          the engine (features: maps, store)
 crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, background loops; thin over `Archive`
   src/http.rs                   the API's operations, one table (ev_lib `api`), and the document derived from it, its views
                                 the core's; `/mfe/`, the page (`--dev-member`) at every path a view parses,
-                                `GET /dashboards`: `grafana/dashboards/`, compiled in, for the conductor's Grafana;
+                                `GET /dashboards`: the conductor's Grafana's, built in `http/dashboards.rs` over the document
+                                (`sa_core::dashboards`: each panel names its operation, its JSONata held to the answer);
                                 the conductor's own calls at `sa_core::feeds`' paths, the change feed among them
                                 (`review_archive.<table>` per committed write, ended at shutdown and at a takeover)
   src/auth.rs                   who is calling: the conductor's assertion (`sa_auth`'s gate, its `Vouch` claiming the person
@@ -54,8 +56,6 @@ crates/review_archive_web/      the dashboard MFE (dioxus, wasm), over the clien
                                 with `ui="grafana"`, or `?grafana=true` (kept per browser tab), it frames the host's Grafana (its `grafana` attribute):
                                 the overview and a place's board in one frame, booted with the page and steered between them; the board is `ra-location` through the
                                 tilers plugin (`evmain-tilers-app`): the lanes and the runs, each a panel, drops posted up to the page
-grafana/                        those dashboards, over the API through the conductor's Infinity datasource `review_archive`;
-                                each written by its `examples/grafana_*.py`
 ```
 
 ## Using the library

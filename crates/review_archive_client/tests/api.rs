@@ -1175,8 +1175,8 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	server.abort();
 }
 
-/// `/dashboards` is every file of `grafana/dashboards/`, to the conductor alone, each querying
-/// the conductor's `review_archive` datasource.
+/// `/dashboards` is every dashboard the page frames, to the conductor alone, each querying the
+/// conductor's `review_archive` datasource, and naming no variable it does not declare.
 #[tokio::test]
 async fn the_conductor_alone_is_served_every_dashboard() {
 	let e = env().await;
@@ -1212,15 +1212,20 @@ async fn the_conductor_alone_is_served_every_dashboard() {
 	assert_eq!(served.status(), StatusCode::OK);
 	let etag = served.headers()["etag"].to_str().unwrap().to_owned();
 	assert!(etag.starts_with('"'), "a strong tag: {etag}");
-	let mut served: Vec<serde_json::Value> = served.json().await.unwrap();
-	let mut on_disk: Vec<serde_json::Value> = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../grafana/dashboards"))
-		.unwrap()
-		.map(|f| serde_json::from_slice(&std::fs::read(f.unwrap().path()).unwrap()).unwrap())
-		.collect();
+	let served: Vec<serde_json::Value> = served.json().await.unwrap();
+	std::fs::write("/tmp/radev/served.json", serde_json::to_string_pretty(&served).unwrap()).unwrap();
 	let uid = |d: &serde_json::Value| d["uid"].as_str().expect("the conductor files a dashboard by its uid").to_owned();
-	served.sort_by_key(uid);
-	on_disk.sort_by_key(uid);
-	assert_eq!(served, on_disk);
+	let mut uids: Vec<String> = served.iter().map(uid).collect();
+	uids.sort();
+	assert_eq!(uids, [review_archive::core::dashboards::LOCATION, review_archive::core::dashboards::OVERVIEW]);
+	for d in &served {
+		let declared: Vec<&str> = d["templating"]["list"].as_array().unwrap().iter().map(|v| v["name"].as_str().unwrap()).collect();
+		let text = d.to_string();
+		for named in text.split("${").skip(1) {
+			let name = named.split(['}', ':']).next().unwrap();
+			assert!(name.starts_with("__") || declared.contains(&name), "{}: ${{{name}}} is no variable of its", uid(d));
+		}
+	}
 
 	fn infinity_uids(v: &serde_json::Value, uids: &mut Vec<String>) {
 		match v {

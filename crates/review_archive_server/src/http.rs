@@ -6,6 +6,8 @@
 //! JSON in and out, refusals `{code, error}`, with the DTOs of `review_archive_core::dto`. Every
 //! handler only translates: what to do, and what the caller got wrong, is the facade's.
 
+mod dashboards;
+
 use std::{io::Seek, sync::Arc, time::Duration};
 
 use axum::{
@@ -168,12 +170,12 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, dev: Option<Dev>) 
 			})
 		})
 		.layer(GlobalConcurrencyLimitLayer::new(state.cfg.max_concurrent));
-	let dashboards: Vec<serde_json::Value> = DASHBOARDS.iter().map(|d| serde_json::from_str(d).expect("grafana/dashboards/ holds JSON")).collect();
+	let doc = document();
 	// the probes answer whatever load the API is under
 	let mut app = Router::new()
 		.route("/health", get(|| async { "ok" }))
-		.route("/openapi.json", serve(&document(), sa_auth::Gate::USER.or_conductor()))
-		.route("/dashboards", serve(&dashboards, sa_auth::Gate::CONDUCTOR))
+		.route("/dashboards", serve(&dashboards::all(&doc), sa_auth::Gate::CONDUCTOR))
+		.route("/openapi.json", serve(&doc, sa_auth::Gate::USER.or_conductor()))
 		.merge(api)
 		.merge(
 			// the conductor's own calls, each taking `Conductor`
@@ -212,12 +214,6 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, dev: Option<Dev>) 
 		None => app,
 	}
 }
-
-/// The Grafana dashboards of `grafana/dashboards/`, for the conductor's Grafana: every one in an array.
-const DASHBOARDS: [&str; 2] = [
-	include_str!("../../../grafana/dashboards/ra-location.json"),
-	include_str!("../../../grafana/dashboards/ra-overview.json"),
-];
 
 /// The whole bundle's digest, for every file in it: the nix store dates each file 1970, so a
 /// date tells one build from another for none of them.

@@ -31,6 +31,7 @@
 
 #![warn(missing_docs)]
 
+pub mod dashboards;
 pub mod dto;
 pub mod gbp;
 pub mod maps;
