@@ -13,7 +13,7 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Valeriy Sakharov <valeratrades@gmail.com>"]
 license = "BlueOak-1.0.0"
-repository = "https://github.com/Service-Arb/review_archive"
+repository = "https://github.com/EV-Service-Arb/review_archive"
 readme = "README.md"
 
 [workspace.dependencies]
