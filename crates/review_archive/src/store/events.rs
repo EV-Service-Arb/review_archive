@@ -1,5 +1,6 @@
-//! Events are written beside what caused them: a delivery per hook that wants it, and a note in
-//! the conductor's Alerts feed when a live track names the target.
+//! Events are written beside what caused them: a delivery per hook that wants it, a note in
+//! the conductor's Alerts feed when a live track names the target, and a row of its review feed per
+//! GMB tracking it when a review appears, goes or comes back.
 
 use std::collections::HashSet;
 
@@ -11,6 +12,7 @@ use review_archive_core::{
 	fmt_ts,
 };
 use sa_alerts::{Note, NotePage, NoteText, Rule};
+use sa_core::feeds::{Review, ReviewPage};
 use sqlx::SqliteConnection;
 use uuid::Uuid;
 
@@ -43,6 +45,24 @@ impl Emitter {
 	/// A `review.*` event about this review, as it is now in the transaction.
 	pub(super) async fn review(&mut self, tx: &mut SqliteConnection, event: Event, id: ReviewId) -> eyre::Result<()> {
 		let review = review_by_id(&mut *tx, id).await?.ok_or_else(|| eyre::eyre!("review {id} vanished inside its own transaction"))?;
+		// shortcut: a review without stars is not in the review feed, whose Review has no room for one; give it an Option if Maps ever lists one
+		if event != Event::ReviewChanged
+			&& let Some(rating) = review.rating
+		{
+			sqlx::query(
+				"INSERT INTO review_feed (review_id, gmb_id, rating, text, first_seen, gone_at)
+				 SELECT ?, gmb_id, ?, ?, ?, ? FROM tracks WHERE target_id = ? ORDER BY gmb_id",
+			)
+			.bind(&review.source_review_id)
+			.bind(rating)
+			.bind(review.text.as_deref().unwrap_or_default())
+			.bind(&review.first_seen)
+			.bind(&review.gone_at)
+			.bind(review.target_id)
+			.execute(&mut *tx)
+			.await
+			.wrap_err("writing the review feed")?;
+		}
 		let payload = EventPayload {
 			event,
 			occurred_at: fmt_ts(self.now),
@@ -206,6 +226,35 @@ impl Store {
 		Ok(NotePage {
 			next: notes.last().map_or(after, |n| n.seq),
 			notes,
+		})
+	}
+
+	/// The review feed past `after`, `limit` rows at most.
+	pub async fn review_feed(&self, after: i64, limit: u32) -> eyre::Result<ReviewPage> {
+		let rows: Vec<(i64, String, i64, i64, String, String, Option<String>)> =
+			sqlx::query_as("SELECT seq, review_id, gmb_id, rating, text, first_seen, gone_at FROM review_feed WHERE seq > ? ORDER BY seq LIMIT ?")
+				.bind(after)
+				.bind(limit)
+				.fetch_all(&self.pool)
+				.await
+				.wrap_err("reading the review feed")?;
+		let reviews = rows
+			.into_iter()
+			.map(|(seq, review_id, gmb_id, rating, text, first_seen, gone_at)| {
+				Ok(Review {
+					rating: u8::try_from(rating).wrap_err_with(|| format!("review feed {seq}'s rating {rating}"))?,
+					first_seen: parse_ts(&first_seen)?,
+					gone_at: gone_at.as_deref().map(parse_ts).transpose()?,
+					seq,
+					review_id,
+					gmb_id,
+					text,
+				})
+			})
+			.collect::<eyre::Result<Vec<_>>>()?;
+		Ok(ReviewPage {
+			next: reviews.last().map_or(after, |r| r.seq),
+			reviews,
 		})
 	}
 

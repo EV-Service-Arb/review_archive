@@ -182,6 +182,7 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, dev: Option<Dev>) 
 				.route(feeds::GMBS, axum::routing::put(apply_snapshot))
 				.route(feeds::CHARGES, get(charges))
 				.route(feeds::USAGE, get(usage))
+				.route(feeds::REVIEWS, get(review_feed))
 				.route(feeds::NOTIFICATIONS, get(notifications))
 				.route(&format!("{}/{{file}}", feeds::CAPTURES), get(capture_png))
 				.layer(timeout)
@@ -749,6 +750,11 @@ async fn charges(_: Conductor, State(s): State<AppState>, Params(q): Params<Feed
 /// What walks did, whoever paid, for the conductor's costs: the feed past `after`.
 async fn usage(_: Conductor, State(s): State<AppState>, Params(q): Params<FeedQuery>) -> ApiResult<Json<UsagePage>> {
 	Ok(Json(s.archive.usage(q.after, q.limit).await?))
+}
+
+/// Each tracked place's reviews as they appear, go and come back: the feed past `after`.
+async fn review_feed(_: Conductor, State(s): State<AppState>, Params(q): Params<FeedQuery>) -> ApiResult<Json<feeds::ReviewPage>> {
+	Ok(Json(s.archive.review_feed(q.after, q.limit).await?))
 }
 
 /// The Alerts feed past `after`: notes on the places live tracks name, each with their GMBs.

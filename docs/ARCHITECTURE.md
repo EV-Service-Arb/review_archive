@@ -27,7 +27,7 @@ crates/review_archive/          the engine (features: maps, store)
   src/store/                    SQLite (runtime sqlx queries, embedded migrations/), WebP blobs, export; the pool is
                                 `ev_lib::sqlite`'s: a GET answers `x-sa-reads`, each committed write is told as `review_archive.<table>`
   src/store/jobs.rs             the job queue (on-demand scans and ad-hoc captures)
-  src/store/events.rs           events into the outbox (hooks) and the conductor's Alerts feed, in the scan's own transaction
+  src/store/events.rs           events into the outbox (hooks), the conductor's Alerts feed and its review feed, in the scan's own transaction
   src/store/members.rs          per-member state: track switches, reinstatements
   src/store/mirror.rs           the conductor's GMBs, balances and walk prices as last told (`sa_core::gbp::Snapshot`), the tracks derived from them, the charge feed and the usage feed
   src/store/people.rs           people by concierge `sub`; claiming an address's rows from before
@@ -185,7 +185,7 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
 - **History is append-only, while anyone tracks it.** Reviews and captures are never deleted; `review_versions` gets a
   row per distinct content, the first sighting included. `gone_at` is set and cleared, never a
   deletion. A place whose last track went is off the schedule, and `defaults.untracked_retention`
-  later it is deleted with its archive and runs; the charge and usage feeds keep their rows. A target never
+  later it is deleted with its archive and runs; the charge, usage and review feeds keep their rows. A target never
   tracked is the operator's, and is never purged.
 - **A walk that stops short leaves no hole.** A scan stops at a screen of archived cards
   only once it is past the last card a previous walk was cut short at
@@ -285,6 +285,9 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
   A target's first scan publishes no `review_new` — it is the archive's start, not news; hooks
   still get it. The conductor pulls `GET /api/conductor/notifications` as it pulls charges;
   notes are kept a day (`serve`'s idle purge). The archive holds no bot, chat or Telegram secret.
+  The same transaction writes `review_feed` a row per GMB tracking the place each time a review
+  appears (a first scan too), goes or comes back, which the conductor pulls as
+  `GET /api/conductor/reviews` (`sa_core::feeds::ReviewPage`), kept for good.
 - **Secrets come from the environment only**, through `ev_lib::settings` in the server
   (`PANEL_ASSERTION_KEYS`, `GBP_*`, `SENTRY_DSN`, `ALERT_WEBHOOK_*`), and the Google accounts'
   keys, which the config's `google` names (`{ env = "…" }`, the conductor's accounts); the

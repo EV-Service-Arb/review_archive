@@ -569,6 +569,7 @@ async fn every_route_but_health_wants_an_assertion() {
 		("PUT", "/api/conductor/gmbs"),
 		("GET", "/api/conductor/charges"),
 		("GET", "/api/conductor/usage"),
+		("GET", "/api/conductor/reviews"),
 		("GET", "/api/conductor/notifications"),
 		("GET", "/api/conductor/changes"),
 		("GET", &format!("/api/conductor/captures/{}.png", "0".repeat(64))),
@@ -1657,6 +1658,41 @@ async fn notes(e: &Env, after: i64, limit: u32) -> sa_alerts::NotePage {
 		n.check(sa_auth::Service::ReviewArchive).unwrap();
 	}
 	page
+}
+
+/// A review of a tracked place is in the conductor's review feed each time it appears, goes and
+/// comes back, the first scan included.
+#[tokio::test]
+async fn the_conductor_pulls_each_appearance_of_a_review() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let a = e.gmb(ALICE, "a@gmail.com", PLACE).await;
+	let t = track_of(&alice, a).await.id;
+	let page = |after: i64, limit: u32| {
+		let e = &e;
+		async move {
+			as_conductor(e, &format!("{}?after={after}&limit={limit}", sa_core::feeds::REVIEWS))
+				.await
+				.json::<sa_core::feeds::ReviewPage>()
+				.await
+				.unwrap()
+		}
+	};
+
+	record(&e, t, vec![review("r1"), review("r2")]).await;
+	record(&e, t, vec![review("r2")]).await;
+	record(&e, t, vec![review("r1"), review("r2")]).await;
+
+	let first = page(0, 2).await;
+	let rest = page(first.next, 500).await;
+	let past = page(rest.next, 500).await;
+	assert_eq!((past.reviews, past.next), (vec![], rest.next), "nothing past the last, and the cursor stays");
+	let all: Vec<_> = first.reviews.into_iter().chain(rest.reviews).collect();
+	assert!(all.windows(2).all(|w| w[0].seq < w[1].seq), "{all:?}");
+	let summary: Vec<(&str, i64, u8, bool)> = all.iter().map(|r| (r.review_id.as_str(), r.gmb_id, r.rating, r.gone_at.is_some())).collect();
+	assert_eq!(summary, [("r1", a, 5, false), ("r2", a, 5, false), ("r1", a, 5, true), ("r1", a, 5, false)]);
+	assert_eq!(all[3].first_seen, all[0].first_seen, "back, it is the review first seen then");
+	e.server.abort();
 }
 
 /// The conductor pulls a note per event on a place a live track names, with those tracks'

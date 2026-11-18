@@ -157,6 +157,12 @@ impl Archive {
 		page(limit)?;
 		self.store()?.notes(after, limit).await
 	}
+
+	/// The review feed past `after`, `limit` at most: each review of a tracked place as it appears, goes and comes back.
+	pub async fn review_feed(&self, after: i64, limit: u32) -> eyre::Result<sa_core::feeds::ReviewPage> {
+		page(limit)?;
+		self.store()?.review_feed(after, limit).await
+	}
 }
 
 /// A feed's page holds 1 to [`MAX_PAGE`].
