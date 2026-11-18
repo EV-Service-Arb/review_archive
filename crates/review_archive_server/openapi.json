@@ -320,6 +320,177 @@
         ],
         "type": "object"
       },
+      "GmbEvent": {
+        "description": "One thing that happened, when.",
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReviewRef"
+              }
+            ],
+            "description": "A review was listed for the first time.",
+            "properties": {
+              "kind": {
+                "const": "appeared",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReviewRef"
+              }
+            ],
+            "description": "A 5-star review went from the listing.",
+            "properties": {
+              "kind": {
+                "const": "suspended",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReviewRef"
+              }
+            ],
+            "description": "A review of fewer stars went from the listing.",
+            "properties": {
+              "kind": {
+                "const": "removed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReviewRef"
+              }
+            ],
+            "description": "A gone review was listed again.",
+            "properties": {
+              "kind": {
+                "const": "returned",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReviewRef"
+              }
+            ],
+            "description": "Its reinstatement was asked of Google.",
+            "properties": {
+              "kind": {
+                "const": "reinstatement_set",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReviewRef"
+              }
+            ],
+            "description": "The appeal was withdrawn.",
+            "properties": {
+              "kind": {
+                "const": "reinstatement_cleared",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A scan of its place failed.",
+            "properties": {
+              "error": {
+                "description": "Why.",
+                "type": "string"
+              },
+              "kind": {
+                "const": "scan_failed",
+                "type": "string"
+              },
+              "run": {
+                "description": "The run.",
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "run",
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "at": {
+            "description": "When.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "type": "object"
+      },
+      "GmbEvents": {
+        "description": "What happened to a GMB's reviews and scans, newest first, in whole UTC days.",
+        "properties": {
+          "events": {
+            "description": "Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/GmbEvent"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "`before` for the older days; none when these reach the first.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "events",
+          "next"
+        ],
+        "type": "object"
+      },
       "GmbReviews": {
         "description": "A GMB's reviews, as [`MyGmbs`] tells them.",
         "properties": {
@@ -1248,6 +1419,38 @@
           "captured_at",
           "capture_url",
           "capture_corrupted"
+        ],
+        "type": "object"
+      },
+      "ReviewRef": {
+        "description": "The review an event is about.",
+        "properties": {
+          "author": {
+            "description": "Unknown for a move recorded before authors were kept.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rating": {
+            "description": "Its stars.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "review_id": {
+            "description": "Google's id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_id",
+          "rating",
+          "author"
         ],
         "type": "object"
       },
@@ -2691,6 +2894,146 @@
           "http"
         ],
         "x-errors": {
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/gmbs/{gmb}/events": {
+      "get": {
+        "operationId": "gmb_events",
+        "parameters": [
+          {
+            "description": "The conductor's id of the member's GMB.",
+            "in": "path",
+            "name": "gmb",
+            "required": true,
+            "schema": {
+              "description": "The conductor's id of the member's GMB.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "RFC 3339: what happened before it; absent, up to now.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "RFC 3339: what happened before it; absent, up to now.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GmbEvents"
+                }
+              }
+            },
+            "description": "What happened to a GMB's reviews and scans, newest first, in whole UTC days."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "What happened to the GMB's reviews and scans: reviews that appeared, went (suspended with 5 stars, else removed) or returned, appeals asked and withdrawn, failed scans of its place. Whole UTC days, newest first; `next` pages back.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
           "busy": 429,
           "conflict": 409,
           "forbidden": 403,

@@ -8,7 +8,10 @@ use eyre::WrapErr;
 use jiff::{SignedDuration, Timestamp};
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, Target, TargetId,
-	dto::{Board, BoardCard, DayReviews, GmailDto, GmailOverview, GmbReviews, GmbSummary, LocationSummary, MyGmbs, PostDto, ReinstatementDto, ReviewDto, ScanState, TrackPatch},
+	dto::{
+		Board, BoardCard, DayReviews, GmailDto, GmailOverview, GmbEvent, GmbEvents, GmbReviews, GmbSummary, Happened, LocationSummary, MyGmbs, PostDto, ReinstatementDto, ReviewDto,
+		ReviewRef, ScanState, TrackPatch,
+	},
 	fmt_ts,
 	tokens::WalkPrices,
 };
@@ -56,6 +59,9 @@ struct CardRow {
 	requested_at: Option<String>,
 	reinstated_at: Option<String>,
 }
+
+/// The rows a page of [`Store::gmb_events`] aims at; it grows to hold a whole day.
+const EVENTS_PAGE: u32 = 200;
 
 fn no_gmb(id: i64) -> Rejected {
 	Rejected::not_found(format!("no GMB {id}"))
@@ -314,6 +320,85 @@ impl Store {
 			return Err(Rejected::not_found(format!("no open appeal of review {review} under GMB {gmb}")).into());
 		}
 		Ok(())
+	}
+
+	/// What happened to a member's GMB before `before` (none: ever): its reviews' moves in the review feed, its appeals, its
+	/// tracked place's failed scans; newest first, whole UTC days, [`EVENTS_PAGE`] rows or one day at least.
+	pub async fn gmb_events(&self, member: PersonId, gmb: i64, before: Option<Timestamp>) -> eyre::Result<GmbEvents> {
+		self.check_gmb(member, gmb).await?;
+		const ROWS: &str = "SELECT * FROM (
+			SELECT f.at, CASE WHEN f.gone_at IS NOT NULL THEN 'gone'
+			                  WHEN EXISTS (SELECT 1 FROM review_feed p WHERE p.review_id = f.review_id AND p.gmb_id = f.gmb_id AND p.seq < f.seq) THEN 'returned'
+			                  ELSE 'appeared' END AS kind,
+			       f.review_id, f.rating, f.author, NULL AS run, NULL AS error
+			FROM review_feed f WHERE f.gmb_id = ?1 AND f.at IS NOT NULL
+			UNION ALL
+			SELECT x.requested_at, 'reinstatement_set', r.source_review_id, r.rating, r.author, NULL, NULL
+			FROM reinstatements x JOIN reviews r ON r.id = x.review_id WHERE x.gmb_id = ?1
+			UNION ALL
+			SELECT x.withdrawn_at, 'reinstatement_cleared', r.source_review_id, r.rating, r.author, NULL, NULL
+			FROM reinstatements x JOIN reviews r ON r.id = x.review_id WHERE x.gmb_id = ?1 AND x.withdrawn_at IS NOT NULL
+			UNION ALL
+			SELECT u.finished_at, 'scan_failed', NULL, NULL, NULL, u.id, COALESCE(u.error, '')
+			FROM runs u JOIN tracks k ON k.target_id = u.target_id WHERE k.gmb_id = ?1 AND u.status = 'failed'
+		)";
+		type Row = (String, String, Option<String>, Option<i64>, Option<String>, Option<i64>, Option<String>);
+		let before_s = before.map(fmt_ts);
+		let mut rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{ROWS} WHERE (?2 IS NULL OR at < ?2) ORDER BY at DESC LIMIT ?3")))
+			.bind(gmb)
+			.bind(&before_s)
+			.bind(EVENTS_PAGE + 1)
+			.fetch_all(&self.pool)
+			.await
+			.wrap_err("loading a GMB's events")?;
+		let day = |at: &str| at[..10].to_owned();
+		let next = match rows.len() > EVENTS_PAGE as usize {
+			false => None,
+			true => {
+				let last = day(&rows[EVENTS_PAGE as usize - 1].0);
+				rows.retain(|r| day(&r.0) != last);
+				let start = format!("{last}T00:00:00Z");
+				if rows.is_empty() {
+					rows = sqlx::query_as(sqlx::AssertSqlSafe(format!("{ROWS} WHERE (?2 IS NULL OR at < ?2) AND at >= ?3 ORDER BY at DESC")))
+						.bind(gmb)
+						.bind(&before_s)
+						.bind(&start)
+						.fetch_all(&self.pool)
+						.await
+						.wrap_err("loading a GMB's day of events")?;
+					Some(start)
+				} else {
+					Some(format!("{}T00:00:00Z", day(&rows.last().expect("kept a day").0)))
+				}
+			}
+		};
+		let events = rows
+			.into_iter()
+			.map(|(at, kind, review_id, rating, author, run, error)| {
+				let review = || -> eyre::Result<ReviewRef> {
+					Ok(ReviewRef {
+						review_id: review_id.clone().ok_or_else(|| eyre::eyre!("{kind} at {at} names no review"))?,
+						rating: rating.map(u8::try_from).transpose().wrap_err("a rating past u8")?,
+						author: author.clone(),
+					})
+				};
+				let what = match kind.as_str() {
+					"appeared" => Happened::Appeared(review()?),
+					"gone" if rating == Some(5) => Happened::Suspended(review()?),
+					"gone" => Happened::Removed(review()?),
+					"returned" => Happened::Returned(review()?),
+					"reinstatement_set" => Happened::ReinstatementSet(review()?),
+					"reinstatement_cleared" => Happened::ReinstatementCleared(review()?),
+					"scan_failed" => Happened::ScanFailed {
+						run: run.expect("selected with the run"),
+						error: error.expect("selected with its error"),
+					},
+					other => unreachable!("selected kinds only, not {other}"),
+				};
+				Ok(GmbEvent { at, what })
+			})
+			.collect::<eyre::Result<_>>()?;
+		Ok(GmbEvents { events, next })
 	}
 
 	/// Whether a capture shows a review of a place the member tracks.

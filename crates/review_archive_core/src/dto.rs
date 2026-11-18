@@ -771,6 +771,75 @@ pub struct Board {
 	pub reinstating: Vec<BoardCard>,
 }
 
+/// `GET /me/gmbs/{gmb}/events`.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+#[serde(default)]
+pub struct EventsQuery {
+	/// RFC 3339: what happened before it; absent, up to now.
+	pub before: Option<String>,
+}
+
+/// What happened to a GMB's reviews and scans, newest first, in whole UTC days.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+pub struct GmbEvents {
+	/// Newest first.
+	pub events: Vec<GmbEvent>,
+	/// `before` for the older days; none when these reach the first.
+	pub next: Option<String>,
+}
+
+/// One thing that happened, when.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+pub struct GmbEvent {
+	/// When.
+	pub at: String,
+	/// What.
+	#[serde(flatten)]
+	pub what: Happened,
+}
+
+/// What a [`GmbEvent`] is.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Happened {
+	/// A review was listed for the first time.
+	Appeared(ReviewRef),
+	/// A 5-star review went from the listing.
+	Suspended(ReviewRef),
+	/// A review of fewer stars went from the listing.
+	Removed(ReviewRef),
+	/// A gone review was listed again.
+	Returned(ReviewRef),
+	/// Its reinstatement was asked of Google.
+	ReinstatementSet(ReviewRef),
+	/// The appeal was withdrawn.
+	ReinstatementCleared(ReviewRef),
+	/// A scan of its place failed.
+	ScanFailed {
+		/// The run.
+		run: i64,
+		/// Why.
+		error: String,
+	},
+}
+
+/// The review an event is about.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+pub struct ReviewRef {
+	/// Google's id.
+	pub review_id: String,
+	/// Its stars.
+	pub rating: Option<u8>,
+	/// Unknown for a move recorded before authors were kept.
+	pub author: Option<String>,
+}
+
 /// `GET /me/settings`: what the member chose, each beside what they get without choosing.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]

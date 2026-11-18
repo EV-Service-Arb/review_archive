@@ -131,6 +131,7 @@ GET    /me
 GET    /me/{overview,gmbs,settings}
 PATCH  /me/settings
 DELETE /me/settings
+GET    /me/gmbs/{gmb}/events
 PATCH  /me/gmbs/{gmb}/tracks/{target}
 POST   /me/gmbs/{gmb}/tracks/{target}/relink
 POST   /me/gmbs/{gmb}/tracks/{target}/scan             spends

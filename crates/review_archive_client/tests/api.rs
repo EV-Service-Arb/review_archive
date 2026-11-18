@@ -562,6 +562,7 @@ async fn every_route_but_health_wants_an_assertion() {
 		("GET", "/me"),
 		("GET", "/me/overview"),
 		("GET", "/me/gmbs"),
+		("GET", "/me/gmbs/1/events"),
 		("PATCH", "/me/gmbs/1/tracks/1"),
 		("GET", "/me/gmbs/1/tracks/1/board"),
 		("PUT", "/me/gmbs/1/reinstatements/1"),
@@ -1456,6 +1457,40 @@ async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 	);
 	let back = board.snapshotted.iter().find(|c| c.review.id == suspended).unwrap();
 	assert!(back.reinstatement.as_ref().unwrap().reinstated_at.is_some(), "the badge: reinstated after its appeal");
+
+	use review_archive::core::dto::Happened as H;
+	let events = alice.gmb_events(g, None).await.unwrap();
+	assert_eq!(events.next, None, "one page holds them all");
+	let mut seen = events
+		.events
+		.iter()
+		.map(|e| match &e.what {
+			H::Appeared(r) => ("appeared", r.review_id.clone()),
+			H::Suspended(r) => ("suspended", r.review_id.clone()),
+			H::Removed(r) => ("removed", r.review_id.clone()),
+			H::Returned(r) => ("returned", r.review_id.clone()),
+			H::ReinstatementSet(r) => ("reinstatement_set", r.review_id.clone()),
+			H::ReinstatementCleared(r) => ("reinstatement_cleared", r.review_id.clone()),
+			H::ScanFailed { .. } => ("scan_failed", String::new()),
+		})
+		.collect::<Vec<_>>();
+	seen.sort();
+	let want = [
+		("appeared", "kept"),
+		("appeared", "removed"),
+		("appeared", "suspended"),
+		("reinstatement_cleared", "suspended"),
+		("reinstatement_set", "suspended"),
+		("reinstatement_set", "suspended"),
+		("removed", "removed"),
+		("returned", "removed"),
+		("returned", "suspended"),
+		("suspended", "suspended"),
+	]
+	.map(|(k, r)| (k, r.to_owned()));
+	assert_eq!(seen, want, "every move of its reviews and appeals, once");
+	assert!(events.events.windows(2).all(|w| w[0].at >= w[1].at), "newest first");
+	assert_eq!(e.member(BOB).gmb_events(g, None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	e.server.abort();
 }
 

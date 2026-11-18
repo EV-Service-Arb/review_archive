@@ -329,9 +329,10 @@ publishes. Ops alerts stay on Discord.
   no buttons. A `review_gone` whose review has a capture carries it as `photo`
   (`/api/conductor/captures/<sha>.png`) and a caption cut to 1024 UTF-16 units, any other text
   to 4096, an ellipsis marking the cut.
-- `review_feed(seq, review_id, gmb_id, rating, text, first_seen, gone_at)`: written in the
+- `review_feed(seq, review_id, gmb_id, rating, text, first_seen, gone_at, at, author)`: written in the
   transaction of a `review.new`, `review.gone` or `review.reappeared` (a first scan's too), a row
-  per GMB tracking the place, the review as it is then; never pruned. A review without stars has
+  per GMB tracking the place, the review as it is then, `at` the move's time; never pruned. A GMB's
+  log (`GET /me/gmbs/{gmb}/events`) reads its moves from it. A review without stars has
   none. `GET /api/conductor/reviews?after=&limit=` (1–500) is that feed, `sa_core::feeds::ReviewPage`.
 - `GET /api/conductor/notifications?after=&limit=` (1–500) is the feed, ascending by `seq`,
   `next` the page's last; `GET /api/conductor/captures/{sha}.png` a recorded capture as PNG

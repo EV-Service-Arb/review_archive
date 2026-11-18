@@ -97,6 +97,22 @@ impl Client {
 		Ok(res.json().await?)
 	}
 
+	/// What happened to the GMB's reviews and scans: reviews that appeared, went (suspended with 5 stars, else removed) or returned, appeals asked and withdrawn, failed scans of its place. Whole UTC days, newest first; `next` pages back.
+	///
+	/// `GET /me/gmbs/{gmb}/events`
+	pub async fn gmb_events(&self, gmb: i64, before: Option<&str>) -> Result<review_archive_core::dto::GmbEvents, Error> {
+		let req = self.request(reqwest::Method::GET, &format!("/me/gmbs/{}/events", gmb))?.query(&{
+			#[derive(serde::Serialize)]
+			struct Query<'a> {
+				#[serde(skip_serializing_if = "Option::is_none")]
+				before: Option<&'a str>,
+			}
+			Query { before }
+		});
+		let res = Self::send(req).await?;
+		Ok(res.json().await?)
+	}
+
 	/// Records that the removed review's reinstatement was asked of Google, now.
 	///
 	/// `PUT /me/gmbs/{gmb}/reinstatements/{review}`

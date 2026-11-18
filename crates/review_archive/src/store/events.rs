@@ -50,14 +50,16 @@ impl Emitter {
 			&& let Some(rating) = review.rating
 		{
 			sqlx::query(
-				"INSERT INTO review_feed (review_id, gmb_id, rating, text, first_seen, gone_at)
-				 SELECT ?, gmb_id, ?, ?, ?, ? FROM tracks WHERE target_id = ? ORDER BY gmb_id",
+				"INSERT INTO review_feed (review_id, gmb_id, rating, text, first_seen, gone_at, at, author)
+				 SELECT ?, gmb_id, ?, ?, ?, ?, ?, ? FROM tracks WHERE target_id = ? ORDER BY gmb_id",
 			)
 			.bind(&review.source_review_id)
 			.bind(rating)
 			.bind(review.text.as_deref().unwrap_or_default())
 			.bind(&review.first_seen)
 			.bind(&review.gone_at)
+			.bind(fmt_ts(self.now))
+			.bind(&review.author)
 			.bind(review.target_id)
 			.execute(&mut *tx)
 			.await

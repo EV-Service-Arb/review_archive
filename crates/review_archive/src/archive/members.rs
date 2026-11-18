@@ -5,7 +5,10 @@
 use jiff::Timestamp;
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, TargetId,
-	dto::{Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MyGmbs, OnGoogle, ReinstatementDto, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch, UsagePage},
+	dto::{
+		Board, ChargePage, GmailOverview, GmbEvents, JobKind, MAX_PAGE, MyGmbs, OnGoogle, ReinstatementDto, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch,
+		UsagePage,
+	},
 	parse_interval,
 };
 use sa_alerts::NotePage;
@@ -92,6 +95,12 @@ impl Archive {
 	pub async fn track_runs(&self, member: PersonId, gmb: i64, target: TargetId, q: &RunsQuery) -> eyre::Result<Vec<RunDto>> {
 		self.store()?.check_track(member, gmb, target).await?;
 		self.runs(target, q).await
+	}
+
+	/// What happened to a GMB's reviews and scans before `before` (RFC 3339; absent, now): whole days, newest first.
+	pub async fn gmb_events(&self, member: PersonId, gmb: i64, before: Option<&str>) -> eyre::Result<GmbEvents> {
+		let before = before.map(|s| s.parse::<Timestamp>().map_err(|e| Rejected::invalid(format!("before {s:?}: {e}")))).transpose()?;
+		self.store()?.gmb_events(member, gmb, before).await
 	}
 
 	/// Records that the review's reinstatement was asked of Google, now.

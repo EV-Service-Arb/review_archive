@@ -30,9 +30,9 @@ use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
 	ReviewId, TargetId,
 	dto::{
-		self, Board, CaptureRequest, ChargePage, DayStats, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MyGmbs, NewLayout, NewTarget, NewWebhook,
-		ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch,
-		UsagePage, WaitQuery, WebhookDto, stats_csv,
+		self, Board, CaptureRequest, ChargePage, DayStats, EventsQuery, ExportQuery, FeedQuery, GmailOverview, GmbEvents, JobAccepted, JobDto, LayoutDto, Me, MyGmbs, NewLayout, NewTarget,
+		NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto, TargetPatch,
+		TrackPatch, UsagePage, WaitQuery, WebhookDto, stats_csv,
 	},
 	views::View,
 };
@@ -132,6 +132,7 @@ fn routes() -> Vec<ApiRoute> {
 		ApiRoute::new(M::GET, "/me/settings", user, my_settings),
 		ApiRoute::new(M::PATCH, "/me/settings", user, patch_my_settings),
 		ApiRoute::new(M::DELETE, "/me/settings", user, reset_my_settings),
+		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/events", user, gmb_events),
 		ApiRoute::new(M::PATCH, "/me/gmbs/{gmb}/tracks/{target}", user, patch_track),
 		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/relink", user, relink_track),
 		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/scan", user, scan_track),
@@ -328,6 +329,12 @@ struct Track {
 	gmb: i64,
 	/// The target the GMB's track is on.
 	target: i64,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct Gmb {
+	/// The conductor's id of the member's GMB.
+	gmb: i64,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -706,6 +713,12 @@ async fn scan_track(State(s): State<AppState>, Spends(_, by): Spends<WalkStep, C
 /// A tracked place's reviews in four columns: snapshotted, suspended, removed, reinstating.
 async fn track_board(State(s): State<AppState>, Caller(m): Caller, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<Board>> {
 	Ok(Json(s.archive.board(m, gmb, TargetId(target)).await?))
+}
+
+/// What happened to the GMB's reviews and scans: reviews that appeared, went (suspended with 5 stars, else removed) or
+/// returned, appeals asked and withdrawn, failed scans of its place. Whole UTC days, newest first; `next` pages back.
+async fn gmb_events(State(s): State<AppState>, Caller(m): Caller, Ids(Gmb { gmb }): Ids<Gmb>, Params(q): Params<EventsQuery>) -> ApiResult<Json<GmbEvents>> {
+	Ok(Json(s.archive.gmb_events(m, gmb, q.before.as_deref()).await?))
 }
 
 /// A tracked place's runs, newest first.
