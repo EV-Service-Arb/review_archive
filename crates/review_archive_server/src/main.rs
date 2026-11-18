@@ -53,7 +53,7 @@ struct ServeArgs {
 	/// local dashboard; loopback binds outside production only.
 	#[arg(long)]
 	dev_member: Option<String>,
-	/// Who `--dev-member` is (their person id, `GET /members`); needed only when several members have GMBs.
+	/// Who `--dev-member` is (their person id); needed only when several members have GMBs.
 	#[arg(long, requires = "dev_member")]
 	dev_as: Option<i64>,
 	/// Development only, never in production: no check at boot that a Google account is signed
@@ -331,7 +331,7 @@ async fn shutdown_signal() {
 /// `--dev-member`'s person: the one member with GMBs, so the dashboard shows what the worker
 /// scans; before anyone has one, a made-up `dev`.
 async fn dev_user(archive: &Archive, named: Option<i64>, permissions: sa_auth::PermissionSet) -> eyre::Result<sa_auth::User> {
-	let all = archive.members().await?;
+	let all = archive.store()?.people().await?;
 	let chosen = match named {
 		Some(id) => Some(all.into_iter().find(|m| m.id == id).ok_or_else(|| eyre::eyre!("--dev-as: nobody has person id {id}"))?),
 		None => {
@@ -352,9 +352,10 @@ async fn dev_user(archive: &Archive, named: Option<i64>, permissions: sa_auth::P
 		}
 	};
 	let (sub, email, name) = match chosen {
-		Some(m) => {
-			let person = archive.store()?.person_by_id(PersonId(m.id)).await?.expect("listed among the members");
-			let sub = person.sub.ok_or_else(|| eyre::eyre!("--dev-member: {} never signed in, so has no sub to sign for", m.email))?;
+		Some(person) => {
+			let sub = person
+				.sub
+				.ok_or_else(|| eyre::eyre!("--dev-member: {} never signed in, so has no sub to sign for", person.email))?;
 			(sub, person.email, person.name)
 		}
 		None => ("dev".to_owned(), "dev@localhost".to_owned(), "dev".to_owned()),
@@ -365,6 +366,7 @@ async fn dev_user(archive: &Archive, named: Option<i64>, permissions: sa_auth::P
 		email_verified: true,
 		name,
 		permissions,
+		actor: None,
 	})
 }
 

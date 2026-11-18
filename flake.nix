@@ -175,7 +175,7 @@
           text = ''
             repo="$(git rev-parse --show-toplevel)"
             cd "$repo"
-            REVIEW_ARCHIVE_GEN=1 nix develop "$repo" --command cargo test -p review_archive_server --test generated
+            REVIEW_ARCHIVE_GEN=1 nix develop "$repo" --command cargo test -p review_archive_server --test it generated::
           '';
         };
 

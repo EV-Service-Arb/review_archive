@@ -12,8 +12,8 @@ use review_archive::{
 	core::{
 		Coverage, Known, Observed, OwnerPost, Scan, Target,
 		dto::{
-			CaptureRequest, Country, Event, JobAccepted, JobStatus, LocationSummary, Managed, Me, MemberDto, NewTarget, NewWebhook, OnGoogle, Setting, Settings, SettingsPatch, Snapshot,
-			TargetPatch, TrackPatch,
+			CaptureRequest, Country, Event, JobAccepted, JobStatus, LocationSummary, Managed, Me, NewTarget, NewWebhook, OnGoogle, Setting, Settings, SettingsPatch, Snapshot, TargetPatch,
+			TrackPatch,
 		},
 		schedule::Schedule,
 		tokens::{Meter, Tokens},
@@ -80,10 +80,6 @@ fn operator() -> Who {
 	Who::member("root").may(&[sa_auth::Archive::Operate.as_str()])
 }
 
-fn admin() -> Who {
-	Who::member("root").may(&[sa_auth::Archive::Operate.as_str(), sa_auth::Members::ActAs.as_str()])
-}
-
 fn sign(signer: &Signer, who: &Who, method: &str, path: &str, exp: i64) -> String {
 	signer.sign(&sa_auth::Assertion {
 		aud: sa_auth::Service::ReviewArchive,
@@ -93,6 +89,7 @@ fn sign(signer: &Signer, who: &Who, method: &str, path: &str, exp: i64) -> Strin
 			email_verified: who.verified,
 			name: who.name.clone(),
 			permissions: who.permissions.iter().cloned().collect(),
+			actor: None,
 		}),
 		method: method.into(),
 		path: path.into(),
@@ -181,10 +178,6 @@ impl Env {
 		self.caller(&Who::member(sub))
 	}
 
-	fn admin(&self) -> Client {
-		self.caller(&admin())
-	}
-
 	/// A person from before people had ids, nobody signed in as yet: their id.
 	async fn unclaimed(&self, email: &str) -> i64 {
 		let db = sqlx::SqlitePool::connect(&format!("sqlite://{}", self.dir.path().join("review_archive.db").display()))
@@ -240,16 +233,7 @@ impl Env {
 
 /// The place a member's GMB tracks.
 async fn track_of(member: &Client, gmb: i64) -> review_archive::core::dto::TargetDto {
-	member
-		.my_overview(None)
-		.await
-		.unwrap()
-		.into_iter()
-		.flat_map(|g| g.gmbs)
-		.find(|b| b.id == gmb)
-		.unwrap()
-		.track
-		.target
+	member.my_overview().await.unwrap().into_iter().flat_map(|g| g.gmbs).find(|b| b.id == gmb).unwrap().track.target
 }
 
 /// The first GMB's place, as its member's overview shows it.
@@ -575,7 +559,6 @@ async fn every_route_but_health_wants_an_assertion() {
 		("GET", "/webhooks"),
 		("POST", "/webhooks"),
 		("DELETE", "/webhooks/1"),
-		("GET", "/members"),
 		("GET", "/me"),
 		("GET", "/me/overview"),
 		("GET", "/me/gmbs"),
@@ -887,8 +870,8 @@ async fn a_member_reads_the_runs_of_their_tracks() {
 	let g = e.gmb(ALICE, "alice@gmail.com", PLACE).await;
 	let t = track_of(&alice, g).await.id;
 	record(&e, t, vec![review("a")]).await;
-	assert_eq!(alice.track_runs(g, t, Some(5), None).await.unwrap().len(), 1);
-	assert_eq!(bob.track_runs(g, t, Some(5), None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(alice.track_runs(g, t, Some(5)).await.unwrap().len(), 1);
+	assert_eq!(bob.track_runs(g, t, Some(5)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	e.server.abort();
 }
 
@@ -921,16 +904,14 @@ async fn a_wait_beyond_the_cap_still_answers_when_the_job_ends() {
 	e.server.abort();
 }
 
-/// The archive's own routes are for whoever may operate it, whatever else they may do.
+/// The archive's own routes are for whoever may operate it.
 #[tokio::test]
 async fn archive_routes_need_archive_operate() {
 	let e = env().await;
-	let all_but = e.caller(&Who::member("root").may(&[sa_auth::Members::ActAs.as_str()]));
-	for c in [all_but, e.member(ALICE)] {
-		assert_eq!(c.list_targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-		assert_eq!(c.list_webhooks().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-		assert_eq!(c.export_zip(1, None).await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-	}
+	let c = e.member(ALICE);
+	assert_eq!(c.list_targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
+	assert_eq!(c.list_webhooks().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
+	assert_eq!(c.export_zip(1, None).await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 	assert_eq!(e.client.list_targets().await.unwrap(), vec![]);
 	e.server.abort();
 }
@@ -973,7 +954,7 @@ async fn a_write_is_told_on_the_feed_by_the_tables_a_read_names() {
 		favorite: Some(true),
 		..Default::default()
 	};
-	alice.patch_track(g, t, None, &favorite).await.unwrap();
+	alice.patch_track(g, t, &favorite).await.unwrap();
 	let mut told = std::collections::BTreeSet::new();
 	while let Ok(line) = tokio::time::timeout(Duration::from_millis(500), next()).await {
 		let sa_core::feeds::Line::Changed { topic } = line else { panic!("{line:?} amid a write") };
@@ -1009,59 +990,7 @@ async fn me_is_open_to_anyone_signed_in() {
 			permissions: vec![],
 		}
 	);
-	assert_eq!(alice.my_overview(None).await.unwrap(), vec![]);
-	e.server.abort();
-}
-
-/// Who may act as others lists them, with what they hold.
-#[tokio::test]
-async fn members_need_act_as() {
-	let e = env().await;
-	let alice = e.member(ALICE);
-	let a = id(&alice).await;
-	for c in [&e.client, &alice] {
-		assert_eq!(c.list_members().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-	}
-	let actor = e.caller(&Who::member("root").may(&[sa_auth::Members::ActAs.as_str()]));
-	let root = id(&actor).await;
-	let member = |id, sub: &str, balance| MemberDto {
-		id,
-		email: format!("{sub}@x.com"),
-		name: sub.into(),
-		claimed: true,
-		balance,
-	};
-	assert_eq!(
-		actor.list_members().await.unwrap(),
-		vec![member(a, ALICE, 0), member(root, "root", 0)],
-		"no balance from the conductor yet"
-	);
-	e.server.abort();
-}
-
-/// Who may act as others does, through `X-Member`: their overview, their writes; `/me` is
-/// still who signed in. No one else may, except to name themselves.
-#[tokio::test]
-async fn acting_as_a_member_needs_members_act_as() {
-	let e = env().await;
-	let alice = e.member(ALICE);
-	let g = e.gmb(ALICE, "alice@gmail.com", PLACE).await;
-	let a = id(&alice).await;
-	let admin = e.admin();
-	assert_eq!(admin.my_overview(None).await.unwrap(), vec![], "without the header, the admin's own");
-	assert_eq!(admin.my_overview(Some(a)).await.unwrap(), alice.my_overview(None).await.unwrap());
-	let favorite = TrackPatch {
-		favorite: Some(true),
-		..Default::default()
-	};
-	admin.patch_track(g, track_of(&alice, g).await.id, Some(a), &favorite).await.unwrap();
-	assert!(first(&alice.my_overview(None).await.unwrap()).favorite, "the admin's write is alice's");
-	assert_eq!(admin.me().await.unwrap().email, "root@x.com");
-	assert_eq!(admin.my_overview(Some(9999)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	for c in [e.client.clone(), e.member(BOB)] {
-		assert_eq!(c.my_overview(Some(a)).await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
-	}
-	assert_eq!(alice.my_overview(Some(a)).await.unwrap(), alice.my_overview(None).await.unwrap());
+	assert_eq!(alice.my_overview().await.unwrap(), vec![]);
 	e.server.abort();
 }
 
@@ -1104,6 +1033,7 @@ fn test_user() -> sa_auth::User {
 		email_verified: true,
 		name: "test".into(),
 		permissions: Vec::<String>::new().into_iter().collect(),
+		actor: None,
 	}
 }
 
@@ -1156,15 +1086,15 @@ async fn a_dev_member_stands_in_for_a_missing_sign_in() {
 	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
 	let nobody = Client::ambient(reqwest::Client::new(), &base).unwrap();
-	assert_eq!(nobody.my_overview(None).await.unwrap()[0].gmail.gmail, "ops@gmail.com");
+	assert_eq!(nobody.my_overview().await.unwrap()[0].gmail.gmail, "ops@gmail.com");
 	assert_eq!(nobody.me().await.unwrap().email, "test@localhost");
 	assert_eq!(nobody.list_targets().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN), "a member, not the operator");
-	for view in ["/", "/gmbs/1", "/gmails/1", "/settings", "/act-as", "/members/3", "/members/3/", "/members/3/gmbs/1"] {
+	for view in ["/", "/gmbs/1", "/gmails/1", "/settings"] {
 		let page = reqwest::get(format!("{base}{view}")).await.unwrap();
 		assert_eq!(page.status(), StatusCode::OK, "{view} is the dashboard's page");
 		assert!(page.text().await.unwrap().contains("mfe-review-archive-dashboard"));
 	}
-	for nowhere in ["/gmbs", "/gmbs/1/tracks/2", "/members/x"] {
+	for nowhere in ["/gmbs", "/gmbs/1/tracks/2", "/act-as", "/members/3"] {
 		assert_eq!(reqwest::get(format!("{base}{nowhere}")).await.unwrap().status(), StatusCode::NOT_FOUND, "{nowhere} is no view");
 	}
 	assert_eq!(
@@ -1203,7 +1133,7 @@ async fn the_conductor_alone_is_served_every_dashboard() {
 
 	assert_eq!(get(None, None).await.status(), StatusCode::UNAUTHORIZED);
 	assert_eq!(
-		get(Some(sign(&e.signer, &admin(), "GET", "/dashboards", alive())), None).await.status(),
+		get(Some(sign(&e.signer, &operator(), "GET", "/dashboards", alive())), None).await.status(),
 		StatusCode::UNAUTHORIZED,
 		"a user is no conductor"
 	);
@@ -1392,7 +1322,7 @@ async fn members_share_places_but_see_only_their_own() {
 		..review("r3")
 	};
 	record(&e, t.id, vec![taken("r1", 0), taken("r2", 14), replied]).await;
-	let overview = alice.my_overview(None).await.unwrap();
+	let overview = alice.my_overview().await.unwrap();
 	assert_eq!(overview.len(), 1);
 	let loc = first(&overview);
 	assert_eq!(
@@ -1416,19 +1346,19 @@ async fn members_share_places_but_see_only_their_own() {
 	for p in [post("Closed for renovation", 12), post("Open on Sunday", 1), post("Open on Sunday", 1)] {
 		e.archive.record(&p, &target).await.unwrap();
 	}
-	let loc = first(&alice.my_overview(None).await.unwrap()).clone();
+	let loc = first(&alice.my_overview().await.unwrap()).clone();
 	assert_eq!(loc.posts_7d, 1, "one post, seen twice, in the last week");
 	assert_eq!(loc.latest_post.map(|p| p.text).as_deref(), Some("Open on Sunday"));
 	assert_eq!((loc.last_run_status, loc.last_run_error), (Some(review_archive::core::dto::RunStatus::Ok), None));
 	e.archive.record(&Fails, &target).await.unwrap();
-	let loc = first(&alice.my_overview(None).await.unwrap()).clone();
+	let loc = first(&alice.my_overview().await.unwrap()).clone();
 	assert_eq!(
 		(loc.last_run_status, loc.last_run_error.as_deref()),
 		(Some(review_archive::core::dto::RunStatus::Failed), Some("the page did not load")),
 		"the card says why"
 	);
 
-	let board = alice.track_board(a, t.id, None).await.unwrap();
+	let board = alice.track_board(a, t.id).await.unwrap();
 	let url = board
 		.snapshotted
 		.iter()
@@ -1437,32 +1367,32 @@ async fn members_share_places_but_see_only_their_own() {
 		.expect("r1 was captured");
 	assert_eq!(&alice.capture_webp(&url).await.unwrap()[8..12], b"WEBP");
 	assert!(e.client.capture_webp(&url).await.is_ok(), "the operator sees everything");
-	assert_eq!(bob.track_board(a, t.id, None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(bob.track_board(a, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 
 	let favorite = |on| TrackPatch {
 		favorite: Some(on),
 		..Default::default()
 	};
-	alice.patch_track(a, t.id, None, &favorite(true)).await.unwrap();
-	let loc = first(&alice.my_overview(None).await.unwrap()).clone();
+	alice.patch_track(a, t.id, &favorite(true)).await.unwrap();
+	let loc = first(&alice.my_overview().await.unwrap()).clone();
 	assert!(loc.favorite && loc.enabled, "a favorite leaves the switch as it was");
-	assert!(!first(&bob.my_overview(None).await.unwrap()).favorite, "alice's favorite is not bob's");
-	assert_eq!(bob.patch_track(a, t.id, None, &favorite(true)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	alice.patch_track(a, t.id, None, &favorite(false)).await.unwrap();
-	assert!(!first(&alice.my_overview(None).await.unwrap()).favorite);
+	assert!(!first(&bob.my_overview().await.unwrap()).favorite, "alice's favorite is not bob's");
+	assert_eq!(bob.patch_track(a, t.id, &favorite(true)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	alice.patch_track(a, t.id, &favorite(false)).await.unwrap();
+	assert!(!first(&alice.my_overview().await.unwrap()).favorite);
 
 	assert_eq!(
-		alice.relink_track(a, t.id, None).await.unwrap_err().status(),
+		alice.relink_track(a, t.id).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"no Google account with a Places key to ask with"
 	);
-	assert_eq!(bob.relink_track(a, t.id, None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	assert_eq!(bob.relink_track(a, t.id).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 
 	// once bob's GMB is removed, the place's screenshots are no longer his to see
 	assert!(bob.capture_webp(&url).await.is_ok());
 	e.remove(b).await;
 	assert_eq!(bob.capture_webp(&url).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
-	assert_eq!(bob.my_overview(None).await.unwrap(), vec![]);
+	assert_eq!(bob.my_overview().await.unwrap(), vec![]);
 	assert_eq!(track_of(&alice, a).await.id, t.id, "alice's track stays");
 	e.remove(a).await;
 	assert_eq!(e.client.list_targets().await.unwrap().len(), 1, "untracked by all, the target and its archive stay");
@@ -1490,34 +1420,34 @@ async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 		(ids(&b.snapshotted), ids(&b.suspended), ids(&b.removed), ids(&b.reinstating))
 	};
 	let counts = |l: &review_archive::core::dto::LocationSummary| (l.suspended, l.removed, l.reinstating);
-	let board = alice.track_board(g, t.id, None).await.unwrap();
+	let board = alice.track_board(g, t.id).await.unwrap();
 	assert_eq!(columns(&board), (vec!["kept".into()], vec!["suspended".into()], vec!["removed".into()], vec![]));
-	assert_eq!(counts(first(&alice.my_overview(None).await.unwrap())), (1, 1, 0));
+	assert_eq!(counts(first(&alice.my_overview().await.unwrap())), (1, 1, 0));
 	let (kept, suspended) = (board.snapshotted[0].review.id, board.suspended[0].review.id);
 
 	assert_eq!(
-		alice.reinstate(g, kept, None).await.unwrap_err().status(),
+		alice.reinstate(g, kept).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"a listed review has nothing to appeal"
 	);
-	let asked = alice.reinstate(g, suspended, None).await.unwrap();
-	assert_eq!(alice.reinstate(g, suspended, None).await.unwrap(), asked, "asking twice is the one appeal");
+	let asked = alice.reinstate(g, suspended).await.unwrap();
+	assert_eq!(alice.reinstate(g, suspended).await.unwrap(), asked, "asking twice is the one appeal");
 	assert_eq!(
-		columns(&alice.track_board(g, t.id, None).await.unwrap()),
+		columns(&alice.track_board(g, t.id).await.unwrap()),
 		(vec!["kept".into()], vec![], vec!["removed".into()], vec!["suspended".into()])
 	);
-	assert_eq!(counts(first(&alice.my_overview(None).await.unwrap())), (0, 1, 1));
+	assert_eq!(counts(first(&alice.my_overview().await.unwrap())), (0, 1, 1));
 
-	alice.withdraw_reinstatement(g, suspended, None).await.unwrap();
-	assert_eq!(alice.withdraw_reinstatement(g, suspended, None).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
+	alice.withdraw_reinstatement(g, suspended).await.unwrap();
+	assert_eq!(alice.withdraw_reinstatement(g, suspended).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	assert_eq!(
-		columns(&alice.track_board(g, t.id, None).await.unwrap()),
+		columns(&alice.track_board(g, t.id).await.unwrap()),
 		(vec!["kept".into()], vec!["suspended".into()], vec!["removed".into()], vec![])
 	);
-	alice.reinstate(g, suspended, None).await.unwrap();
+	alice.reinstate(g, suspended).await.unwrap();
 
 	record(&e, t.id, vec![review("kept"), review("suspended"), low]).await;
-	let board = alice.track_board(g, t.id, None).await.unwrap();
+	let board = alice.track_board(g, t.id).await.unwrap();
 	assert_eq!(
 		columns(&board),
 		(vec!["removed".into(), "suspended".into(), "kept".into()], vec![], vec![], vec![]),
@@ -1541,7 +1471,7 @@ async fn my_gmbs_tags_what_needs_the_operator() {
 	record(&e, t, vec![review("kept")]).await;
 	record(&e, q, vec![review("kept")]).await;
 	let appealed = alice
-		.track_board(troubled, t, None)
+		.track_board(troubled, t)
 		.await
 		.unwrap()
 		.suspended
@@ -1550,9 +1480,9 @@ async fn my_gmbs_tags_what_needs_the_operator() {
 		.unwrap()
 		.review
 		.id;
-	alice.reinstate(troubled, appealed, None).await.unwrap();
+	alice.reinstate(troubled, appealed).await.unwrap();
 
-	let tag = async |g| alice.my_gmbs(None).await.unwrap().gmbs[&g].clone();
+	let tag = async |g| alice.my_gmbs().await.unwrap().gmbs[&g].clone();
 	let ok = tag(troubled).await;
 	assert_eq!((ok.suspended, ok.reinstating, ok.failing), (1, 1, false));
 
@@ -1589,7 +1519,7 @@ async fn my_gmbs_draws_live_reviews_by_collected_day() {
 	walk(|| Timestamp::now() - SignedDuration::from_hours(24), vec![review("a"), review("b")]).await;
 	walk(Timestamp::now, vec![review("a"), review("b"), review("d")]).await;
 
-	let days = alice.my_gmbs(None).await.unwrap().gmbs[&g].live_30d.clone();
+	let days = alice.my_gmbs().await.unwrap().gmbs[&g].live_30d.clone();
 	assert_eq!(days.len(), 30, "today last");
 	let collected: Vec<_> = days.iter().enumerate().filter_map(|(i, d)| d.map(|d| (i, d.live, d.lost))).collect();
 	assert_eq!(collected, vec![(26, 3, 0), (28, 2, 1), (29, 3, 0)]);
@@ -1622,26 +1552,26 @@ async fn a_place_is_scanned_while_anyone_has_it_on() {
 		next
 	};
 	assert!(scanned().await);
-	let overview = alice.my_overview(None).await.unwrap();
+	let overview = alice.my_overview().await.unwrap();
 	assert!(first(&overview).enabled, "on by default");
 
 	let switch = |on| TrackPatch {
 		enabled: Some(on),
 		..Default::default()
 	};
-	alice.patch_track(a, t, None, &switch(false)).await.unwrap();
-	assert!(!first(&alice.my_overview(None).await.unwrap()).enabled);
+	alice.patch_track(a, t, &switch(false)).await.unwrap();
+	assert!(!first(&alice.my_overview().await.unwrap()).enabled);
 	assert!(scanned().await, "bob still has it on");
-	bob.patch_track(b, t, None, &switch(false)).await.unwrap();
+	bob.patch_track(b, t, &switch(false)).await.unwrap();
 	assert!(!scanned().await, "nobody has it on");
 	assert!(e.client.get_target(t).await.unwrap().target.enabled, "the shared target is untouched");
 
 	assert_eq!(
-		bob.patch_track(a, t, None, &switch(true)).await.unwrap_err().status(),
+		bob.patch_track(a, t, &switch(true)).await.unwrap_err().status(),
 		Some(StatusCode::NOT_FOUND),
 		"alice's GMB is not bob's"
 	);
-	bob.patch_track(b, t, None, &switch(true)).await.unwrap();
+	bob.patch_track(b, t, &switch(true)).await.unwrap();
 	assert!(scanned().await);
 	e.server.abort();
 }
@@ -1661,7 +1591,7 @@ async fn a_members_interval_schedules_every_place_they_pay_for() {
 	let interval = |chosen| Settings {
 		interval_secs: Setting { chosen, default: day },
 	};
-	assert_eq!(alice.my_settings(None).await.unwrap(), interval(None));
+	assert_eq!(alice.my_settings().await.unwrap(), interval(None));
 	e.client
 		.patch_target(
 			t.id,
@@ -1674,28 +1604,28 @@ async fn a_members_interval_schedules_every_place_they_pay_for() {
 		.unwrap();
 	assert_eq!(scheduled().await, day, "paid for, the place's own interval is not what it goes by");
 
-	assert_eq!(alice.patch_my_settings(None, &every("6h")).await.unwrap(), interval(Some(6 * 3600)));
-	bob.patch_my_settings(None, &every("2d")).await.unwrap();
+	assert_eq!(alice.patch_my_settings(&every("6h")).await.unwrap(), interval(Some(6 * 3600)));
+	bob.patch_my_settings(&every("2d")).await.unwrap();
 	assert_eq!(scheduled().await, 6 * 3600);
-	assert_eq!(first(&bob.my_overview(None).await.unwrap()).target.interval_secs, 6 * 3600, "the place is shared");
-	assert_eq!(alice.patch_my_settings(None, &SettingsPatch::default()).await.unwrap(), interval(Some(6 * 3600)), "absent stays");
+	assert_eq!(first(&bob.my_overview().await.unwrap()).target.interval_secs, 6 * 3600, "the place is shared");
+	assert_eq!(alice.patch_my_settings(&SettingsPatch::default()).await.unwrap(), interval(Some(6 * 3600)), "absent stays");
 
 	let switch = |on| TrackPatch {
 		enabled: Some(on),
 		..Default::default()
 	};
-	alice.patch_track(a, t.id, None, &switch(false)).await.unwrap();
+	alice.patch_track(a, t.id, &switch(false)).await.unwrap();
 	assert_eq!(scheduled().await, 2 * day, "alice pays for nothing while her track is off");
-	alice.patch_track(a, t.id, None, &switch(true)).await.unwrap();
+	alice.patch_track(a, t.id, &switch(true)).await.unwrap();
 
-	assert_eq!(alice.reset_my_settings(None).await.unwrap(), interval(None));
+	assert_eq!(alice.reset_my_settings().await.unwrap(), interval(None));
 	assert_eq!(scheduled().await, day, "alice is back on the default, sooner than bob's");
 	e.remove(a).await;
 	e.remove(b).await;
 	assert_eq!(scheduled().await, 12 * 3600, "nobody pays: the place's own");
 
 	assert_eq!(
-		alice.patch_my_settings(None, &every("1m")).await.unwrap_err().status(),
+		alice.patch_my_settings(&every("1m")).await.unwrap_err().status(),
 		Some(StatusCode::BAD_REQUEST),
 		"below schedule.min_interval"
 	);
@@ -1745,7 +1675,7 @@ async fn the_conductor_pulls_alerts_on_tracked_places() {
 		enabled: Some(false),
 		..Default::default()
 	};
-	bob.patch_track(b, t, None, &off).await.unwrap();
+	bob.patch_track(b, t, &off).await.unwrap();
 	let other = track_of(&carol, c).await.id;
 	let hook = e
 		.client
@@ -1791,7 +1721,7 @@ async fn the_conductor_pulls_alerts_on_tracked_places() {
 	assert_eq!(png.status(), StatusCode::OK);
 	assert_eq!(png.headers()["content-type"], "image/png");
 	assert!(png.bytes().await.unwrap().starts_with(b"\x89PNG\r\n\x1a\n"));
-	for who in [Who::member(ALICE), admin()] {
+	for who in [Who::member(ALICE), operator()] {
 		let refused = http_as(&who).get(format!("{}{photo}", e.base)).send().await.unwrap();
 		assert_eq!(refused.status(), StatusCode::UNAUTHORIZED, "{} is no conductor", who.sub);
 	}

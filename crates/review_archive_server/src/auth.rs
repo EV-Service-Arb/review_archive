@@ -3,13 +3,9 @@
 //! What a person may do is their `sa:review_archive:*` permissions, as the route's gate checks.
 
 use axum::{extract::FromRequestParts, http::request::Parts};
-use ev_lib::api::{
-	GenContext, OperationInput, OperationOutput, Refusal,
-	openapi::{HeaderStyle, Operation, Parameter, ParameterData, ParameterSchemaOrContent, ReferenceOr, Response, SchemaObject, StatusCode},
-	schemars::json_schema,
-};
+use ev_lib::api::{OperationInput, Refusal};
 use review_archive::store::people::{Claim, Seen};
-use review_archive_core::{PersonId, dto::MEMBER_HEADER};
+use review_archive_core::PersonId;
 use sa_auth::{Gate, Principal, User, Vouch};
 
 use crate::http::{AppState, Code};
@@ -61,68 +57,11 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 
 impl OperationInput for Caller {}
 
-/// Whose `/me` this is: the caller, or the person `X-Member` names: the caller again, or anyone
-/// for one who may act as others.
-pub struct Member(pub PersonId);
-
-impl FromRequestParts<AppState> for Member {
-	type Rejection = Refusal<Code>;
-
-	async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Refusal<Code>> {
-		let Caller(caller) = Caller::from_request_parts(parts, state).await.expect("infallible");
-		let Some(named) = parts.headers.get(MEMBER_HEADER) else {
-			return Ok(Self(caller));
-		};
-		let id = named
-			.to_str()
-			.ok()
-			.and_then(|v| v.trim().parse::<i64>().ok())
-			.map(PersonId)
-			.ok_or_else(|| Refusal::new(Code::Invalid, "X-Member is not a person id"))?;
-		if id == caller {
-			return Ok(Self(id));
-		}
-		let user = parts.extensions.get::<User>().expect("the gate puts the user it admitted");
-		if !user.permissions.may(sa_auth::Members::ActAs) {
-			return Err(Refusal::new(Code::Forbidden, "acting as another member needs sa:review_archive:members:act_as"));
-		}
-		state.archive.check_person(id).await?;
-		Ok(Self(id))
-	}
-}
-
-impl sa_core::prices::Payer for Member {
+impl sa_core::prices::Payer for Caller {
 	type Who = PersonId;
 
 	fn payer(&self) -> PersonId {
 		self.0
-	}
-}
-
-impl OperationInput for Member {
-	fn operation_input(_: &mut GenContext, op: &mut Operation) {
-		op.parameters.push(ReferenceOr::Item(Parameter::Header {
-			parameter_data: ParameterData {
-				name: MEMBER_HEADER.into(),
-				description: Some("The person id of the member to act as; needs sa:review_archive:members:act_as unless it is the caller's own.".into()),
-				required: false,
-				deprecated: None,
-				format: ParameterSchemaOrContent::Schema(SchemaObject {
-					json_schema: json_schema!({ "type": "integer" }),
-					example: None,
-					external_docs: None,
-				}),
-				example: None,
-				examples: Default::default(),
-				explode: None,
-				extensions: Default::default(),
-			},
-			style: HeaderStyle::Simple,
-		}));
-	}
-
-	fn inferred_early_responses(ctx: &mut GenContext, op: &mut Operation) -> Vec<(Option<StatusCode>, Response)> {
-		Refusal::<Code>::inferred_responses(ctx, op)
 	}
 }
 

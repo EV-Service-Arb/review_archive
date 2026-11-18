@@ -36,7 +36,6 @@ fn window() -> web_sys::Window {
 
 #[derive(Clone, Copy)]
 struct Frame {
-	me: i64,
 	slots: Signal<Vec<Placed>>,
 }
 
@@ -61,10 +60,10 @@ enum Up {
 	Withdraw { review: i64 },
 }
 
-/// Holds the frame for everything under it, as `me` until a slot asks for another dashboard.
+/// Holds the frame for everything under it, on the overview until a slot asks for another dashboard.
 #[component]
-pub fn Host(me: i64, children: Element) -> Element {
-	let Frame { slots, .. } = use_context_provider(|| Frame { me, slots: Signal::new(Vec::new()) });
+pub fn Host(children: Element) -> Element {
+	let Frame { slots, .. } = use_context_provider(|| Frame { slots: Signal::new(Vec::new()) });
 	let mut wrap = use_signal(|| None::<web_sys::Element>);
 	let mut frame = use_signal(|| None::<web_sys::HtmlIFrameElement>);
 	let mut shown = use_signal(|| None::<ScopeId>);
@@ -243,7 +242,7 @@ pub fn Host(me: i64, children: Element) -> Element {
 			.expect("removing a listener");
 	});
 	// it boots on the caller's overview, the likeliest first look, and is steered from there
-	let src = use_hook(|| format!("{}d/{OVERVIEW}/{KIOSK}&var-{}={me}", grafana(), var::MEMBER));
+	let src = use_hook(|| format!("{}d/{OVERVIEW}/{KIOSK}", grafana()));
 	rsx! {
 		div {
 			class: "relative flex min-h-0 flex-1 flex-col",
@@ -297,44 +296,38 @@ fn Slot(class: String, path: String, on: Option<EventHandler<Up>>) -> Element {
 
 /// `ra-overview` over the places the filter keeps: `keys`, the `gmb:target` pairs in the order shown.
 #[component]
-pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
-	let Frame { me, .. } = use_context();
+pub fn Overview(gmail: Option<i64>, keys: String) -> Element {
 	let Refresh(refresh) = use_context();
 	let Selection(selection) = use_context();
 	let mut reviews: Signal<Reviews> = use_context();
-	let member = tab.unwrap_or(me);
 	let gmail = gmail.map(|g| g.to_string()).unwrap_or_default();
-	// a member's tab is not the host's selection: its `gmbs` stays the frame's own
-	let gmbs = match (tab, selection()) {
-		(Some(_), _) => String::new(),
-		(None, Picked::All) => format!("&var-{}=$__all", var::GMBS),
-		(None, Picked::Only(ids)) if ids.is_empty() => format!("&var-{}=", var::GMBS),
-		(None, Picked::Only(ids)) => {
+	let gmbs = match selection() {
+		Picked::All => format!("&var-{}=$__all", var::GMBS),
+		Picked::Only(ids) if ids.is_empty() => format!("&var-{}=", var::GMBS),
+		Picked::Only(ids) => {
 			let mut ids: Vec<_> = ids.into_iter().collect();
 			ids.sort_unstable();
 			ids.iter().map(|id| format!("&var-{}={id}", var::GMBS)).collect()
 		}
-		(None, Picked::Unknown) => unreachable!("the overview shows once the selection is known"),
+		Picked::Unknown => unreachable!("the overview shows once the selection is known"),
 	};
 	let path = format!(
-		"d/{OVERVIEW}/{KIOSK_PICKS}&var-{}={member}&var-{}={gmail}&var-{}={keys}{gmbs}&var-{}={}",
-		var::MEMBER,
+		"d/{OVERVIEW}/{KIOSK_PICKS}&var-{}={gmail}&var-{}={keys}{gmbs}&var-{}={}",
 		var::GMAIL,
 		var::KEYS,
 		var::REV,
 		refresh()
 	);
 	let on = move |up: Up| match up {
-		Up::Select(picked) if tab.is_none() => crate::select(&picked),
-		Up::Select(_) => {}
+		Up::Select(picked) => crate::select(&picked),
 		Up::Open { gmb } => {
 			reviews.set(Reviews::default());
-			navigator().push(Route::at(tab, review_archive_core::views::Board::Gmb { gmb }));
+			navigator().push(Route::at(review_archive_core::views::Board::Gmb { gmb }));
 		}
-		Up::Scan { gmb, target } => act(move |c, tab| async move { c.scan_track(gmb, target, tab).await.map(drop) }),
-		Up::Enable { gmb, target, on } => act(move |c, tab| async move { c.patch_track(gmb, target, tab, &TrackPatch { enabled: Some(on), favorite: None }).await }),
-		Up::Favorite { gmb, target, on } => act(move |c, tab| async move { c.patch_track(gmb, target, tab, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
-		Up::Relink { gmb, target } => act(move |c, tab| async move { c.relink_track(gmb, target, tab).await.map(drop) }),
+		Up::Scan { gmb, target } => act(move |c| async move { c.scan_track(gmb, target).await.map(drop) }),
+		Up::Enable { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: Some(on), favorite: None }).await }),
+		Up::Favorite { gmb, target, on } => act(move |c| async move { c.patch_track(gmb, target, &TrackPatch { enabled: None, favorite: Some(on) }).await }),
+		Up::Relink { gmb, target } => act(move |c| async move { c.relink_track(gmb, target).await.map(drop) }),
 		Up::Reinstate { .. } | Up::Withdraw { .. } => unreachable!("the overview has no lanes"),
 	};
 	rsx! {
@@ -345,18 +338,15 @@ pub fn Overview(gmail: Option<i64>, keys: String, tab: Option<i64>) -> Element {
 /// `ra-location` for the place: its lanes and runs, narrowed by [`Reviews`] (`var-<Review:?>`: true, false, or empty for either).
 /// `api` is where its cards' captures are.
 #[component]
-pub fn Location(gmb: i64, target: i64, tab: Option<i64>) -> Element {
-	let Frame { me, .. } = use_context();
+pub fn Location(gmb: i64, target: i64) -> Element {
 	let Refresh(refresh) = use_context();
 	let reviews: Signal<Reviews> = use_context();
-	let member = tab.unwrap_or(me);
 	let api = js_sys::encode_uri_component(crate::base().as_str());
 	let narrowed: String = Review::iter()
 		.map(|r| format!("&var-{r:?}={}", reviews.read().0.get(&r).map(bool::to_string).unwrap_or_default()))
 		.collect();
 	let path = format!(
-		"a/evmain-tilers-app/d/{LOCATION}{KIOSK}&_tilers.host&var-{}={member}&var-{}={gmb}&var-{}={target}&var-{}={api}{narrowed}&var-{}={}",
-		var::MEMBER,
+		"a/evmain-tilers-app/d/{LOCATION}{KIOSK}&_tilers.host&var-{}={gmb}&var-{}={target}&var-{}={api}{narrowed}&var-{}={}",
 		var::GMB,
 		var::TARGET,
 		var::API,
@@ -364,8 +354,8 @@ pub fn Location(gmb: i64, target: i64, tab: Option<i64>) -> Element {
 		refresh()
 	);
 	let on = move |up: Up| match up {
-		Up::Reinstate { review } => act(move |c, tab| async move { c.reinstate(gmb, review, tab).await.map(drop) }),
-		Up::Withdraw { review } => act(move |c, tab| async move { c.withdraw_reinstatement(gmb, review, tab).await }),
+		Up::Reinstate { review } => act(move |c| async move { c.reinstate(gmb, review).await.map(drop) }),
+		Up::Withdraw { review } => act(move |c| async move { c.withdraw_reinstatement(gmb, review).await }),
 		Up::Open { .. } | Up::Scan { .. } | Up::Enable { .. } | Up::Favorite { .. } | Up::Relink { .. } | Up::Select(_) => unreachable!("a board has no location cards nor gmbs"),
 	};
 	rsx! {

@@ -811,7 +811,7 @@ pub struct SettingsPatch {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct Me {
-	/// Their person id, what `X-Member` and `/members/{id}` name.
+	/// Their person id.
 	pub id: i64,
 	/// Their concierge email.
 	pub email: String,
@@ -819,23 +819,6 @@ pub struct Me {
 	pub name: String,
 	/// What they may do here: `sa:review_archive:*` permissions.
 	pub permissions: Vec<String>,
-}
-
-/// `GET /members`: someone who signed in here, or an address from before people had ids.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
-pub struct MemberDto {
-	/// Their person id.
-	pub id: i64,
-	/// Their concierge email, as of their last sign-in.
-	pub email: String,
-	/// Empty until they sign in.
-	pub name: String,
-	/// `false`: nobody signed in with this address since people got ids.
-	pub claimed: bool,
-	/// The tokens they hold, as the archive reckons them: the conductor's last word on their
-	/// balance less the walks charged since.
-	pub balance: i64,
 }
 
 /// `GET /me/gmbs`: the archive's tag on each of the member's GMBs, for the conductor's page.
@@ -891,6 +874,3 @@ pub struct FeedQuery {
 
 /// The largest page of a feed.
 pub const MAX_PAGE: u32 = 500;
-
-/// On `/me` routes: the person id of the member an admin acts as.
-pub const MEMBER_HEADER: &str = "x-member";

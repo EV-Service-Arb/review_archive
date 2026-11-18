@@ -91,11 +91,8 @@ impl Client {
 	/// The archive's tag on each of the member's GMBs, for the conductor's page.
 	///
 	/// `GET /me/gmbs`
-	pub async fn my_gmbs(&self, x_member: Option<i64>) -> Result<review_archive_core::dto::MyGmbs, Error> {
-		let mut req = self.request(reqwest::Method::GET, "/me/gmbs")?;
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn my_gmbs(&self) -> Result<review_archive_core::dto::MyGmbs, Error> {
+		let req = self.request(reqwest::Method::GET, "/me/gmbs")?;
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}
@@ -103,11 +100,8 @@ impl Client {
 	/// Records that the removed review's reinstatement was asked of Google, now.
 	///
 	/// `PUT /me/gmbs/{gmb}/reinstatements/{review}`
-	pub async fn reinstate(&self, gmb: i64, review: i64, x_member: Option<i64>) -> Result<review_archive_core::dto::ReinstatementDto, Error> {
-		let mut req = self.request(reqwest::Method::PUT, &format!("/me/gmbs/{}/reinstatements/{}", gmb, review))?;
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn reinstate(&self, gmb: i64, review: i64) -> Result<review_archive_core::dto::ReinstatementDto, Error> {
+		let req = self.request(reqwest::Method::PUT, &format!("/me/gmbs/{}/reinstatements/{}", gmb, review))?;
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}
@@ -115,11 +109,8 @@ impl Client {
 	/// Withdraws the open request; it stays on record as withdrawn.
 	///
 	/// `DELETE /me/gmbs/{gmb}/reinstatements/{review}`
-	pub async fn withdraw_reinstatement(&self, gmb: i64, review: i64, x_member: Option<i64>) -> Result<(), Error> {
-		let mut req = self.request(reqwest::Method::DELETE, &format!("/me/gmbs/{}/reinstatements/{}", gmb, review))?;
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn withdraw_reinstatement(&self, gmb: i64, review: i64) -> Result<(), Error> {
+		let req = self.request(reqwest::Method::DELETE, &format!("/me/gmbs/{}/reinstatements/{}", gmb, review))?;
 		Self::send(req).await?;
 		Ok(())
 	}
@@ -127,11 +118,8 @@ impl Client {
 	/// Switches the GMB's track of a place on or off, or marks it a favorite; the place's target stays as it is.
 	///
 	/// `PATCH /me/gmbs/{gmb}/tracks/{target}`
-	pub async fn patch_track(&self, gmb: i64, target: i64, x_member: Option<i64>, body: &review_archive_core::dto::TrackPatch) -> Result<(), Error> {
-		let mut req = self.request(reqwest::Method::PATCH, &format!("/me/gmbs/{}/tracks/{}", gmb, target))?.json(body);
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn patch_track(&self, gmb: i64, target: i64, body: &review_archive_core::dto::TrackPatch) -> Result<(), Error> {
+		let req = self.request(reqwest::Method::PATCH, &format!("/me/gmbs/{}/tracks/{}", gmb, target))?.json(body);
 		Self::send(req).await?;
 		Ok(())
 	}
@@ -139,11 +127,8 @@ impl Client {
 	/// A tracked place's reviews in four columns: snapshotted, suspended, removed, reinstating.
 	///
 	/// `GET /me/gmbs/{gmb}/tracks/{target}/board`
-	pub async fn track_board(&self, gmb: i64, target: i64, x_member: Option<i64>) -> Result<review_archive_core::dto::Board, Error> {
-		let mut req = self.request(reqwest::Method::GET, &format!("/me/gmbs/{}/tracks/{}/board", gmb, target))?;
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn track_board(&self, gmb: i64, target: i64) -> Result<review_archive_core::dto::Board, Error> {
+		let req = self.request(reqwest::Method::GET, &format!("/me/gmbs/{}/tracks/{}/board", gmb, target))?;
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}
@@ -151,11 +136,8 @@ impl Client {
 	/// Asks Google about a tracked place again: its id, name and address become what Google gives now.
 	///
 	/// `POST /me/gmbs/{gmb}/tracks/{target}/relink`
-	pub async fn relink_track(&self, gmb: i64, target: i64, x_member: Option<i64>) -> Result<review_archive_core::dto::TargetDto, Error> {
-		let mut req = self.request(reqwest::Method::POST, &format!("/me/gmbs/{}/tracks/{}/relink", gmb, target))?;
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn relink_track(&self, gmb: i64, target: i64) -> Result<review_archive_core::dto::TargetDto, Error> {
+		let req = self.request(reqwest::Method::POST, &format!("/me/gmbs/{}/tracks/{}/relink", gmb, target))?;
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}
@@ -163,8 +145,8 @@ impl Client {
 	/// A tracked place's runs, newest first.
 	///
 	/// `GET /me/gmbs/{gmb}/tracks/{target}/runs`
-	pub async fn track_runs(&self, gmb: i64, target: i64, limit: Option<u32>, x_member: Option<i64>) -> Result<Vec<review_archive_core::dto::RunDto>, Error> {
-		let mut req = self.request(reqwest::Method::GET, &format!("/me/gmbs/{}/tracks/{}/runs", gmb, target))?.query(&{
+	pub async fn track_runs(&self, gmb: i64, target: i64, limit: Option<u32>) -> Result<Vec<review_archive_core::dto::RunDto>, Error> {
+		let req = self.request(reqwest::Method::GET, &format!("/me/gmbs/{}/tracks/{}/runs", gmb, target))?.query(&{
 			#[derive(serde::Serialize)]
 			struct Query {
 				#[serde(skip_serializing_if = "Option::is_none")]
@@ -172,9 +154,6 @@ impl Client {
 			}
 			Query { limit }
 		});
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}
@@ -182,11 +161,8 @@ impl Client {
 	/// Queues a scan of a tracked place, on top of its schedule; the member who asks pays for it in tokens.
 	///
 	/// `POST /me/gmbs/{gmb}/tracks/{target}/scan`
-	pub async fn scan_track(&self, gmb: i64, target: i64, x_member: Option<i64>) -> Result<review_archive_core::dto::JobAccepted, Error> {
-		let mut req = self.request(reqwest::Method::POST, &format!("/me/gmbs/{}/tracks/{}/scan", gmb, target))?;
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn scan_track(&self, gmb: i64, target: i64) -> Result<review_archive_core::dto::JobAccepted, Error> {
+		let req = self.request(reqwest::Method::POST, &format!("/me/gmbs/{}/tracks/{}/scan", gmb, target))?;
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}
@@ -194,11 +170,8 @@ impl Client {
 	/// The member's gmails, each with its GMBs and their places as tracked, by screenshots over the last 7 days.
 	///
 	/// `GET /me/overview`
-	pub async fn my_overview(&self, x_member: Option<i64>) -> Result<Vec<review_archive_core::dto::GmailOverview>, Error> {
-		let mut req = self.request(reqwest::Method::GET, "/me/overview")?;
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn my_overview(&self) -> Result<Vec<review_archive_core::dto::GmailOverview>, Error> {
+		let req = self.request(reqwest::Method::GET, "/me/overview")?;
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}
@@ -206,11 +179,8 @@ impl Client {
 	/// What the member chose, each beside its default.
 	///
 	/// `GET /me/settings`
-	pub async fn my_settings(&self, x_member: Option<i64>) -> Result<review_archive_core::dto::Settings, Error> {
-		let mut req = self.request(reqwest::Method::GET, "/me/settings")?;
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn my_settings(&self) -> Result<review_archive_core::dto::Settings, Error> {
+		let req = self.request(reqwest::Method::GET, "/me/settings")?;
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}
@@ -218,11 +188,8 @@ impl Client {
 	/// Chooses what the patch names; the rest stays.
 	///
 	/// `PATCH /me/settings`
-	pub async fn patch_my_settings(&self, x_member: Option<i64>, body: &review_archive_core::dto::SettingsPatch) -> Result<review_archive_core::dto::Settings, Error> {
-		let mut req = self.request(reqwest::Method::PATCH, "/me/settings")?.json(body);
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
+	pub async fn patch_my_settings(&self, body: &review_archive_core::dto::SettingsPatch) -> Result<review_archive_core::dto::Settings, Error> {
+		let req = self.request(reqwest::Method::PATCH, "/me/settings")?.json(body);
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}
@@ -230,20 +197,8 @@ impl Client {
 	/// Every setting back to its default.
 	///
 	/// `DELETE /me/settings`
-	pub async fn reset_my_settings(&self, x_member: Option<i64>) -> Result<review_archive_core::dto::Settings, Error> {
-		let mut req = self.request(reqwest::Method::DELETE, "/me/settings")?;
-		if let Some(v) = x_member {
-			req = req.header("x-member", v.to_string());
-		}
-		let res = Self::send(req).await?;
-		Ok(res.json().await?)
-	}
-
-	/// Everyone who signed in here, and the addresses from before people had ids, with what they hold.
-	///
-	/// `GET /members`
-	pub async fn list_members(&self) -> Result<Vec<review_archive_core::dto::MemberDto>, Error> {
-		let req = self.request(reqwest::Method::GET, "/members")?;
+	pub async fn reset_my_settings(&self) -> Result<review_archive_core::dto::Settings, Error> {
+		let req = self.request(reqwest::Method::DELETE, "/me/settings")?;
 		let res = Self::send(req).await?;
 		Ok(res.json().await?)
 	}

@@ -666,9 +666,9 @@ dependencies = [
 
 [[package]]
 name = "concierge_iam"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a20dc8e022fa9b2342f6d6021debbde4891a0c4563d020dee4c25b16f1fd3fd"
+checksum = "b83407b09fe37b72dcb907c3b5e87c227bc0417188d91eca3f5b9190c7768ec0"
 dependencies = [
  "concierge_iam_derive",
  "inventory",
@@ -677,9 +677,9 @@ dependencies = [
 
 [[package]]
 name = "concierge_iam_derive"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9c476924abf60e075153c756af3b9b86cbdce1c54f5a82754d8d0787983e2f8"
+checksum = "f9ac57a48ec773515c7149446e6d966e66bfb1e8f01a3f91ad7171ca463a7d71"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -4918,7 +4918,6 @@ dependencies = [
  "insta",
  "jiff",
  "miette",
- "sa_auth",
  "sa_core",
  "schemars",
  "scraper",
@@ -5187,7 +5186,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 [[package]]
 name = "sa_alerts"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#f0cc2865fe47321a5cde34904c9cdac51c3ecfed"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
 dependencies = [
  "jiff",
  "sa_auth",
@@ -5201,7 +5200,7 @@ dependencies = [
 [[package]]
 name = "sa_auth"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#f0cc2865fe47321a5cde34904c9cdac51c3ecfed"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5221,7 +5220,7 @@ dependencies = [
 [[package]]
 name = "sa_core"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#f0cc2865fe47321a5cde34904c9cdac51c3ecfed"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
 dependencies = [
  "axum",
  "ev_lib 0.34.2",
@@ -5246,7 +5245,7 @@ dependencies = [
 [[package]]
 name = "sa_places"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#f0cc2865fe47321a5cde34904c9cdac51c3ecfed"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
 dependencies = [
  "base64 0.22.1",
  "eyre",
@@ -5269,7 +5268,7 @@ dependencies = [
 [[package]]
 name = "sa_ui"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#f0cc2865fe47321a5cde34904c9cdac51c3ecfed"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
 dependencies = [
  "dioxus",
  "ev_lib 0.25.1",

@@ -3,10 +3,7 @@
 //! operation's answer. The page frames them (`review_archive_web/src/grafana.rs`).
 
 use ev_lib::api::{OpenApi, op_id};
-use review_archive_core::{
-	dashboards::{LOCATION, OVERVIEW, Review, up, var},
-	dto::MEMBER_HEADER,
-};
+use review_archive_core::dashboards::{LOCATION, OVERVIEW, Review, up, var};
 use sa_core::dashboards::{Board, Column, Panel, Query, Select};
 use serde_json::{Value, json};
 use strum::IntoEnumIterator;
@@ -178,9 +175,8 @@ const LANE_STYLES: &str = r#".ra-lane { display: flex; flex-direction: column; g
 
 /// A place's board: its lanes of reviews, tiled by the tilers plugin, and its runs.
 fn location(doc: &OpenApi) -> Value {
-	let (gmb, target, member) = (v(var::GMB), v(var::TARGET), v(var::MEMBER));
+	let (gmb, target) = (v(var::GMB), v(var::TARGET));
 	let track = [("gmb", gmb.as_str()), ("target", target.as_str())];
-	let headers = [(MEMBER_HEADER, member.as_str())];
 	let helpers = LOCATION_HELPERS.replace("@API@", &v(var::API));
 	let after_render = LANE_AFTER_RENDER.replace("@REINSTATE@", up::REINSTATE).replace("@WITHDRAW@", up::WITHDRAW);
 	let lane_columns: Vec<(String, Column)> = CARD
@@ -206,7 +202,6 @@ fn location(doc: &OpenApi) -> Value {
 			operation: op_id(super::track_board),
 			path: &track,
 			params: &[],
-			headers: &headers,
 			select: Some(Select {
 				root_selector: &root,
 				columns: &lane_columns,
@@ -244,7 +239,6 @@ fn location(doc: &OpenApi) -> Value {
 		operation: op_id(super::track_runs),
 		path: &track,
 		params,
-		headers: &headers,
 		select: Some(Select { root_selector: &runs_root, columns }),
 	};
 	let status: Value = serde_json::from_str(STATUS).expect("a JSON literal");
@@ -336,7 +330,7 @@ fn location(doc: &OpenApi) -> Value {
 			"time": { "from": "now-30d", "to": "now" },
 			"refresh": "1m",
 			"templating": {
-				"list": ([var::MEMBER, var::GMB, var::TARGET, var::REV, var::API])
+				"list": ([var::GMB, var::TARGET, var::REV, var::API])
 					.into_iter()
 					.map(hidden)
 					.chain(Review::iter().map(|r| hidden(&format!("{r:?}"))))
@@ -566,8 +560,6 @@ const OVERVIEW_STYLES: &str = r#".ra-grid { display: grid; grid-template-columns
 
 /// The member's places as cards, in the order the page's filter keeps them, and as a table.
 fn overview(doc: &OpenApi) -> Value {
-	let member = v(var::MEMBER);
-	let headers = [(MEMBER_HEADER, member.as_str())];
 	let root = OVERVIEW_ROOT
 		.replace("@REV@", &v(var::REV))
 		.replace("@KEYS@", &v(var::KEYS))
@@ -591,7 +583,6 @@ fn overview(doc: &OpenApi) -> Value {
 				operation: op_id(super::my_overview),
 				path: &[],
 				params: &[],
-				headers: &headers,
 				select: Some(Select {
 					root_selector: r#"$$.gmbs.{"__value": $string(id), "__text": name}"#,
 					columns: &[("__text", Column::String), ("__value", Column::String)],
@@ -619,7 +610,6 @@ fn overview(doc: &OpenApi) -> Value {
 				operation: op_id(super::my_overview),
 				path: &[],
 				params: &[],
-				headers: &headers,
 				select: Some(Select {
 					root_selector: &root,
 					columns: &OVERVIEW_COLUMNS,
@@ -678,6 +668,6 @@ fn overview(doc: &OpenApi) -> Value {
 			"schemaVersion": 41,
 			"editable": true,
 			"time": { "from": "now-30d", "to": "now" },
-			"templating": { "list": ([var::MEMBER, var::GMAIL, var::KEYS, var::REV]).into_iter().map(hidden).collect::<Vec<_>>() },
+			"templating": { "list": ([var::GMAIL, var::KEYS, var::REV]).into_iter().map(hidden).collect::<Vec<_>>() },
 		}))
 }

@@ -30,7 +30,7 @@ use review_archive::{Archive, Rejected, store::export::Destination};
 use review_archive_core::{
 	ReviewId, TargetId,
 	dto::{
-		self, Board, CaptureRequest, ChargePage, DayStats, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MemberDto, MyGmbs, NewLayout, NewTarget, NewWebhook,
+		self, Board, CaptureRequest, ChargePage, DayStats, ExportQuery, FeedQuery, GmailOverview, JobAccepted, JobDto, LayoutDto, Me, MyGmbs, NewLayout, NewTarget, NewWebhook,
 		ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto, TargetPatch, TrackPatch,
 		UsagePage, WaitQuery, WebhookDto, stats_csv,
 	},
@@ -48,7 +48,7 @@ use tower_http::services::ServeDir;
 use v_utils::{Timeframe, macros::SettingsNested};
 
 use crate::{
-	auth::{Caller, Dev, Member},
+	auth::{Caller, Dev},
 	worker::Signals,
 };
 
@@ -126,7 +126,6 @@ fn routes() -> Vec<ApiRoute> {
 		ApiRoute::new(M::DELETE, "/webhooks/{id}", operator, delete_webhook),
 		ApiRoute::new(M::GET, "/layouts/{dock}", user, list_layouts),
 		ApiRoute::new(M::PUT, "/layouts/{dock}/{band}", operator, publish_layout),
-		ApiRoute::new(M::GET, "/members", user.needs(sa_auth::Members::ActAs), list_members),
 		ApiRoute::new(M::GET, "/me", user, me),
 		ApiRoute::new(M::GET, "/me/overview", user, my_overview),
 		ApiRoute::new(M::GET, "/me/gmbs", user, my_gmbs),
@@ -657,44 +656,39 @@ async fn me(State(s): State<AppState>, user: User, Caller(caller): Caller) -> Ap
 	}))
 }
 
-/// Everyone who signed in here, and the addresses from before people had ids, with what they hold.
-async fn list_members(State(s): State<AppState>) -> ApiResult<Json<Vec<MemberDto>>> {
-	Ok(Json(s.archive.members().await?))
-}
-
 /// The member's gmails, each with its GMBs and their places as tracked, by screenshots over the last 7 days.
-async fn my_overview(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Vec<GmailOverview>>> {
+async fn my_overview(State(s): State<AppState>, Caller(m): Caller) -> ApiResult<Json<Vec<GmailOverview>>> {
 	Ok(Json(s.archive.overview(m).await?))
 }
 
 /// The archive's tag on each of the member's GMBs, for the conductor's page.
-async fn my_gmbs(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<MyGmbs>> {
+async fn my_gmbs(State(s): State<AppState>, Caller(m): Caller) -> ApiResult<Json<MyGmbs>> {
 	Ok(Json(s.archive.my_gmbs(m).await?))
 }
 
 /// What the member chose, each beside its default.
-async fn my_settings(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Settings>> {
+async fn my_settings(State(s): State<AppState>, Caller(m): Caller) -> ApiResult<Json<Settings>> {
 	Ok(Json(s.archive.settings(m).await?))
 }
 
 /// Chooses what the patch names; the rest stays.
-async fn patch_my_settings(State(s): State<AppState>, Member(m): Member, Body(req): Body<SettingsPatch>) -> ApiResult<Json<Settings>> {
+async fn patch_my_settings(State(s): State<AppState>, Caller(m): Caller, Body(req): Body<SettingsPatch>) -> ApiResult<Json<Settings>> {
 	Ok(Json(s.archive.patch_settings(m, &req).await?))
 }
 
 /// Every setting back to its default.
-async fn reset_my_settings(State(s): State<AppState>, Member(m): Member) -> ApiResult<Json<Settings>> {
+async fn reset_my_settings(State(s): State<AppState>, Caller(m): Caller) -> ApiResult<Json<Settings>> {
 	Ok(Json(s.archive.reset_settings(m).await?))
 }
 
 /// Switches the GMB's track of a place on or off, or marks it a favorite; the place's target stays as it is.
-async fn patch_track(State(s): State<AppState>, Member(m): Member, Ids(Track { gmb, target }): Ids<Track>, Body(req): Body<TrackPatch>) -> ApiResult<NoContent> {
+async fn patch_track(State(s): State<AppState>, Caller(m): Caller, Ids(Track { gmb, target }): Ids<Track>, Body(req): Body<TrackPatch>) -> ApiResult<NoContent> {
 	s.archive.patch_track(m, gmb, TargetId(target), &req).await?;
 	Ok(NoContent)
 }
 
 /// Asks Google about a tracked place again: its id, name and address become what Google gives now.
-async fn relink_track(State(s): State<AppState>, Member(m): Member, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<TargetDto>> {
+async fn relink_track(State(s): State<AppState>, Caller(m): Caller, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<TargetDto>> {
 	Ok(Json(s.archive.relink(m, gmb, TargetId(target)).await?))
 }
 
@@ -702,31 +696,31 @@ async fn relink_track(State(s): State<AppState>, Member(m): Member, Ids(Track { 
 ///
 /// 429 when the GMB is switched off or not verified, Maps is paused, the member is out of
 /// tokens, or the queue is full.
-async fn scan_track(State(s): State<AppState>, Spends(_, by): Spends<WalkStep, Member>, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Accepted<JobAccepted>> {
+async fn scan_track(State(s): State<AppState>, Spends(_, by): Spends<WalkStep, Caller>, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Accepted<JobAccepted>> {
 	let job_id = s.archive.scan_tracked(by, gmb, TargetId(target)).await?;
 	s.signals.job_queued.notify_one();
 	Ok(Accepted(JobAccepted { job_id }))
 }
 
 /// A tracked place's reviews in four columns: snapshotted, suspended, removed, reinstating.
-async fn track_board(State(s): State<AppState>, Member(m): Member, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<Board>> {
+async fn track_board(State(s): State<AppState>, Caller(m): Caller, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<Board>> {
 	Ok(Json(s.archive.board(m, gmb, TargetId(target)).await?))
 }
 
 /// A tracked place's runs, newest first.
-async fn track_runs(State(s): State<AppState>, Member(m): Member, Ids(Track { gmb, target }): Ids<Track>, Params(q): Params<RunsQuery>) -> ApiResult<Json<Vec<RunDto>>> {
+async fn track_runs(State(s): State<AppState>, Caller(m): Caller, Ids(Track { gmb, target }): Ids<Track>, Params(q): Params<RunsQuery>) -> ApiResult<Json<Vec<RunDto>>> {
 	Ok(Json(s.archive.track_runs(m, gmb, TargetId(target), &q).await?))
 }
 
 /// Records that the removed review's reinstatement was asked of Google, now.
 ///
 /// Asking again while one is open answers the open one.
-async fn reinstate(State(s): State<AppState>, Member(m): Member, Ids(Appeal { gmb, review }): Ids<Appeal>) -> ApiResult<Json<ReinstatementDto>> {
+async fn reinstate(State(s): State<AppState>, Caller(m): Caller, Ids(Appeal { gmb, review }): Ids<Appeal>) -> ApiResult<Json<ReinstatementDto>> {
 	Ok(Json(s.archive.reinstate(m, gmb, ReviewId(review)).await?))
 }
 
 /// Withdraws the open request; it stays on record as withdrawn.
-async fn withdraw_reinstatement(State(s): State<AppState>, Member(m): Member, Ids(Appeal { gmb, review }): Ids<Appeal>) -> ApiResult<NoContent> {
+async fn withdraw_reinstatement(State(s): State<AppState>, Caller(m): Caller, Ids(Appeal { gmb, review }): Ids<Appeal>) -> ApiResult<NoContent> {
 	s.archive.withdraw_reinstatement(m, gmb, ReviewId(review)).await?;
 	Ok(NoContent)
 }

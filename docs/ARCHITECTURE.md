@@ -44,7 +44,7 @@ crates/review_archive_server/   the `review_archive` binary: CLI, HTTP, backgrou
                                 the conductor's own calls at `sa_core::feeds`' paths, the change feed among them
                                 (`review_archive.<table>` per committed write, ended at shutdown and at a takeover)
   src/auth.rs                   who is calling: the conductor's assertion (`sa_auth`'s gate, its `Vouch` claiming the person
-                                by `sub`); whose `/me` it is (`X-Member`); `--dev-member`'s signer
+                                by `sub`); `--dev-member`'s signer
   src/worker.rs                 the browser's worker (queued jobs, then due targets) and the deliverer
   src/settings.rs               the environment (ev_lib `settings!`): secrets, APP_ENV
   src/config.rs                 the config (v_utils `Settings`): data dir, bind, and every library and server section
@@ -127,7 +127,6 @@ POST   /webhooks                                       archive:operate
 DELETE /webhooks/{id}                                  archive:operate
 GET    /layouts/{dock}
 PUT    /layouts/{dock}/{band}                          archive:operate
-GET    /members                                        members:act_as
 GET    /me
 GET    /me/{overview,gmbs,settings}
 PATCH  /me/settings

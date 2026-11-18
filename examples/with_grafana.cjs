@@ -1,9 +1,9 @@
-// The conductor's local stack with `?grafana=true` driven in a headless Chromium, as the member's tab: a gmail's cards are
+// The conductor's local stack with `?grafana=true` driven in a headless Chromium, as the signed-in member: a gmail's cards are
 // its GMBs' tracks in /me/overview, a facet narrows them, a card opens its board, whose lanes are the board's and whose
 // gone cards appeal and withdraw by drag, back returns, and a card's switch writes and redraws — all in one page
 // load and one Grafana frame.
-// `SA_CONDUCTOR_ORIGIN=<origin> node examples/with_grafana.cjs <member> <gmail> <facet>` inside `nix develop`, the
-// origin the conductor's (site_conductor's `nix run .#local-stack`, signed in as an admin, who acts as `<member>`). The switch and the drags write: run the stack on a copy of the data dir
+// `SA_CONDUCTOR_ORIGIN=<origin> node examples/with_grafana.cjs <gmail> <facet>` inside `nix develop`, the
+// origin the conductor's (site_conductor's `nix run .#local-stack`, its dev sign-in). The switch and the drags write: run the stack on a copy of the data dir
 // (`REVIEW_ARCHIVE_DATA_DIR`).
 const path = require('path');
 const { chromium } = require(path.dirname(process.env.PLAYWRIGHT_CLI_JS));
@@ -12,8 +12,8 @@ const assert = require('assert');
 const BASE = process.env.SA_CONDUCTOR_ORIGIN;
 if (!BASE) throw new Error("SA_CONDUCTOR_ORIGIN: the local stack's conductor, as its banner prints it");
 const API = `${BASE}/api/review_archive`;
-const [member, gmail] = process.argv.slice(2, 4).map(Number);
-const facet = process.argv[4];
+const gmail = Number(process.argv[2]);
+const facet = process.argv[3];
 const HOLDS = {
 	favorite: (l) => l.favorite,
 	'posted 7d': (l) => l.posts_7d > 0,
@@ -25,7 +25,7 @@ const HOLDS = {
 
 let page;
 const get = async (path) => {
-	const r = await page.request.get(API + path, { headers: { 'x-member': String(member) } });
+	const r = await page.request.get(API + path);
 	assert.ok(r.ok(), `GET ${path}: ${r.status()}`);
 	return r.json();
 };
@@ -39,7 +39,7 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 	await page.goto(`${BASE}/auth/login?return_to=/`); // the stack's dev sign-in: a session at once
 	const cards = await overview();
-	assert.ok(cards?.length, `member ${member} has no gmail ${gmail}, or it tracks nothing`);
+	assert.ok(cards?.length, `no gmail ${gmail}, or it tracks nothing`);
 	page.on('pageerror', (e) => console.log('pageerror:', e.message));
 	page.on('response', async (r) => {
 		if (r.status() >= 400 && r.url().includes('/grafana/api/ds/query')) console.log(r.status(), (await r.text()).slice(0, 400));
@@ -47,7 +47,7 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 	let documents = 0;
 	page.on('request', (r) => r.resourceType() === 'document' && r.frame() === page.mainFrame() && documents++);
 
-	const OVERVIEW = `${BASE}/review_archive/members/${member}/gmails/${gmail}`;
+	const OVERVIEW = `${BASE}/review_archive/gmails/${gmail}`;
 	await page.goto(`${OVERVIEW}?grafana=true`); // the tab keeps it, the router drops it from the address
 	const frame = await (await page.waitForSelector('iframe[src*="/grafana/"]')).contentFrame();
 	await frame.waitForSelector('.ra-card', { timeout: 60000 });
@@ -77,7 +77,7 @@ const count = (frame, n) => frame.waitForFunction((n) => document.querySelectorA
 
 	const [gmb, target] = [cards[0].gmb, cards[0].target.id];
 	await frame.click('.ra-card .ra-label');
-	await page.waitForURL(`**/review_archive/members/${member}/gmbs/${gmb}/tracks/${target}`);
+	await page.waitForURL(`**/review_archive/gmbs/${gmb}/tracks/${target}`);
 	let t = Date.now();
 	await frame.waitForSelector('text=Reviews per run', { timeout: 30000 });
 	await kept();

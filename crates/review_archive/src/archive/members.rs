@@ -5,10 +5,7 @@
 use jiff::Timestamp;
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, TargetId,
-	dto::{
-		Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MemberDto, MyGmbs, OnGoogle, ReinstatementDto, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch,
-		UsagePage,
-	},
+	dto::{Board, ChargePage, GmailOverview, JobKind, MAX_PAGE, MyGmbs, OnGoogle, ReinstatementDto, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch, UsagePage},
 	parse_interval,
 };
 use sa_alerts::NotePage;
@@ -21,29 +18,6 @@ impl Archive {
 	/// The person the panel vouches for; see [`Store::person`](crate::store::Store::person).
 	pub async fn person(&self, seen: &Seen<'_>) -> eyre::Result<Claim> {
 		self.store()?.person(seen, Timestamp::now()).await
-	}
-
-	/// Everyone, with what they hold.
-	pub async fn members(&self) -> eyre::Result<Vec<MemberDto>> {
-		let mut out = Vec::new();
-		for p in self.store()?.people().await? {
-			out.push(MemberDto {
-				balance: self.store()?.holdings(p.sub.as_slice()).await?,
-				id: p.id,
-				email: p.email,
-				name: p.name,
-				claimed: p.sub.is_some(),
-			});
-		}
-		Ok(out)
-	}
-
-	/// [`Rejected::NotFound`] for an id nobody has.
-	pub async fn check_person(&self, id: PersonId) -> eyre::Result<()> {
-		match self.store()?.person_by_id(id).await? {
-			Some(_) => Ok(()),
-			None => Err(Rejected::not_found(format!("no person {id}")).into()),
-		}
 	}
 
 	/// Changes the member's GMB's track of a place: on or off, favorite or not.

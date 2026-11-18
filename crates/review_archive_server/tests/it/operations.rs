@@ -50,5 +50,5 @@ fn every_operation_lists_its_refusals_and_the_document_its_views() {
 		}
 	}
 	let views = doc["x-views"]["views"].as_object().unwrap();
-	assert!(["pick", "mine.home", "mine.gmb", "theirs.settings"].iter().all(|v| views.contains_key(*v)), "{:?}", views.keys());
+	assert_eq!(views.keys().collect::<Vec<_>>(), ["mine.gmail", "mine.gmb", "mine.home", "mine.settings"]);
 }

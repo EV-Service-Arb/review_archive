@@ -1,9 +1,8 @@
 //! What the dashboard shows at which path: the server's `x-views`, the page's routes.
 
 use ev_lib::views::Views;
-use sa_auth::Members;
 
-/// What one member's tab shows.
+/// What the dashboard shows.
 #[derive(Clone, Debug, PartialEq, Views)]
 pub enum Board {
 	/// Every GMB of the member's, by gmail.
@@ -26,22 +25,10 @@ pub enum Board {
 	Settings,
 }
 
-/// Where the dashboard is: a view of the caller's own, of the member their tab acts as, or the
-/// pick of a member to open a tab for.
+/// Where the dashboard is.
 #[derive(Clone, Debug, PartialEq, Views)]
 pub enum View {
-	/// The pick of a member to open a tab for.
-	#[view("/act-as", needs = Members::ActAs)]
-	Pick,
-	/// A member's tab, for one who acts as them.
-	#[view("/members/{member}", nest, needs = Members::ActAs)]
-	Theirs {
-		/// Their person id (`GET /members`).
-		member: i64,
-		/// What their tab shows.
-		view: Board,
-	},
-	/// The caller's own tab.
+	/// The caller's own.
 	#[view("", nest)]
 	Mine {
 		/// What it shows.

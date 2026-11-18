@@ -8,8 +8,6 @@ pub const LOCATION: &str = "ra-location";
 
 /// The variables a link to a dashboard sets (`var-<name>`).
 pub mod var {
-	/// The person id the dashboard reads as (`x-member`).
-	pub const MEMBER: &str = "member";
 	/// Bumped after a write: the panels read again.
 	pub const REV: &str = "rev";
 	/// [`super::OVERVIEW`]: the gmail shown, empty for every one.

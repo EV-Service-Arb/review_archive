@@ -1,7 +1,6 @@
 //! The dashboard: a person's GMBs (the conductor's, under their managing gmails), the place
 //! each tracks, and per place a board of its reviews — snapshotted, suspended, removed, reinstating. The Service-Arb panel mounts it and
 //! forwards its calls to the archive: the panel's session cookie and CSRF header sign them.
-//! One who may act as others gets tabs: their own dashboard, and any member's, acting as them.
 
 #![cfg(target_arch = "wasm32")]
 #![allow(clippy::useless_format)] // rsx! lowers every "{x}" to a format!
@@ -18,17 +17,15 @@ use dioxus::prelude::*;
 use ev_lib::{
 	i18n::{Locale, Messages, Translator},
 	t,
-	uikit_dioxus::{
-		Badge, Button, ButtonVariant, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList, InfoTip, InfoTipContent, InfoTipTrigger, Size, Tabs, TabsList, TabsTrigger, Tone,
-	},
+	uikit_dioxus::{Badge, Tone},
 	views::Routed,
 };
 use review_archive_client::{
 	Client,
-	dto::{GmailDto, GmailOverview, GmbSummary, LocationSummary, Me, MemberDto, OnGoogle},
+	dto::{GmailDto, GmailOverview, GmbSummary, LocationSummary, Me, OnGoogle},
 };
 use review_archive_core::views::{Board, View};
-use sa_auth::{Members, Permission, PermissionSet};
+use sa_auth::{Permission, PermissionSet};
 use wasm_bindgen::{JsCast, prelude::*};
 
 const TAG: &str = "mfe-review-archive-dashboard";
@@ -244,9 +241,8 @@ fn ui() -> Ui {
 	host().ui
 }
 
-/// The API, and whose tab it is for (`x-member`): the caller's own (`None`), or the member their tab acts as.
 #[derive(Clone)]
-struct Api(Client, Option<i64>);
+struct Api(Client);
 
 /// Bumped after a write, so what was read is read again.
 #[derive(Clone, Copy)]
@@ -298,57 +294,19 @@ enum Route {
 }
 
 impl Route {
-	fn at(member: Option<i64>, board: Board) -> Self {
+	fn at(board: Board) -> Self {
 		Self::At {
-			at: Routed(match member {
-				Some(member) => View::Theirs { member, view: board },
-				None => View::Mine { view: board },
-			}),
-		}
-	}
-
-	fn view(&self) -> &View {
-		let Self::At { at } = self;
-		&at.0
-	}
-
-	/// Whose tab: `None` for the caller's own, and for the pick, which opens one.
-	fn member(&self) -> Option<i64> {
-		match self.view() {
-			View::Theirs { member, .. } => Some(*member),
-			View::Mine { .. } | View::Pick => None,
-		}
-	}
-
-	/// What the tab shows; the pick lays over the caller's home.
-	fn board(&self) -> &Board {
-		match self.view() {
-			View::Theirs { view, .. } | View::Mine { view } => view,
-			View::Pick => &Board::Home,
+			at: Routed(View::Mine { view: board }),
 		}
 	}
 }
 
-/// Each tab's last route, by its member: what a hidden tab keeps showing, and where going
-/// back to it lands.
-#[derive(Clone, Copy)]
-struct Views(Signal<std::collections::HashMap<Option<i64>, Route>>);
-
-/// The route renders nothing itself — every tab stays mounted under [`Shell`] — it only notes
-/// where its tab is; the pick is no tab's.
 #[component]
 fn Page(at: Routed<View>) -> Element {
-	let Views(mut views) = use_context();
-	let route = Route::At { at };
-	use_effect(use_reactive!(|route| {
-		if *route.view() != View::Pick {
-			views.write().insert(route.member(), route);
-		}
-	}));
-	rsx! {}
+	let View::Mine { view } = at.0;
+	rsx! { Workspace { at: view } }
 }
 
-const TABS: &str = "review_archive.tabs";
 const UI: &str = "review_archive.ui";
 
 fn session() -> web_sys::Storage {
@@ -415,12 +373,12 @@ fn shown(e: review_archive_client::Error) -> String {
 }
 
 /// Runs a write against the API, then reads everything again; a failure is shown.
-fn act<F: Future<Output = Result<(), review_archive_client::Error>> + 'static>(f: impl FnOnce(Client, Option<i64>) -> F + 'static) {
-	let Api(api, tab) = consume_context();
+fn act<F: Future<Output = Result<(), review_archive_client::Error>> + 'static>(f: impl FnOnce(Client) -> F + 'static) {
+	let Api(api) = consume_context();
 	let Refresh(mut refresh) = consume_context();
 	let Failure(mut failure) = consume_context();
 	spawn(async move {
-		match f(api, tab).await {
+		match f(api).await {
 			Ok(()) => failure.set(None),
 			Err(e) => failure.set(Some(shown(e))),
 		}
@@ -430,7 +388,7 @@ fn act<F: Future<Output = Result<(), review_archive_client::Error>> + 'static>(f
 
 const SHELL: &str = "flex min-h-0 flex-1 bg-background text-ink text-[13px] font-sans";
 
-/// The GMBs the host's outline lists (`sa:gmbs`, the conductor's ids): what the caller's own tab narrows to.
+/// The GMBs the host's outline lists (`sa:gmbs`, the conductor's ids): what the dashboard narrows to.
 #[derive(Clone, PartialEq)]
 enum Picked {
 	/// no `sa:gmbs` yet
@@ -473,7 +431,6 @@ fn select(picked: &Picked) {
 
 #[component]
 fn Shell() -> Element {
-	use_context_provider(|| Views(Signal::new(Default::default())));
 	let Selection(mut picked) = use_context_provider(|| Selection(Signal::new(Picked::Unknown)));
 	let listener = use_hook(|| {
 		let (rt, shell) = (dioxus::core::Runtime::current(), dioxus::core::current_scope_id());
@@ -512,191 +469,36 @@ fn Shell() -> Element {
 			.remove_event_listener_with_callback("sa:gmbs", listener.as_ref().as_ref().unchecked_ref())
 			.expect("removing a listener");
 	});
-	let route = use_route::<Route>();
 	let me = use_resource(|| async { api().me().await.map_err(shown) });
 	let body = match &*me.read() {
-		Some(Ok(me)) => rsx! { Signed { me: me.clone(), view: route } },
+		Some(Ok(me)) => rsx! {
+			Signed { me: me.clone(),
+				Outlet::<Route> {}
+			}
+		},
 		Some(Err(e)) => rsx! { div { class: "{SHELL} p-6 text-accent-error", "{e}" } },
 		None => rsx! { div { class: "{SHELL} p-6 text-ink-soft", "Loading…" } },
 	};
 	rsx! {
 		div { class: "flex h-full flex-col",
 			{body}
-			Outlet::<Route> {}
 		}
 	}
 }
 
 #[component]
-fn Signed(me: Me, view: Route) -> Element {
+fn Signed(me: Me, children: Element) -> Element {
 	use_context_provider(|| Held(me.permissions.iter().cloned().collect()));
-	let body = match may(Members::ActAs) {
-		true => rsx! { Admin { me: me.id } },
-		false => rsx! { Workspace { view } },
-	};
 	match ui() {
-		Ui::Grafana => rsx! { grafana::Host { me: me.id, {body} } },
-		Ui::Legacy => body,
+		Ui::Grafana => rsx! { grafana::Host { {children} } },
+		Ui::Legacy => children,
 	}
 }
 
-/// "You", then a tab per member opened, kept for this browser tab across the full loads the
-/// panel's links make; every tab stays mounted, so switching keeps where
-/// each one was. The active tab is the URL's `member`.
+/// The signed-in person's dashboard at `at`.
 #[component]
-fn Admin(me: i64) -> Element {
-	let route = use_route::<Route>();
-	let Views(mut views) = use_context();
-	let active = route.member();
-	let mut opened = use_signal(|| match session().get_item(TABS).expect("sessionStorage is readable") {
-		Some(ids) => ids.split(',').filter(|m| !m.is_empty()).map(|m| m.parse::<i64>().expect("written below")).collect(),
-		None => Vec::new(),
-	});
-	use_effect(move || {
-		let ids = opened().iter().map(i64::to_string).collect::<Vec<_>>().join(",");
-		session().set_item(TABS, &ids).expect("sessionStorage is writable");
-	});
-	let members = use_resource(|| async { api().list_members().await.map_err(shown) });
-	let label = move |m: i64| match &*members.read() {
-		Some(Ok(all)) => match all.iter().find(|x| x.id == m) {
-			Some(x) if !x.name.is_empty() => x.name.clone(),
-			Some(x) => x.email.clone(),
-			None => format!("#{m}"),
-		},
-		Some(Err(e)) => e.clone(),
-		None => format!("#{m}"),
-	};
-	// a link to a member's view opens their tab
-	use_effect(use_reactive!(|active| {
-		if let Some(m) = active
-			&& !opened.peek().contains(&m)
-		{
-			opened.write().push(m);
-		}
-	}));
-	let mut tabs = opened();
-	if let Some(m) = active
-		&& !tabs.contains(&m)
-	{
-		tabs.push(m);
-	}
-	// where a tab is: the URL for the active one, else where it was left; a tab never visited starts at its home
-	let view_of = move |m: Option<i64>| match views.read().get(&m) {
-		Some(r) => r.clone(),
-		None => Route::at(m, Board::Home),
-	};
-	let shown = |m: Option<i64>| match active == m {
-		true => "flex min-h-0 flex-1",
-		false => "hidden",
-	};
-	rsx! {
-		div { class: "flex min-h-0 flex-1 flex-col bg-background text-ink text-[13px] font-sans",
-			if !tabs.is_empty() {
-			Tabs {
-				// the kit's tabs are keyed by string: "" is the caller's own
-				value: active.map(|m| m.to_string()).unwrap_or_default(),
-				on_value_change: move |m: String| {
-					navigator().push(view_of((!m.is_empty()).then(|| m.parse().expect("a tab's value is its member's id"))));
-				},
-				class: "border-b border-border bg-secondary px-2 py-1.5",
-				div { class: "flex items-center gap-1",
-					TabsList { class: "bg-transparent",
-						TabsTrigger { value: "", "You" }
-						for m in tabs.clone() {
-							div { key: "{m}", class: "flex items-center",
-								TabsTrigger { value: m.to_string(), {label(m)} }
-								Button {
-									variant: ButtonVariant::Ghost,
-									size: Size::Xs,
-									icon: true,
-									r#type: "button",
-									onclick: move |_| {
-										opened.write().retain(|t| *t != m);
-										views.write().remove(&Some(m));
-										if router().current::<Route>().member() == Some(m) {
-											navigator().push(view_of(None));
-										}
-									},
-									"×"
-								}
-							}
-						}
-					}
-				}
-			}
-			}
-			div { class: shown(None),
-				Workspace { view: if matches!(route.view(), View::Mine { .. }) { route.clone() } else { view_of(None) } }
-			}
-			for m in tabs {
-				div { key: "{m}", class: shown(Some(m)),
-					Workspace { view: if active == Some(m) { route.clone() } else { view_of(Some(m)) } }
-				}
-			}
-			if *route.view() == View::Pick {
-				Picker {
-					on_pick: move |m: MemberDto| {
-						navigator().replace(view_of((m.id != me).then_some(m.id)));
-					},
-					on_close: move |_| {
-						navigator().replace(view_of(None));
-					},
-				}
-			}
-		}
-	}
-}
-
-/// fzf over everyone who signed in here: name and email, and what they hold.
-#[component]
-fn Picker(on_pick: EventHandler<MemberDto>, on_close: EventHandler<()>) -> Element {
-	let tr: Translator = use_context();
-	let members = use_resource(|| async { api().list_members().await.map_err(shown) });
-	rsx! {
-		CommandDialog {
-			open: true,
-			on_open_change: move |open: bool| {
-				if !open {
-					on_close.call(());
-				}
-			},
-			CommandInput { placeholder: "Member's name or email" }
-			CommandList {
-				match &*members.read() {
-					Some(Ok(members)) => rsx! {
-						for m in members.clone() {
-							CommandItem {
-								key: "{m.id}",
-								value: format!("{} {}", m.name, m.email),
-								on_select: {
-									let m = m.clone();
-									move |_| on_pick.call(m.clone())
-								},
-								if !m.claimed {
-									Badge { {t!(tr, "picker.unclaimed", "never signed in")} }
-								}
-								span { "{m.name}" }
-								span { class: "flex-1 truncate text-ink-soft", "{m.email}" }
-								span { class: "w-20 shrink-0 text-right font-mono text-ink-soft", "{m.balance} tokens" }
-							}
-						}
-						CommandEmpty { "No member matches." }
-					},
-					Some(Err(e)) => rsx! { div { class: "p-3 text-accent-error", "{e}" } },
-					None => rsx! { div { class: "p-3 text-ink-soft", "Loading…" } },
-				}
-			}
-		}
-	}
-}
-
-/// One tab's dashboard at `view`: the signed-in person's own, or (its `member`) the one they
-/// act as.
-#[component]
-fn Workspace(view: Route) -> Element {
-	let tr: Translator = use_context();
-	let tab = view.member();
-	let Api(client, _) = use_context_provider(|| Api(api(), tab));
+fn Workspace(at: Board) -> Element {
+	let Api(client) = use_context_provider(|| Api(api()));
 	let Selection(selection) = use_context();
 	let refresh = use_context_provider(|| Refresh(Signal::new(0)));
 	let mut filter = use_context_provider(|| Signal::new(filter::Filter::default()));
@@ -706,16 +508,16 @@ fn Workspace(view: Route) -> Element {
 		let client = client.clone();
 		async move {
 			refresh.0();
-			client.my_overview(tab).await.map_err(shown)
+			client.my_overview().await.map_err(shown)
 		}
 	});
-	// the own tab's filter row selects for the host: what it narrows (`base`: the selection as it was when it began),
+	// the filter row selects for the host: what it narrows (`base`: the selection as it was when it began),
 	// and what it asked for that the host has not echoed yet
 	let mut base = use_signal(|| None::<Picked>);
 	let mut asked = use_signal(Vec::<Picked>::new);
 	use_effect(move || {
 		let now = selection();
-		if tab.is_some() || now == Picked::Unknown {
+		if now == Picked::Unknown {
 			return;
 		}
 		let mut pending = asked.write();
@@ -734,7 +536,7 @@ fn Workspace(view: Route) -> Element {
 	use_effect(move || {
 		let narrowing = filter.read().clone();
 		let Some(Ok(gmails)) = overview.read().clone() else { return };
-		if tab.is_some() || *selection.peek() == Picked::Unknown {
+		if *selection.peek() == Picked::Unknown {
 			return;
 		}
 		let ask = match narrowing == filter::Filter::default() {
@@ -778,35 +580,12 @@ fn Workspace(view: Route) -> Element {
 			}
 		}
 	});
-	// `/me` is the caller whoever they act as: who a member tab is is read off the members list
-	let unknown = tr.clone();
-	let whom = use_resource(move || {
-		let unknown = unknown.clone();
-		async move {
-			let Some(m) = tab else { return Ok(None) };
-			let found = api()
-				.list_members()
-				.await
-				.map_err(shown)?
-				.into_iter()
-				.find(|x| x.id == m)
-				.ok_or_else(|| t!(unknown, "workspace.no_member", "There is no member #{member}", member = m))?;
-			Ok::<_, String>(Some(found))
-		}
-	});
-
 	let shell = SHELL;
 	let gmails: Vec<GmailOverview> = match &*overview.read() {
 		Some(Ok(g)) => g.clone(),
 		Some(Err(e)) => return rsx! { div { class: "{shell} p-6 text-accent-error", "{e}" } },
 		_ => return rsx! { div { class: "{shell} p-6 text-ink-soft", "Loading…" } },
 	};
-	let whom = match &*whom.read() {
-		Some(Ok(whom)) => whom.clone(),
-		Some(Err(e)) => return rsx! { div { class: "{shell} p-6 text-accent-error", "{e}" } },
-		None => None,
-	};
-	let at = view.board().clone();
 	let gmb_of = |id: i64| gmails.iter().find_map(|g| g.gmbs.iter().find(|b| b.id == id).map(|b| (g.gmail.clone(), b.clone())));
 	let picked = match at {
 		Board::Home | Board::Settings => None,
@@ -815,31 +594,13 @@ fn Workspace(view: Route) -> Element {
 	};
 	// a removed gmail's URL shows them all, as home does
 	let current = picked.filter(|id| gmails.iter().any(|g| g.gmail.id == *id));
-	// the host's outline is the caller's GMBs: a member's tab is narrowed by its own rail
-	let listed = match (tab, base()) {
-		(Some(_), _) => Picked::All,
-		(None, Some(base)) => base,
-		(None, None) => selection(),
+	let listed = match base() {
+		Some(base) => base,
+		None => selection(),
 	};
-	let acting = tab.map(|m| {
-		let who = match whom {
-			Some(w) if !w.name.is_empty() => format!("{} <{}>", w.name, w.email),
-			Some(w) => w.email,
-			None => format!("#{m}"),
-		};
-		t!(tr, "workspace.acting", "Viewing as {member} — actions apply to their account", member = who)
-	});
-
 	rsx! {
 		div { class: "{shell}",
-			// the person's own gmails are in the conductor's sidebar
-			if tab.is_some() {
-				Rail { gmails: gmails.clone(), current, at: at.clone(), tab }
-			}
 			div { class: "flex min-h-0 min-w-0 flex-1 flex-col",
-				if let Some(acting) = acting {
-					div { class: "border-b border-border bg-accent-warn/15 px-6 py-2 text-accent-warn", "{acting}" }
-				}
 				if let Some(e) = failure.0() {
 					div { class: "border-b border-border bg-accent-error/15 px-6 py-2 text-accent-error", "{e}" }
 				}
@@ -848,7 +609,7 @@ fn Workspace(view: Route) -> Element {
 						settings::Page {}
 					},
 					Board::Gmb { gmb } => match gmb_of(gmb) {
-						Some((gmail, b)) => rsx! { board::Board { gmb: Gmb::from((&gmail, &b)), location: b.track, tab } },
+						Some((gmail, b)) => rsx! { board::Board { gmb: Gmb::from((&gmail, &b)), location: b.track } },
 						None => rsx! { div { class: "p-6 text-ink-soft", "No GMB #{gmb} of yours: it may have been removed." } },
 					},
 					_ if gmails.is_empty() => rsx! {
@@ -873,7 +634,7 @@ fn Workspace(view: Route) -> Element {
 							Ok([one]) => Some(one),
 							Err(_) => None,
 						};
-						rsx! { Places { cards, gmail, tab } }
+						rsx! { Places { cards, gmail } }
 					}
 				}
 			}
@@ -907,66 +668,10 @@ fn AddGmb() -> Element {
 	}
 }
 
-#[component]
-fn Rail(gmails: Vec<GmailOverview>, current: Option<i64>, at: Board, tab: Option<i64>) -> Element {
-	let aside = at == Board::Settings;
-	let row = "flex items-center gap-2 rounded-md px-3 py-2 text-left cursor-pointer hover:bg-hover";
-	rsx! {
-		nav { class: "flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-secondary",
-			div { class: "flex items-center gap-2 px-4 py-4",
-				span { class: "flex-1 text-[14px] font-semibold", "review_archive" }
-			}
-			div { class: "flex items-center gap-1.5 pl-2 pr-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-soft",
-				Link {
-					class: if at == Board::Home { "rounded-md px-2 py-0.5 bg-hover text-ink" } else { "rounded-md px-2 py-0.5 hover:bg-hover" },
-					to: Route::at(tab, Board::Home),
-					"Managing gmails"
-				}
-				InfoTip {
-					InfoTipTrigger { label: "What a managing gmail is" }
-					InfoTipContent { class: "normal-case font-normal tracking-normal flex flex-col gap-2",
-						p { "The Google account a group of GMBs is managed from. Gmails and their GMBs are added on the GMBs page." }
-					}
-				}
-				Link {
-					class: if at == Board::Settings { "rounded-md p-0.5 bg-hover text-ink" } else { "rounded-md p-0.5 hover:bg-hover" },
-					to: Route::at(tab, Board::Settings),
-					title: "Settings",
-					// lucide `settings`
-					svg {
-						class: "size-3.5",
-						view_box: "0 0 24 24",
-						fill: "none",
-						stroke: "currentColor",
-						stroke_width: "2",
-						stroke_linecap: "round",
-						stroke_linejoin: "round",
-						"aria-hidden": "true",
-						path { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }
-						circle { cx: "12", cy: "12", r: "3" }
-					}
-				}
-			}
-			div { class: "flex flex-col gap-0.5 px-2",
-				for g in gmails {
-					Link {
-						key: "{g.gmail.id}",
-						class: format!("{row} min-w-0 {}", if current == Some(g.gmail.id) && !aside { "bg-hover text-ink" } else { "text-ink-soft" }),
-						to: Route::at(tab, Board::Gmail { gmail: g.gmail.id }),
-						span { class: "truncate flex-1", "{g.gmail.gmail}" }
-						Badge { "{g.gmbs.len()}" }
-					}
-				}
-			}
-			div { class: "mt-2 px-5", AddGmb {} }
-		}
-	}
-}
-
 /// Tracked places as cards, as given; `gmail`: the one gmail they are all under, if one. A place tracked
 /// under two GMBs is a card under each: its counts are that GMB's.
 #[component]
-fn Places(cards: Vec<(Gmb, LocationSummary)>, gmail: Option<GmailDto>, tab: Option<i64>) -> Element {
+fn Places(cards: Vec<(Gmb, LocationSummary)>, gmail: Option<GmailDto>) -> Element {
 	let filter: Signal<filter::Filter> = use_context();
 	let total = cards.len();
 	let shown = filter.read().keep(cards);
@@ -976,7 +681,6 @@ fn Places(cards: Vec<(Gmb, LocationSummary)>, gmail: Option<GmailDto>, tab: Opti
 			grafana::Overview {
 				gmail: gmail.as_ref().map(|g| g.id),
 				keys: shown.iter().map(|(g, l)| format!("{}:{}", g.id, l.target.id)).collect::<Vec<_>>().join(","),
-				tab,
 			}
 		},
 		Ui::Legacy => rsx! {
@@ -990,7 +694,7 @@ fn Places(cards: Vec<(Gmb, LocationSummary)>, gmail: Option<GmailDto>, tab: Opti
 					for (g, loc) in shown {
 						cards::LocationCard {
 							key: "{g.id}-{loc.target.id}",
-							to: Route::at(tab, Board::Gmb { gmb: g.id }),
+							to: Route::at(Board::Gmb { gmb: g.id }),
 							all: gmail.is_none(),
 							gmb: g,
 							loc,

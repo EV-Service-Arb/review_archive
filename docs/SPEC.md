@@ -297,12 +297,10 @@ the service.
   is the caller's `sa:review_archive:*` slice.
 - `sa:review_archive:archive:operate` opens the archive's own routes: targets, scans,
   captures, jobs, reviews, stats, webhooks, export, and any capture's WebP.
-  `sa:review_archive:members:act_as` opens `GET /members`.
 - `/api/conductor/*` takes a Conductor assertion only (the panel itself, no user); a User or
   Source assertion is a 401. Not served under `--dev-member`.
 - `/me` routes are every signed-in person's own, and `GET /captures/{sha}.webp` of the places
-  their GMBs track. With `sa:review_archive:members:act_as`, `X-Member: <person id>` acts as
-  that member: their GMBs, boards and settings, their writes; anyone else sending it gets 403.
+  their GMBs track.
 - CSRF is the panel's: it checks its own header on every write before forwarding.
 - `GET /dashboards` is the conductor's (an assertion naming `Principal::Conductor`), and no one
   else's: a JSON array of the dashboards in `grafana/` (written by `examples/grafana_*.py`), each with its
@@ -343,17 +341,13 @@ bundle served by the binary under `/mfe/` (`mfe_dir`), which the panel forwards 
 `/mfe/review_archive/`; the panel's page at `/review_archive` mounts it under its top bar
 and gives it the API base (`/api/review_archive`), its sign-in and its CSRF cookie. A 401
 sends the top window to the sign-in with `return_to` = the page, which comes back signed
-in. Design: Figma "review_archive / dashboard", on ev_lib's `uikit`. One holding
-`members:act_as` gets tabs: their own dashboard, and one per member picked from
-`GET /members` at `/act-as` (the panel's account menu links there), acting as them through
-`X-Member`; the open tabs outlive a full load of the page, per browser tab. Where it is is its URL — `/gmbs` (the
-overview), `/gmbs/{id}` (a GMB's board), `/gmails/{id}`, `/settings`, under `/members/{id}` for a member's tab. The conductor's outline, beside it on
-every page, is one selection of the person's GMBs, which the caller's own tab lists and totals, nothing else: the host
+in. Design: Figma "review_archive / dashboard", on ev_lib's `uikit`. Where it is is its URL — `/gmbs` (the
+overview), `/gmbs/{id}` (a GMB's board), `/gmails/{id}`, `/settings`. The conductor's outline, beside it on
+every page, is one selection of the person's GMBs, which the dashboard lists and totals, nothing else: the host
 tells it on `window` as `sa:gmbs` `{ids}` (the conductor's ids; `null` every GMB, `[]` none), again on `sa:gmbs-request`,
 and until then the tab waits. The tab's regex and facets narrow its selection and set it (`sa:gmbs-select` `{ids}`),
 Clear restores the one they narrowed, and a selection made elsewhere clears them; so does a pick in the overview's
-Grafana `gmbs` variable, which the tab steers to the selection. A member's tab draws its own list of that member's
-gmails, and its filters are its own. Adding a GMB is the conductor's home. A card names its GBP, and
+Grafana `gmbs` variable, which the tab steers to the selection. Adding a GMB is the conductor's home. A card names its GBP, and
 its state while verifying or suspended; one under a GMB switched off at the conductor is dimmed, as one whose track is off. Standalone (`--dev-member`), the binary serves the same page at `/`, its own host, whose selection is every GMB.
 The host's Grafana (the element's `grafana` attribute: its base) draws the overview and a place's
 board, or the legacy UI does: the element's `ui` attribute (`grafana` or `legacy`) is the host's
