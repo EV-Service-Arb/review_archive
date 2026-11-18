@@ -179,20 +179,27 @@ impl Store {
 			.fetch_all(&self.pool)
 			.await
 			.wrap_err("reading the charge feed")?;
-		let charges = rows
-			.into_iter()
-			.map(|r| {
-				Ok(Charge {
-					payers: serde_json::from_str(&r.payers).wrap_err_with(|| format!("charge {}'s payers {:?}", r.id, r.payers))?,
-					id: r.id,
-					key: format!("run:{}", r.run_id),
-					spent: r.spent,
-					kick_back: r.kick_back,
-					label: r.label,
-					at: r.at.parse().wrap_err_with(|| format!("charge {}'s time {:?}", r.id, r.at))?,
-				})
-			})
-			.collect::<eyre::Result<Vec<_>>>()?;
+		let mut charges = Vec::with_capacity(rows.len());
+		for r in rows {
+			let used: Vec<(String, i64)> = sqlx::query_as("SELECT item, SUM(units) FROM walk_usage WHERE run_id = ? GROUP BY item")
+				.bind(r.run_id)
+				.fetch_all(&self.pool)
+				.await
+				.wrap_err_with(|| format!("reading run {}'s usage", r.run_id))?;
+			charges.push(Charge {
+				payers: serde_json::from_str(&r.payers).wrap_err_with(|| format!("charge {}'s payers {:?}", r.id, r.payers))?,
+				id: r.id,
+				key: format!("run:{}", r.run_id),
+				spent: r.spent,
+				used: used
+					.into_iter()
+					.map(|(item, units)| Ok((item.parse().wrap_err_with(|| format!("run {}'s usage item {item:?}", r.run_id))?, units)))
+					.collect::<eyre::Result<_>>()?,
+				kick_back: r.kick_back,
+				label: r.label,
+				at: r.at.parse().wrap_err_with(|| format!("charge {}'s time {:?}", r.id, r.at))?,
+			});
+		}
 		Ok(ChargePage {
 			next: charges.last().map_or(after, |c| c.id),
 			charges,

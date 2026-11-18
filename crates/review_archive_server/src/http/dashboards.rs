@@ -7,7 +7,7 @@ use review_archive_core::{
 	dashboards::{LOCATION, OVERVIEW, Review, up, var},
 	dto::MEMBER_HEADER,
 };
-use sa_core::dashboards::{Board, Column, Query, Select};
+use sa_core::dashboards::{Board, Column, Panel, Query, Select};
 use serde_json::{Value, json};
 use strum::IntoEnumIterator;
 
@@ -214,11 +214,13 @@ fn location(doc: &OpenApi) -> Value {
 		};
 		let i = u32::try_from(i).expect("four lanes");
 		board = board.panel(
-			10 + i,
-			"marcusolsson-dynamictext-panel",
-			&format!("{title} · ${{n_{lane}}}"),
-			// the gone lanes share one gridPos: the plugin opens them as tabs of one tile
-			[8 * i.min(1), 0, 8, 22],
+			Panel {
+				id: 10 + i,
+				kind: "marcusolsson-dynamictext-panel",
+				title: &format!("{title} · ${{n_{lane}}}"),
+				// the gone lanes share one gridPos: the plugin opens them as tabs of one tile
+				grid: [8 * i.min(1), 0, 8, 22],
+			},
 			query,
 			json!({
 				"dock": { "minWRem": 15.75, "minHRem": 8.5 },
@@ -250,10 +252,12 @@ fn location(doc: &OpenApi) -> Value {
 	let color = |name: &str, color: &str| json!({ "matcher": { "id": "byName", "options": name }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": color } }] });
 	board
 		.panel(
-			1,
-			"state-timeline",
-			"Runs",
-			[16, 0, 8, 6],
+			Panel {
+				id: 1,
+				kind: "state-timeline",
+				title: "Runs",
+				grid: [16, 0, 8, 6],
+			},
 			runs(&[("limit", "500")], &[("started_at", Column::Timestamp), ("status", Column::String)]),
 			json!({
 				"dock": { "minHRem": 3.5 },
@@ -264,10 +268,12 @@ fn location(doc: &OpenApi) -> Value {
 			}),
 		)
 		.panel(
-			2,
-			"timeseries",
-			"Reviews per run",
-			[16, 11, 8, 11],
+			Panel {
+				id: 2,
+				kind: "timeseries",
+				title: "Reviews per run",
+				grid: [16, 11, 8, 11],
+			},
 			runs(
 				&[("limit", "500")],
 				&[
@@ -301,10 +307,12 @@ fn location(doc: &OpenApi) -> Value {
 			}),
 		)
 		.panel(
-			3,
-			"stat",
-			"Last run",
-			[16, 6, 8, 5],
+			Panel {
+				id: 3,
+				kind: "stat",
+				title: "Last run",
+				grid: [16, 6, 8, 5],
+			},
 			runs(&[("limit", "1")], &[("status", Column::String), ("seen", Column::Number), ("tokens", Column::Number)]),
 			json!({
 				"dock": { "minHRem": 6.5 },
@@ -601,10 +609,12 @@ fn overview(doc: &OpenApi) -> Value {
 			}),
 		)
 		.panel(
-			2,
-			"marcusolsson-dynamictext-panel",
-			"Locations",
-			[0, 0, 24, 22],
+			Panel {
+				id: 2,
+				kind: "marcusolsson-dynamictext-panel",
+				title: "Locations",
+				grid: [0, 0, 24, 22],
+			},
 			Query {
 				operation: op_id(super::my_overview),
 				path: &[],
@@ -630,10 +640,12 @@ fn overview(doc: &OpenApi) -> Value {
 			}),
 		)
 		.of_panel(
-			3,
-			"table",
-			"All locations",
-			[0, 22, 24, 10],
+			Panel {
+				id: 3,
+				kind: "table",
+				title: "All locations",
+				grid: [0, 22, 24, 10],
+			},
 			2,
 			json!({
 				"transformations": [

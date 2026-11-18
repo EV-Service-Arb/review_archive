@@ -1023,19 +1023,19 @@ fn queries_cache(url: Option<&str>) -> eyre::Result<std::sync::Arc<dyn sa_places
 		}
 	}
 	impl sa_places::QueriesCache for Unset {
-		fn get(&self, _: sa_core::queries_cache::Key) -> sa_places::Pending<'_, Option<sa_core::queries_cache::Stored>> {
+		fn get(&self, _: sa_core::queries_cache::Scheme, _: sa_core::queries_cache::Key) -> sa_places::Pending<'_, Option<sa_core::queries_cache::Stored>> {
 			self.refuse()
 		}
 
-		fn claim(&self, _: sa_core::queries_cache::Key, _: Option<jiff::Timestamp>) -> sa_places::Pending<'_, sa_core::queries_cache::Claim> {
+		fn claim(&self, _: sa_core::queries_cache::Scheme, _: sa_core::queries_cache::Key, _: Option<jiff::Timestamp>) -> sa_places::Pending<'_, sa_core::queries_cache::Claim> {
 			self.refuse()
 		}
 
-		fn put(&self, _: sa_core::queries_cache::Key, _: sa_core::queries_cache::Put) -> sa_places::Pending<'_, ()> {
+		fn put(&self, _: sa_core::queries_cache::Scheme, _: sa_core::queries_cache::Key, _: sa_core::queries_cache::Put) -> sa_places::Pending<'_, ()> {
 			self.refuse()
 		}
 
-		fn release(&self, _: sa_core::queries_cache::Key) -> sa_places::Pending<'_, ()> {
+		fn release(&self, _: sa_core::queries_cache::Scheme, _: sa_core::queries_cache::Key) -> sa_places::Pending<'_, ()> {
 			self.refuse()
 		}
 	}
