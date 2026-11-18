@@ -2016,22 +2016,9 @@ dependencies = [
 
 [[package]]
 name = "ev_lib"
-version = "0.33.0"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "562d5db20f34579aac60e6b217460a3493278fa12ae3a0923d68285f38006f87"
-dependencies = [
- "aide",
- "axum",
- "schemars",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "ev_lib"
-version = "0.34.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8703f93d48bb9388c809cce5c9027ed59abac1d2a42c189bd2d221442aabd76"
+checksum = "1b87ae4a263235e0b70fe32188b6bfb2d0d28259e1db63bb59a45ea9ad8d1afd"
 dependencies = [
  "aide",
  "axum",
@@ -2050,6 +2037,7 @@ dependencies = [
  "opentelemetry_sdk",
  "percent-encoding",
  "reqwest 0.13.5",
+ "rustls",
  "schemars",
  "sentry",
  "serde",
@@ -2091,9 +2079,9 @@ dependencies = [
 
 [[package]]
 name = "ev_lib_macros"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd680513be34eae4399823a484cc91353b8cce7f1dd389146465db046a155dee"
+checksum = "9c953ac6797c156bfe259c3c367fd6066fa9a34c3500b4e1418f08fd4d060abc"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4862,7 +4850,7 @@ dependencies = [
  "axum",
  "browser_manipulation",
  "clap",
- "ev_lib 0.34.0",
+ "ev_lib 0.34.2",
  "eyre",
  "futures",
  "hmac 0.13.0",
@@ -4925,7 +4913,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "csv",
- "ev_lib 0.34.0",
+ "ev_lib 0.34.2",
  "eyre",
  "insta",
  "jiff",
@@ -4955,7 +4943,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "concierge_iam",
- "ev_lib 0.34.0",
+ "ev_lib 0.34.2",
  "eyre",
  "jiff",
  "miette",
@@ -4990,7 +4978,7 @@ name = "review_archive_web"
 version = "0.1.0"
 dependencies = [
  "dioxus",
- "ev_lib 0.34.0",
+ "ev_lib 0.34.2",
  "ev_lib_classes 0.20.0",
  "getrandom 0.3.4",
  "jiff",
@@ -5199,7 +5187,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 [[package]]
 name = "sa_alerts"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#bc79f25aa258b0cd9d711d4d3a7fa543b7265a64"
 dependencies = [
  "jiff",
  "sa_auth",
@@ -5213,13 +5201,13 @@ dependencies = [
 [[package]]
 name = "sa_auth"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#bc79f25aa258b0cd9d711d4d3a7fa543b7265a64"
 dependencies = [
  "axum",
  "base64 0.22.1",
  "concierge_iam",
  "ed25519-dalek",
- "ev_lib 0.33.0",
+ "ev_lib 0.34.2",
  "hex",
  "schemars",
  "serde",
@@ -5233,10 +5221,10 @@ dependencies = [
 [[package]]
 name = "sa_core"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#bc79f25aa258b0cd9d711d4d3a7fa543b7265a64"
 dependencies = [
  "axum",
- "ev_lib 0.33.0",
+ "ev_lib 0.34.2",
  "futures",
  "hex",
  "hmac 0.13.0",
@@ -5258,7 +5246,7 @@ dependencies = [
 [[package]]
 name = "sa_places"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#bc79f25aa258b0cd9d711d4d3a7fa543b7265a64"
 dependencies = [
  "base64 0.22.1",
  "eyre",
@@ -5280,7 +5268,7 @@ dependencies = [
 [[package]]
 name = "sa_ui"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#0793dffc1aa1403f8df7adc028669f03ba978184"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#bc79f25aa258b0cd9d711d4d3a7fa543b7265a64"
 dependencies = [
  "dioxus",
  "ev_lib 0.25.1",
