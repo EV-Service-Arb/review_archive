@@ -5186,7 +5186,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 [[package]]
 name = "sa_alerts"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#12263a28956084ffae866fabed9c65dcceccd989"
 dependencies = [
  "jiff",
  "sa_auth",
@@ -5200,7 +5200,7 @@ dependencies = [
 [[package]]
 name = "sa_auth"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#12263a28956084ffae866fabed9c65dcceccd989"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5220,7 +5220,7 @@ dependencies = [
 [[package]]
 name = "sa_core"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#12263a28956084ffae866fabed9c65dcceccd989"
 dependencies = [
  "axum",
  "ev_lib 0.34.2",
@@ -5245,7 +5245,7 @@ dependencies = [
 [[package]]
 name = "sa_places"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#12263a28956084ffae866fabed9c65dcceccd989"
 dependencies = [
  "base64 0.22.1",
  "eyre",
@@ -5268,7 +5268,7 @@ dependencies = [
 [[package]]
 name = "sa_ui"
 version = "0.1.0"
-source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#8cffbd39da549946a01652605f6122f4be809cab"
+source = "git+https://github.com/EV-Service-Arb/site_conductor?branch=main#12263a28956084ffae866fabed9c65dcceccd989"
 dependencies = [
  "dioxus",
  "ev_lib 0.25.1",
