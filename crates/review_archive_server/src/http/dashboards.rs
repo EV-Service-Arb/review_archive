@@ -12,7 +12,25 @@ use strum::IntoEnumIterator;
 const DATASOURCE: &str = "review_archive";
 
 pub(super) fn all(doc: &OpenApi) -> Vec<Value> {
-	vec![location(doc), overview(doc)]
+	let boards = vec![location(doc), overview(doc)];
+	for b in &boards {
+		let vars: Vec<&str> = b["templating"]["list"]
+			.as_array()
+			.expect("every board declares its variables")
+			.iter()
+			.map(|v| v["name"].as_str().expect("a variable is named"))
+			.collect();
+		let text = b.to_string();
+		for (i, _) in text.match_indices('$') {
+			let name: String = text[i + 1..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+			assert!(
+				!vars.contains(&name.as_str()),
+				"`${name}` in {} is its dashboard variable to Grafana, which interpolates it",
+				b["uid"]
+			);
+		}
+	}
+	boards
 }
 
 /// `${name}`: a variable as Grafana interpolates it.
@@ -68,7 +86,7 @@ fn lane_root(lane: &str) -> String {
 	let fields: String = CARD.iter().map(|(name, path, _)| format!(r#""{name}": {path}, "#)).collect();
 	let counts = LANES.iter().map(|(l, _)| format!(r#""n_{l}": $count($$.{l}[{kept}])"#)).collect::<Vec<_>>().join(", ");
 	format!(
-		r#"($rev := "{}"; $append([{{"lane": "", {counts}}}], $$.{lane}[{kept}].{{{fields}"lane": "{lane}"}}))"#,
+		r#"($tie := "{}"; $append([{{"lane": "", {counts}}}], $$.{lane}[{kept}].{{{fields}"lane": "{lane}"}}))"#,
 		v(var::REV)
 	)
 }
@@ -234,7 +252,7 @@ fn location(doc: &OpenApi) -> Value {
 			}),
 		);
 	}
-	let runs_root = format!(r#"($rev := "{}"; $)"#, v(var::REV));
+	let runs_root = format!(r#"($tie := "{}"; $)"#, v(var::REV));
 	let runs = |params: &'static [(&'static str, &'static str)], columns: &'static [(&'static str, Column)]| Query {
 		operation: op_id(super::track_runs),
 		path: &track,
@@ -344,7 +362,7 @@ fn location(doc: &OpenApi) -> Value {
 /// own `$names` must not be a dashboard variable's. Infinity's JSONata (jsonata-go) gives null, not
 /// undefined, for a key `$lookup` misses, so `$exists` would hold for every row.
 const OVERVIEW_ROOT: &str = r#"(
-  $rev := "@REV@";
+  $tie := "@REV@";
   $order := $merge($append([], $map($split("@KEYS@", ","), function($k, $i) { {$k: $i} })));
   $rows := $$[("@GMAIL@" = "") or ($string(id) = "@GMAIL@")].(
     $g := $;
