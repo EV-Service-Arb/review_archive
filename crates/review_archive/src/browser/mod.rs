@@ -34,41 +34,6 @@ use crate::{SessionError, config::BrowserConfig};
 pub struct Browser {
 	inner: Arc<Inner>,
 }
-
-struct Inner {
-	cfg: BrowserConfig,
-	profiles: Vec<PathBuf>,
-	state: tokio::sync::Mutex<State>,
-}
-
-/// The profile, held from [`Browser::claim`] or the first walk until [`Browser::close`].
-#[derive(Default)]
-struct State {
-	signed_out: BTreeSet<PathBuf>,
-	/// On [`State::current`]'s profile.
-	lock: Option<ProfileLock>,
-	session: Option<Session>,
-}
-
-impl State {
-	fn current<'p>(&self, profiles: &'p [PathBuf]) -> Option<&'p PathBuf> {
-		profiles.iter().find(|p| !self.signed_out.contains(*p))
-	}
-
-	async fn release(&mut self) {
-		if let Some(s) = self.session.take() {
-			s.close().await;
-		}
-		self.lock = None;
-	}
-}
-
-impl std::fmt::Debug for Browser {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("Browser").field("profiles", &self.inner.profiles).finish_non_exhaustive()
-	}
-}
-
 impl Browser {
 	/// A browser on these profile dirs, each signed in to its own Google account, the one walks
 	/// go to first first; a profile is what remembers the consent answer between runs. Nothing
@@ -263,6 +228,40 @@ impl Browser {
 	/// idle.
 	pub async fn close(&self) {
 		self.inner.state.lock().await.release().await;
+	}
+}
+
+struct Inner {
+	cfg: BrowserConfig,
+	profiles: Vec<PathBuf>,
+	state: tokio::sync::Mutex<State>,
+}
+
+/// The profile, held from [`Browser::claim`] or the first walk until [`Browser::close`].
+#[derive(Default)]
+struct State {
+	signed_out: BTreeSet<PathBuf>,
+	/// On [`State::current`]'s profile.
+	lock: Option<ProfileLock>,
+	session: Option<Session>,
+}
+
+impl State {
+	fn current<'p>(&self, profiles: &'p [PathBuf]) -> Option<&'p PathBuf> {
+		profiles.iter().find(|p| !self.signed_out.contains(*p))
+	}
+
+	async fn release(&mut self) {
+		if let Some(s) = self.session.take() {
+			s.close().await;
+		}
+		self.lock = None;
+	}
+}
+
+impl std::fmt::Debug for Browser {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Browser").field("profiles", &self.inner.profiles).finish_non_exhaustive()
 	}
 }
 

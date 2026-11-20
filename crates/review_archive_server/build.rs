@@ -32,8 +32,8 @@ fn git_version() {
 }
 
 fn log_directives() {
-	// a missing file named here makes cargo treat the script as always dirty; the directory is scanned instead
-	println!("cargo:rerun-if-changed=.cargo");
+	// a missing path named here leaves the script dirty on every build: without `.cargo`, the package dir (cargo's own default) is watched for it to appear
+	println!("cargo:rerun-if-changed={}", if std::path::Path::new(".cargo").exists() { ".cargo" } else { "." });
 	if let Ok(directives) = std::fs::read_to_string(".cargo/log_directives") {
 		let directives = directives.trim();
 		if !directives.is_empty() {

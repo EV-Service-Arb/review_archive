@@ -9,30 +9,6 @@ use serde::Serialize;
 
 use super::{Store, blobs::BlobStore};
 
-#[derive(Serialize)]
-struct Manifest {
-	exported_at: String,
-	target: TargetInfo,
-	since: Option<String>,
-	reviews: Vec<Entry>,
-}
-
-#[derive(Serialize)]
-struct TargetInfo {
-	id: i64,
-	label: String,
-	kind: review_archive_core::TargetKind,
-	place_id: String,
-}
-
-#[derive(Serialize)]
-struct Entry {
-	#[serde(flatten)]
-	review: ReviewDto,
-	/// Path of the capture inside the export, when there is one.
-	capture: Option<String>,
-}
-
 /// What an export wrote.
 #[derive(Debug, Default, PartialEq)]
 pub struct Exported {
@@ -88,6 +64,30 @@ pub async fn export(store: &Store, blobs: &BlobStore, target: TargetId, since: O
 	// zip and the copies are synchronous file work
 	tokio::task::spawn_blocking(move || write_out(out, &json, &files)).await??;
 	Ok(result)
+}
+
+#[derive(Serialize)]
+struct Manifest {
+	exported_at: String,
+	target: TargetInfo,
+	since: Option<String>,
+	reviews: Vec<Entry>,
+}
+
+#[derive(Serialize)]
+struct TargetInfo {
+	id: i64,
+	label: String,
+	kind: review_archive_core::TargetKind,
+	place_id: String,
+}
+
+#[derive(Serialize)]
+struct Entry {
+	#[serde(flatten)]
+	review: ReviewDto,
+	/// Path of the capture inside the export, when there is one.
+	capture: Option<String>,
 }
 
 fn write_out(out: Destination, manifest: &[u8], files: &[(String, PathBuf)]) -> eyre::Result<()> {

@@ -26,40 +26,6 @@ const KIOSK: &str = "?kiosk&hideLogo&_dash.hideTimePicker&_dash.hideVariables&_d
 /// the overview shows its `gmbs` variable
 const KIOSK_PICKS: &str = "?kiosk&hideLogo&_dash.hideTimePicker&_dash.hideLinks";
 
-fn grafana() -> reqwest::Url {
-	crate::directory(crate::host().grafana.as_deref().expect("required at mount under Ui::Grafana"))
-}
-
-fn window() -> web_sys::Window {
-	web_sys::window().expect("runs in a page")
-}
-
-#[derive(Clone, Copy)]
-struct Frame {
-	slots: Signal<Vec<Placed>>,
-}
-
-#[derive(Clone)]
-struct Placed {
-	id: ScopeId,
-	el: web_sys::Element,
-	/// under [`grafana`]
-	path: String,
-	on: Option<EventHandler<Up>>,
-}
-
-/// What is done in a dashboard: a click in the overview's cards, a pick of its `gmbs`, a drop on the board's lanes.
-enum Up {
-	Select(Picked),
-	Open { gmb: i64 },
-	Scan { gmb: i64, target: i64 },
-	Enable { gmb: i64, target: i64, on: bool },
-	Favorite { gmb: i64, target: i64, on: bool },
-	Relink { gmb: i64, target: i64 },
-	Reinstate { review: i64 },
-	Withdraw { review: i64 },
-}
-
 /// Holds the frame for everything under it, on the overview until a slot asks for another dashboard.
 #[component]
 pub fn Host(children: Element) -> Element {
@@ -260,40 +226,6 @@ pub fn Host(children: Element) -> Element {
 	}
 }
 
-/// Posts `{tilers: kind, ..fields}` to the tilers plugin in the frame: its host's side of the plugin's
-/// embedding contract (`?_tilers.host`).
-fn tell(frame: Signal<Option<web_sys::HtmlIFrameElement>>, kind: &str, fields: &[(&str, JsValue)]) {
-	let msg = js_sys::Object::new();
-	for (k, v) in [("tilers", JsValue::from(kind))].iter().chain(fields) {
-		js_sys::Reflect::set(&msg, &(*k).into(), v).expect("setting a field");
-	}
-	frame
-		.peek()
-		.as_ref()
-		.and_then(|f| f.content_window())
-		.expect("only a mounted frame's plugin asks")
-		.post_message(&msg, &grafana().origin().ascii_serialization())
-		.expect("posting to a same-origin frame");
-}
-
-/// Where the frame shows, and the dashboard (`path`, under [`grafana`]) it shows there.
-#[component]
-fn Slot(class: String, path: String, on: Option<EventHandler<Up>>) -> Element {
-	let Frame { mut slots, .. } = use_context();
-	let id = current_scope_id();
-	let mut el = use_signal(|| None::<web_sys::Element>);
-	use_effect(use_reactive!(|path, on| {
-		let Some(el) = el() else { return };
-		let mut slots = slots.write();
-		slots.retain(|s| s.id != id);
-		slots.push(Placed { id, el, path, on });
-	}));
-	use_drop(move || slots.write().retain(|s| s.id != id));
-	rsx! {
-		div { class, onmounted: move |e| el.set(Some(e.as_web_event())) }
-	}
-}
-
 /// `ra-overview` over the places the filter keeps: `keys`, the `gmb:target` pairs in the order shown.
 #[component]
 pub fn Overview(gmail: Option<i64>, keys: String) -> Element {
@@ -360,5 +292,73 @@ pub fn Location(gmb: i64, target: i64) -> Element {
 	};
 	rsx! {
 		Slot { class: "min-h-0 w-full flex-1", path, on }
+	}
+}
+
+fn grafana() -> reqwest::Url {
+	crate::directory(crate::host().grafana.as_deref().expect("required at mount under Ui::Grafana"))
+}
+
+fn window() -> web_sys::Window {
+	web_sys::window().expect("runs in a page")
+}
+
+#[derive(Clone, Copy)]
+struct Frame {
+	slots: Signal<Vec<Placed>>,
+}
+
+#[derive(Clone)]
+struct Placed {
+	id: ScopeId,
+	el: web_sys::Element,
+	/// under [`grafana`]
+	path: String,
+	on: Option<EventHandler<Up>>,
+}
+
+/// What is done in a dashboard: a click in the overview's cards, a pick of its `gmbs`, a drop on the board's lanes.
+enum Up {
+	Select(Picked),
+	Open { gmb: i64 },
+	Scan { gmb: i64, target: i64 },
+	Enable { gmb: i64, target: i64, on: bool },
+	Favorite { gmb: i64, target: i64, on: bool },
+	Relink { gmb: i64, target: i64 },
+	Reinstate { review: i64 },
+	Withdraw { review: i64 },
+}
+
+/// Posts `{tilers: kind, ..fields}` to the tilers plugin in the frame: its host's side of the plugin's
+/// embedding contract (`?_tilers.host`).
+fn tell(frame: Signal<Option<web_sys::HtmlIFrameElement>>, kind: &str, fields: &[(&str, JsValue)]) {
+	let msg = js_sys::Object::new();
+	for (k, v) in [("tilers", JsValue::from(kind))].iter().chain(fields) {
+		js_sys::Reflect::set(&msg, &(*k).into(), v).expect("setting a field");
+	}
+	frame
+		.peek()
+		.as_ref()
+		.and_then(|f| f.content_window())
+		.expect("only a mounted frame's plugin asks")
+		.post_message(&msg, &grafana().origin().ascii_serialization())
+		.expect("posting to a same-origin frame");
+}
+
+/// Where the frame shows, and the dashboard (`path`, under [`grafana`]) it shows there.
+#[component]
+fn Slot(class: String, path: String, on: Option<EventHandler<Up>>) -> Element {
+	let Frame { mut slots, .. } = use_context();
+	let id = current_scope_id();
+	let mut el = use_signal(|| None::<web_sys::Element>);
+	use_effect(use_reactive!(|path, on| {
+		let Some(el) = el() else { return };
+		let mut slots = slots.write();
+		slots.retain(|s| s.id != id);
+		slots.push(Placed { id, el, path, on });
+	}));
+	use_drop(move || slots.write().retain(|s| s.id != id));
+	rsx! {
+		div { class, onmounted: move |e| el.set(Some(e.as_web_event())) }
 	}
 }

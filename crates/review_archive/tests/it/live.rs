@@ -7,6 +7,8 @@
 //! may answer with a "limited view" of Maps that has no reviews (headless, or a fresh profile);
 //! the scan then says so with the page saved.
 
+use std::path::Path;
+
 use review_archive::{
 	Archive, CaptureRequest, SessionError,
 	config::Config,
@@ -15,6 +17,9 @@ use review_archive::{
 
 #[path = "../support/busy.rs"]
 mod busy;
+
+/// The Eiffel Tower: public, and reviewed every few minutes.
+const PLACE_ID: &str = "ChIJLU7jZClu5kcR4PcOOO6p3I0";
 
 fn starved(failure: &str) {
 	if ["review_archive::browser::launch_timeout", "review_archive::browser::unresponsive"]
@@ -25,9 +30,6 @@ fn starved(failure: &str) {
 	}
 }
 
-/// The Eiffel Tower: public, and reviewed every few minutes.
-const PLACE_ID: &str = "ChIJLU7jZClu5kcR4PcOOO6p3I0";
-
 /// The data dir, kept when the test fails: a failed walk's error names the page it saved under it.
 struct Kept(Option<tempfile::TempDir>);
 
@@ -36,7 +38,7 @@ impl Kept {
 		Self(Some(tempfile::tempdir().unwrap()))
 	}
 
-	fn path(&self) -> &std::path::Path {
+	fn path(&self) -> &Path {
 		self.0.as_ref().expect("taken on drop only").path()
 	}
 }
@@ -50,7 +52,7 @@ impl Drop for Kept {
 	}
 }
 
-fn config(dir: &std::path::Path) -> Config {
+fn config(dir: &Path) -> Config {
 	let mut config = Config {
 		data_dir: Some(dir.to_owned()),
 		..Config::default()

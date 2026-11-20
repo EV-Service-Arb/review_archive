@@ -19,6 +19,9 @@ use crate::{Capture, Coverage, Known, Observed, OwnerPost, Scan, Warning, relati
 /// Cards per screen of the feed: a run this long of already-archived cards ends a walk.
 pub const SCREEN: usize = 10;
 
+/// A card and its screenshot, if one was taken.
+pub type WalkedCard = (Card, Option<Capture>);
+
 /// What a walk needs to know about each card, and when it has seen enough.
 pub trait WalkPolicy: Send {
 	/// Whether to read the list at all, given how many reviews the page says it holds.
@@ -56,9 +59,6 @@ impl WalkEnd {
 		matches!(self, Self::Cap | Self::Interrupted | Self::Budget)
 	}
 }
-
-/// A card and its screenshot, if one was taken.
-pub type WalkedCard = (Card, Option<Capture>);
 
 /// What a walk down a review list read.
 #[derive(Debug)]
@@ -528,7 +528,8 @@ mod tests {
 		assert!(!p.satisfied());
 		p.observe(&card(&format!("k{}", SCREEN - 1), "a week ago").0);
 		assert!(p.satisfied());
-		assert!(p.wants_capture(&card("new", "").0) && !p.wants_capture(&card("k0", "").0));
+		assert!(p.wants_capture(&card("new", "").0));
+		assert!(!p.wants_capture(&card("k0", "").0));
 
 		// a first scan reads on regardless
 		let first = Known { initial: true, ..known.clone() };
@@ -664,7 +665,9 @@ mod tests {
 			..known(["a".to_owned()], &[])
 		};
 		let mut p = NewestFirst::new(&settled, now());
-		assert!(p.wants_list(Some(2)) && p.wants_list(Some(0)) && p.wants_list(None));
+		assert!(p.wants_list(Some(2)));
+		assert!(p.wants_list(Some(0)));
+		assert!(p.wants_list(None));
 		assert!(!p.wants_list(Some(1)));
 		let s = p.conclude(Walked::unchanged(String::new(), String::new(), None, Some(1), None, None), 200, now());
 		assert_eq!((s.reviews.len(), s.coverage, s.cut_after, s.listed), (0, Coverage::DownTo(None), None, Some(1)));
@@ -719,7 +722,8 @@ mod tests {
 	fn requested_named_stops_when_all_are_found() {
 		let none = Known::default();
 		let mut p = Requested::new(&none, Some(["b".to_owned()]));
-		assert!(!p.wants_capture(&card("a", "").0) && p.wants_capture(&card("b", "").0));
+		assert!(!p.wants_capture(&card("a", "").0));
+		assert!(p.wants_capture(&card("b", "").0));
 		p.observe(&card("a", "").0);
 		assert!(!p.satisfied());
 		p.observe(&card("b", "").0);

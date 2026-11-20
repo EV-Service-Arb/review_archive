@@ -5,22 +5,6 @@
 
 use std::path::{Path, PathBuf};
 
-fn rss() -> String {
-	let s = std::fs::read_to_string("/proc/self/status").expect("Linux");
-	s.lines().filter(|l| l.starts_with("RssAnon") || l.starts_with("Threads")).collect::<Vec<_>>().join(" ")
-}
-
-fn pngs(dir: &Path, out: &mut Vec<PathBuf>) {
-	for e in std::fs::read_dir(dir).unwrap() {
-		let p = e.unwrap().path();
-		match p.is_dir() {
-			true => pngs(&p, out),
-			false if p.extension().is_some_and(|e| e == "png") => out.push(p),
-			false => {}
-		}
-	}
-}
-
 #[tokio::main]
 async fn main() {
 	let dir = std::env::args().nth(1).expect("usage: memory_footprint <dir of PNGs>");
@@ -47,4 +31,20 @@ async fn main() {
 	// what is left after this is held live, not merely kept by glibc
 	unsafe { malloc_trim(0) };
 	println!("after malloc_trim: {}", rss());
+}
+
+fn rss() -> String {
+	let s = std::fs::read_to_string("/proc/self/status").expect("Linux");
+	s.lines().filter(|l| l.starts_with("RssAnon") || l.starts_with("Threads")).collect::<Vec<_>>().join(" ")
+}
+
+fn pngs(dir: &Path, out: &mut Vec<PathBuf>) {
+	for e in std::fs::read_dir(dir).unwrap() {
+		let p = e.unwrap().path();
+		match p.is_dir() {
+			true => pngs(&p, out),
+			false if p.extension().is_some_and(|e| e == "png") => out.push(p),
+			false => {}
+		}
+	}
 }

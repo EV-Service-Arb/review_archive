@@ -17,7 +17,6 @@ name = "review_archive"
 path = "src/main.rs"
 
 [dependencies]
-
 axum = { workspace = true, features = ["macros"] }
 base64.workspace = true
 clap.workspace = true

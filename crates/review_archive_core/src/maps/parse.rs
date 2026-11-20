@@ -65,6 +65,24 @@ pub fn cards(html: &str) -> Vec<Card> {
 		.collect()
 }
 
+/// How many reviews the list holds per star (`[1★, …, 5★]`), from the `aria-label`s of its
+/// histogram rows ([`sel::HISTOGRAM_ROW`]): one row per star, each `"<stars> <word>, <count> <word>"`.
+/// `None` unless there are five rows, one per star, and every one reads.
+pub fn histogram(row_labels: &[String]) -> Option<[u64; 5]> {
+	let mut out = [None; 5];
+	for l in row_labels {
+		// the count follows the first comma and may be grouped with ",", ".", " " or a nbsp
+		let (stars, count) = l.split_once(',')?;
+		let digits: String = count.chars().filter(char::is_ascii_digit).collect();
+		let slot = &mut out[usize::from(leading_rating(stars)? - 1)];
+		if slot.replace(digits.parse::<u64>().ok()?).is_some() {
+			return None;
+		}
+	}
+	let [s1, s2, s3, s4, s5] = out;
+	Some([s1?, s2?, s3?, s4?, s5?])
+}
+
 fn card(el: ElementRef<'_>) -> Option<Card> {
 	let id = el.value().attr(sel::CARD_ID_ATTR)?.trim().to_owned();
 	if id.is_empty() {
@@ -122,24 +140,6 @@ fn card(el: ElementRef<'_>) -> Option<Card> {
 		reply,
 		photo_count: u32::try_from(photo_count).unwrap_or(u32::MAX),
 	})
-}
-
-/// How many reviews the list holds per star (`[1★, …, 5★]`), from the `aria-label`s of its
-/// histogram rows ([`sel::HISTOGRAM_ROW`]): one row per star, each `"<stars> <word>, <count> <word>"`.
-/// `None` unless there are five rows, one per star, and every one reads.
-pub fn histogram(row_labels: &[String]) -> Option<[u64; 5]> {
-	let mut out = [None; 5];
-	for l in row_labels {
-		// the count follows the first comma and may be grouped with ",", ".", " " or a nbsp
-		let (stars, count) = l.split_once(',')?;
-		let digits: String = count.chars().filter(char::is_ascii_digit).collect();
-		let slot = &mut out[usize::from(leading_rating(stars)? - 1)];
-		if slot.replace(digits.parse::<u64>().ok()?).is_some() {
-			return None;
-		}
-	}
-	let [s1, s2, s3, s4, s5] = out;
-	Some([s1?, s2?, s3?, s4?, s5?])
 }
 
 fn selector(s: &str) -> Selector {

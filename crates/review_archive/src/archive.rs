@@ -7,8 +7,12 @@
 mod members;
 
 #[cfg(all(feature = "store", feature = "maps"))]
-use std::sync::OnceLock;
-use std::{collections::HashMap, sync::Arc};
+use std::collections::BTreeSet;
+use std::{
+	collections::HashMap,
+	path::PathBuf,
+	sync::{Arc, Mutex, OnceLock},
+};
 
 #[cfg(any(feature = "maps", feature = "store"))]
 use jiff::Timestamp;
@@ -72,104 +76,6 @@ use crate::{
 pub struct Archive {
 	inner: Arc<Inner>,
 }
-
-struct Inner {
-	defaults: Defaults,
-	#[cfg(feature = "store")]
-	schedule: Schedule,
-	#[cfg(feature = "store")]
-	tokens: review_archive_core::tokens::Tokens,
-	// Everything that uses the secrets and the HTTP client (resolving places, the gbp
-	// client) comes with a store.
-	#[cfg(feature = "store")]
-	secrets: Secrets,
-	#[cfg(feature = "store")]
-	http: reqwest::Client,
-	#[cfg(feature = "store")]
-	webhooks: Deliverer,
-	#[cfg(feature = "maps")]
-	browser: Browser,
-	/// `browser.standby_touch`.
-	#[cfg(all(feature = "store", feature = "maps"))]
-	standby_touch: Timeframe,
-	#[cfg(all(feature = "store", feature = "maps"))]
-	gbp: OnceLock<crate::sources::gbp::Client>,
-	/// What retrying cannot fix, by source, until the process restarts.
-	#[cfg(all(feature = "store", feature = "maps"))]
-	halted: std::sync::Mutex<Halted>,
-	#[cfg(feature = "store")]
-	store: Option<Stored>,
-}
-
-#[cfg(feature = "store")]
-struct Stored {
-	store: Store,
-	blobs: BlobStore,
-	google: sa_places::Google,
-}
-
-impl std::fmt::Debug for Archive {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("Archive").field("defaults", &self.inner.defaults).finish_non_exhaustive()
-	}
-}
-
-/// A one-off capture of a place.
-#[derive(Clone, Debug)]
-pub struct CaptureRequest {
-	/// The Google place id.
-	pub place_id: String,
-	/// UI language of the Maps page; the archive's default when `None`.
-	pub lang: Option<String>,
-	/// How much to read; the archive's per-scan limit when `max_reviews` is `None`.
-	pub limits: CaptureLimits,
-}
-
-impl CaptureRequest {
-	/// Every review of the place, newest first, down to the limit.
-	pub fn new(place_id: impl Into<String>) -> Self {
-		Self {
-			place_id: place_id.into(),
-			lang: None,
-			limits: CaptureLimits::default(),
-		}
-	}
-
-	/// Sets [`Self::lang`].
-	pub fn lang(mut self, lang: impl Into<String>) -> Self {
-		self.lang = Some(lang.into());
-		self
-	}
-
-	/// Sets the most cards read.
-	pub fn max_reviews(mut self, n: usize) -> Self {
-		self.limits.max_reviews = Some(n);
-		self
-	}
-}
-
-/// What a one-off capture saw.
-#[derive(Clone, Debug)]
-pub struct Captured {
-	/// The page the reviews were read on.
-	pub page_url: String,
-	/// The reviews, newest first; how much of the list they span; what went wrong along the
-	/// way. Their `capture`s are taken out into `webps`.
-	pub scan: review_archive_core::Scan,
-	/// By source review id, provenance written in: the cards that were screenshotted.
-	pub webps: HashMap<String, crate::webp::Webp>,
-}
-
-/// A target just added, and the search that found its place, if one was needed.
-#[cfg(feature = "store")]
-#[derive(Clone, Debug)]
-pub struct Added {
-	/// The target.
-	pub target: Target,
-	/// Set whenever there is a Places key.
-	pub resolved: Option<sa_places::Place>,
-}
-
 impl Archive {
 	/// Opens the archive: the store under `config.data_dir` (created and migrated), and a
 	/// browser on the profile dir, started on first use.
@@ -266,7 +172,7 @@ impl Archive {
 				#[cfg(feature = "store")]
 				http,
 				#[cfg(feature = "store")]
-				webhooks: Deliverer::new(&config.webhooks)?,
+				webhooks: Deliverer::try_new(&config.webhooks)?,
 				#[cfg(feature = "maps")]
 				browser,
 				#[cfg(all(feature = "store", feature = "maps"))]
@@ -274,7 +180,7 @@ impl Archive {
 				#[cfg(all(feature = "store", feature = "maps"))]
 				gbp: OnceLock::new(),
 				#[cfg(all(feature = "store", feature = "maps"))]
-				halted: std::sync::Mutex::default(),
+				halted: Mutex::default(),
 				#[cfg(feature = "store")]
 				store,
 			}),
@@ -322,10 +228,7 @@ impl Archive {
 		}
 		Ok(Captured { page_url, scan, webps })
 	}
-}
 
-#[cfg(feature = "store")]
-impl Archive {
 	/// The store, for what the facade does not cover. An error on an archive opened
 	/// without a data dir.
 	pub fn store(&self) -> eyre::Result<&Store> {
@@ -977,9 +880,105 @@ impl Archive {
 	}
 }
 
+/// A one-off capture of a place.
+#[derive(Clone, Debug)]
+pub struct CaptureRequest {
+	/// The Google place id.
+	pub place_id: String,
+	/// UI language of the Maps page; the archive's default when `None`.
+	pub lang: Option<String>,
+	/// How much to read; the archive's per-scan limit when `max_reviews` is `None`.
+	pub limits: CaptureLimits,
+}
+impl CaptureRequest {
+	/// Every review of the place, newest first, down to the limit.
+	pub fn new(place_id: impl Into<String>) -> Self {
+		Self {
+			place_id: place_id.into(),
+			lang: None,
+			limits: CaptureLimits::default(),
+		}
+	}
+
+	/// Sets [`Self::lang`].
+	pub fn lang(mut self, lang: impl Into<String>) -> Self {
+		self.lang = Some(lang.into());
+		self
+	}
+
+	/// Sets the most cards read.
+	pub fn max_reviews(mut self, n: usize) -> Self {
+		self.limits.max_reviews = Some(n);
+		self
+	}
+}
+
+/// What a one-off capture saw.
+#[derive(Clone, Debug)]
+pub struct Captured {
+	/// The page the reviews were read on.
+	pub page_url: String,
+	/// The reviews, newest first; how much of the list they span; what went wrong along the
+	/// way. Their `capture`s are taken out into `webps`.
+	pub scan: review_archive_core::Scan,
+	/// By source review id, provenance written in: the cards that were screenshotted.
+	pub webps: HashMap<String, crate::webp::Webp>,
+}
+
+/// A target just added, and the search that found its place, if one was needed.
+#[cfg(feature = "store")]
+#[derive(Clone, Debug)]
+pub struct Added {
+	/// The target.
+	pub target: Target,
+	/// Set whenever there is a Places key.
+	pub resolved: Option<sa_places::Place>,
+}
+
+struct Inner {
+	defaults: Defaults,
+	#[cfg(feature = "store")]
+	schedule: Schedule,
+	#[cfg(feature = "store")]
+	tokens: review_archive_core::tokens::Tokens,
+	// Everything that uses the secrets and the HTTP client (resolving places, the gbp
+	// client) comes with a store.
+	#[cfg(feature = "store")]
+	secrets: Secrets,
+	#[cfg(feature = "store")]
+	http: reqwest::Client,
+	#[cfg(feature = "store")]
+	webhooks: Deliverer,
+	#[cfg(feature = "maps")]
+	browser: Browser,
+	/// `browser.standby_touch`.
+	#[cfg(all(feature = "store", feature = "maps"))]
+	standby_touch: Timeframe,
+	#[cfg(all(feature = "store", feature = "maps"))]
+	gbp: OnceLock<crate::sources::gbp::Client>,
+	/// What retrying cannot fix, by source, until the process restarts.
+	#[cfg(all(feature = "store", feature = "maps"))]
+	halted: Mutex<Halted>,
+	#[cfg(feature = "store")]
+	store: Option<Stored>,
+}
+
+#[cfg(feature = "store")]
+struct Stored {
+	store: Store,
+	blobs: BlobStore,
+	google: sa_places::Google,
+}
+
+impl std::fmt::Debug for Archive {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Archive").field("defaults", &self.inner.defaults).finish_non_exhaustive()
+	}
+}
+
 /// The profiles whose accounts are signed out until a person clears them.
 #[cfg(all(feature = "store", feature = "maps"))]
-async fn signed_out_rows(store: &Store) -> eyre::Result<std::collections::BTreeSet<std::path::PathBuf>> {
+async fn signed_out_rows(store: &Store) -> eyre::Result<BTreeSet<PathBuf>> {
 	Ok(store.profiles().await?.into_iter().filter(|p| p.signed_out_at.is_some()).map(|p| p.path).collect())
 }
 
@@ -1010,7 +1009,7 @@ impl ReviewSource for NoGbpCredentials {
 /// The conductor's queries cache, else one that refuses every Places answer for want of it: asking
 /// Places is the one thing that needs it.
 #[cfg(feature = "store")]
-fn queries_cache(url: Option<&str>) -> eyre::Result<std::sync::Arc<dyn sa_places::QueriesCache>> {
+fn queries_cache(url: Option<&str>) -> eyre::Result<Arc<dyn sa_places::QueriesCache>> {
 	#[derive(Debug)]
 	struct Unset;
 	impl Unset {
@@ -1040,7 +1039,7 @@ fn queries_cache(url: Option<&str>) -> eyre::Result<std::sync::Arc<dyn sa_places
 		}
 	}
 	Ok(match url {
-		Some(url) => std::sync::Arc::new(sa_places::Remote::try_new(url)?),
-		None => std::sync::Arc::new(Unset),
+		Some(url) => Arc::new(sa_places::Remote::try_new(url)?),
+		None => Arc::new(Unset),
 	})
 }

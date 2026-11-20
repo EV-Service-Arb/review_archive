@@ -30,7 +30,7 @@ use review_archive::{
 
 /// The receivers here listen on loopback, which only a listed host may reach.
 fn deliverer() -> Deliverer {
-	Deliverer::new(&WebhookConfig {
+	Deliverer::try_new(&WebhookConfig {
 		allowed_hosts: vec!["127.0.0.1".into()],
 		..WebhookConfig::default()
 	})

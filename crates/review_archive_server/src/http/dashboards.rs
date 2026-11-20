@@ -11,37 +11,6 @@ use strum::IntoEnumIterator;
 /// The datasource the conductor's Grafana names this service by.
 const DATASOURCE: &str = "review_archive";
 
-pub(super) fn all(doc: &OpenApi) -> Vec<Value> {
-	let boards = vec![location(doc), overview(doc)];
-	for b in &boards {
-		let vars: Vec<&str> = b["templating"]["list"]
-			.as_array()
-			.expect("every board declares its variables")
-			.iter()
-			.map(|v| v["name"].as_str().expect("a variable is named"))
-			.collect();
-		let text = b.to_string();
-		for (i, _) in text.match_indices('$') {
-			let name: String = text[i + 1..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-			assert!(
-				!vars.contains(&name.as_str()),
-				"`${name}` in {} is its dashboard variable to Grafana, which interpolates it",
-				b["uid"]
-			);
-		}
-	}
-	boards
-}
-
-/// `${name}`: a variable as Grafana interpolates it.
-fn v(name: &str) -> String {
-	format!("${{{name}}}")
-}
-
-fn hidden(name: &str) -> Value {
-	json!({ "name": name, "type": "textbox", "hide": 2, "query": "", "current": { "text": "", "value": "" }, "options": [] })
-}
-
 const STATUS: &str = r#"[{"type": "value", "options": {"ok": {"color": "green", "index": 0}, "partial": {"color": "orange", "index": 1}, "failed": {"color": "red", "index": 2}}}]"#;
 
 /// Every card's column, and where on a board's card it is.
@@ -61,35 +30,6 @@ const CARD: [(&str, &str, Column); 12] = [
 ];
 
 const LANES: [(&str, &str); 4] = [("snapshotted", "Snapshotted"), ("suspended", "Suspended"), ("removed", "Removed"), ("reinstating", "Reinstating")];
-
-/// What a card holds to pass `r`, as the page's own filter judges it (`filter/reviews.rs`).
-/// Infinity's JSONata gives null for an absent field.
-fn narrow(r: Review) -> &'static str {
-	match r {
-		Review::FiveStar => "review.rating = 5",
-		Review::Responded => r#"$type(review.reply) = "string""#,
-		Review::New7d => r#"$type(review.published_est) = "string" and $toMillis(review.published_est) >= $millis() - 7 * 86400000"#,
-	}
-}
-
-/// The lane's cards (`lane` set) after one row of every lane's count, which titles the lanes
-/// (`n_<lane>`): a lane in a tab not shown queries nothing, and a variable's own query would fetch
-/// the board again. `rev` in a string only ties the panel to it, so a write re-reads it.
-fn lane_root(lane: &str) -> String {
-	let kept = Review::iter()
-		.map(|r| {
-			let want = v(&format!("{r:?}"));
-			format!(r#"("{want}" = "" or ({}) = ("{want}" = "true"))"#, narrow(r))
-		})
-		.collect::<Vec<_>>()
-		.join(" and ");
-	let fields: String = CARD.iter().map(|(name, path, _)| format!(r#""{name}": {path}, "#)).collect();
-	let counts = LANES.iter().map(|(l, _)| format!(r#""n_{l}": $count($$.{l}[{kept}])"#)).collect::<Vec<_>>().join(", ");
-	format!(
-		r#"($tie := "{}"; $append([{{"lane": "", {counts}}}], $$.{lane}[{kept}].{{{fields}"lane": "{lane}"}}))"#,
-		v(var::REV)
-	)
-}
 
 /// String concatenation, not template literals: nothing in a script may read as a dashboard variable.
 const LOCATION_HELPERS: &str = r#"const h = context.handlebars;
@@ -190,173 +130,6 @@ const LANE_STYLES: &str = r#".ra-lane { display: flex; flex-direction: column; g
 .ra-badges span { padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
 .ok { background: rgba(115,191,105,.15); color: #73bf69; }
 .warn { background: rgba(255,152,48,.15); color: #ff9830; }"#;
-
-/// A place's board: its lanes of reviews, tiled by the tilers plugin, and its runs.
-fn location(doc: &OpenApi) -> Value {
-	let (gmb, target) = (v(var::GMB), v(var::TARGET));
-	let track = [("gmb", gmb.as_str()), ("target", target.as_str())];
-	let helpers = LOCATION_HELPERS.replace("@API@", &v(var::API));
-	let after_render = LANE_AFTER_RENDER.replace("@REINSTATE@", up::REINSTATE).replace("@WITHDRAW@", up::WITHDRAW);
-	let lane_columns: Vec<(String, Column)> = CARD
-		.iter()
-		.map(|(name, _, kind)| (name.to_string(), *kind))
-		.chain([("lane".to_owned(), Column::String)])
-		.chain(LANES.iter().map(|(l, _)| (format!("n_{l}"), Column::Number)))
-		.collect();
-	let lane_columns: Vec<(&str, Column)> = lane_columns.iter().map(|(n, k)| (n.as_str(), *k)).collect();
-	let mut board = Board::new(doc, DATASOURCE);
-	for (i, (lane, title)) in LANES.into_iter().enumerate() {
-		let when = match lane {
-			"snapshotted" => "{{#if published_raw}}{{published_raw}}{{else}}seen {{ago first_seen}}{{/if}}",
-			"reinstating" => "requested {{ago requested_at}}",
-			_ => "gone {{ago gone_at}}",
-		};
-		let reinstated = match lane {
-			"snapshotted" => r#"{{#if reinstated_at}}<span class="ok">reinstated after {{days requested_at reinstated_at}}d</span>{{/if}}"#,
-			_ => "",
-		};
-		let root = lane_root(lane);
-		let query = Query {
-			operation: op_id(super::track_board),
-			path: &track,
-			params: &[],
-			select: Some(Select {
-				root_selector: &root,
-				columns: &lane_columns,
-			}),
-		};
-		let i = u32::try_from(i).expect("four lanes");
-		board = board.panel(
-			Panel {
-				id: 10 + i,
-				kind: "marcusolsson-dynamictext-panel",
-				title: &format!("{title} · ${{n_{lane}}}"),
-				// the gone lanes share one gridPos: the plugin opens them as tabs of one tile
-				grid: [8 * i.min(1), 0, 8, 22],
-			},
-			query,
-			json!({
-				"dock": { "minWRem": 15.75, "minHRem": 8.5 },
-				"transparent": true,
-				"options": {
-					"renderMode": "allRows",
-					"wrap": false,
-					"editors": ["helpers", "afterRender", "styles", "default"],
-					"contentPartials": [],
-					"helpers": helpers,
-					"defaultContent": format!(r#"<div class="ra-lane" data-lane="{lane}"></div>"#),
-					"content": LANE_CONTENT.replace("@LANE@", lane).replace("@WHEN@", when).replace("@REINSTATED@", reinstated),
-					"afterRender": after_render,
-					"styles": LANE_STYLES,
-				},
-			}),
-		);
-	}
-	let runs_root = format!(r#"($tie := "{}"; $)"#, v(var::REV));
-	let runs = |params: &'static [(&'static str, &'static str)], columns: &'static [(&'static str, Column)]| Query {
-		operation: op_id(super::track_runs),
-		path: &track,
-		params,
-		select: Some(Select { root_selector: &runs_root, columns }),
-	};
-	let status: Value = serde_json::from_str(STATUS).expect("a JSON literal");
-	let by_start = json!([{ "id": "sortBy", "options": { "sort": [{ "field": "started_at" }] } }]);
-	let color = |name: &str, color: &str| json!({ "matcher": { "id": "byName", "options": name }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": color } }] });
-	board
-		.panel(
-			Panel {
-				id: 1,
-				kind: "state-timeline",
-				title: "Runs",
-				grid: [16, 0, 8, 6],
-			},
-			runs(&[("limit", "500")], &[("started_at", Column::Timestamp), ("status", Column::String)]),
-			json!({
-				"dock": { "minHRem": 3.5 },
-				"transparent": true,
-				"transformations": by_start,
-				"fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": status }, "overrides": [] },
-				"options": { "showValue": "never", "mergeValues": false, "rowHeight": 0.8, "legend": { "showLegend": false } },
-			}),
-		)
-		.panel(
-			Panel {
-				id: 2,
-				kind: "timeseries",
-				title: "Reviews per run",
-				grid: [16, 11, 8, 11],
-			},
-			runs(
-				&[("limit", "500")],
-				&[
-					("started_at", Column::Timestamp),
-					("new", Column::Number),
-					("gone", Column::Number),
-					("changed", Column::Number),
-					("seen", Column::Number),
-				],
-			),
-			json!({
-				"dock": { "minHRem": 10 },
-				"transparent": true,
-				"transformations": by_start,
-				"fieldConfig": {
-					"defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1 }, "decimals": 0 },
-					"overrides": [
-						{
-							"matcher": { "id": "byName", "options": "seen" },
-							"properties": [
-								{ "id": "custom.drawStyle", "value": "line" },
-								{ "id": "custom.fillOpacity", "value": 0 },
-								{ "id": "custom.axisPlacement", "value": "right" },
-							],
-						},
-						color("new", "green"),
-						color("gone", "red"),
-					],
-				},
-				"options": { "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-			}),
-		)
-		.panel(
-			Panel {
-				id: 3,
-				kind: "stat",
-				title: "Last run",
-				grid: [16, 6, 8, 5],
-			},
-			runs(&[("limit", "1")], &[("status", Column::String), ("seen", Column::Number), ("tokens", Column::Number)]),
-			json!({
-				"dock": { "minHRem": 6.5 },
-				"transparent": true,
-				"fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "text" }, "mappings": status }, "overrides": [] },
-				"options": {
-					"reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": false },
-					"colorMode": "value",
-					"graphMode": "none",
-					"textMode": "value_and_name",
-					"orientation": "vertical",
-				},
-			}),
-		)
-		.build(json!({
-			"uid": LOCATION,
-			"title": "review_archive · location",
-			"tags": ["review_archive"],
-			"schemaVersion": 41,
-			"editable": true,
-			"time": { "from": "now-30d", "to": "now" },
-			"refresh": "1m",
-			"templating": {
-				"list": ([var::GMB, var::TARGET, var::REV, var::API])
-					.into_iter()
-					.map(hidden)
-					.chain(Review::iter().map(|r| hidden(&format!("{r:?}"))))
-					.chain(LANES.iter().map(|(l, _)| hidden(&format!("n_{l}"))))
-					.collect::<Vec<_>>(),
-			},
-		}))
-}
 
 /// Grafana interpolates `${gmail}` and `${keys}` before Infinity evaluates the JSONata; JSONata's
 /// own `$names` must not be a dashboard variable's. Infinity's JSONata (jsonata-go) gives null, not
@@ -575,6 +348,233 @@ const OVERVIEW_STYLES: &str = r#".ra-grid { display: grid; grid-template-columns
 .ra-menu > div button { display: flex; gap: 8px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .ra-menu > div button:hover { background: rgba(128,128,128,.2); }
 .ra-gold { color: #ff9830; font-style: normal; }"#;
+
+pub(super) fn all(doc: &OpenApi) -> Vec<Value> {
+	let boards = vec![location(doc), overview(doc)];
+	for b in &boards {
+		let vars: Vec<&str> = b["templating"]["list"]
+			.as_array()
+			.expect("every board declares its variables")
+			.iter()
+			.map(|v| v["name"].as_str().expect("a variable is named"))
+			.collect();
+		let text = b.to_string();
+		for (i, _) in text.match_indices('$') {
+			let name: String = text[i + 1..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+			assert!(
+				!vars.contains(&name.as_str()),
+				"`${name}` in {} is its dashboard variable to Grafana, which interpolates it",
+				b["uid"]
+			);
+		}
+	}
+	boards
+}
+
+/// `${name}`: a variable as Grafana interpolates it.
+fn v(name: &str) -> String {
+	format!("${{{name}}}")
+}
+
+fn hidden(name: &str) -> Value {
+	json!({ "name": name, "type": "textbox", "hide": 2, "query": "", "current": { "text": "", "value": "" }, "options": [] })
+}
+
+/// What a card holds to pass `r`, as the page's own filter judges it (`filter/reviews.rs`).
+/// Infinity's JSONata gives null for an absent field.
+fn narrow(r: Review) -> &'static str {
+	match r {
+		Review::FiveStar => "review.rating = 5",
+		Review::Responded => r#"$type(review.reply) = "string""#,
+		Review::New7d => r#"$type(review.published_est) = "string" and $toMillis(review.published_est) >= $millis() - 7 * 86400000"#,
+	}
+}
+
+/// The lane's cards (`lane` set) after one row of every lane's count, which titles the lanes
+/// (`n_<lane>`): a lane in a tab not shown queries nothing, and a variable's own query would fetch
+/// the board again. `rev` in a string only ties the panel to it, so a write re-reads it.
+fn lane_root(lane: &str) -> String {
+	let kept = Review::iter()
+		.map(|r| {
+			let want = v(&format!("{r:?}"));
+			format!(r#"("{want}" = "" or ({}) = ("{want}" = "true"))"#, narrow(r))
+		})
+		.collect::<Vec<_>>()
+		.join(" and ");
+	let fields: String = CARD.iter().map(|(name, path, _)| format!(r#""{name}": {path}, "#)).collect();
+	let counts = LANES.iter().map(|(l, _)| format!(r#""n_{l}": $count($$.{l}[{kept}])"#)).collect::<Vec<_>>().join(", ");
+	format!(
+		r#"($tie := "{}"; $append([{{"lane": "", {counts}}}], $$.{lane}[{kept}].{{{fields}"lane": "{lane}"}}))"#,
+		v(var::REV)
+	)
+}
+
+/// A place's board: its lanes of reviews, tiled by the tilers plugin, and its runs.
+fn location(doc: &OpenApi) -> Value {
+	let (gmb, target) = (v(var::GMB), v(var::TARGET));
+	let track = [("gmb", gmb.as_str()), ("target", target.as_str())];
+	let helpers = LOCATION_HELPERS.replace("@API@", &v(var::API));
+	let after_render = LANE_AFTER_RENDER.replace("@REINSTATE@", up::REINSTATE).replace("@WITHDRAW@", up::WITHDRAW);
+	let lane_columns: Vec<(String, Column)> = CARD
+		.iter()
+		.map(|(name, _, kind)| (name.to_string(), *kind))
+		.chain([("lane".to_owned(), Column::String)])
+		.chain(LANES.iter().map(|(l, _)| (format!("n_{l}"), Column::Number)))
+		.collect();
+	let lane_columns: Vec<(&str, Column)> = lane_columns.iter().map(|(n, k)| (n.as_str(), *k)).collect();
+	let mut board = Board::new(doc, DATASOURCE);
+	for (i, (lane, title)) in LANES.into_iter().enumerate() {
+		let when = match lane {
+			"snapshotted" => "{{#if published_raw}}{{published_raw}}{{else}}seen {{ago first_seen}}{{/if}}",
+			"reinstating" => "requested {{ago requested_at}}",
+			_ => "gone {{ago gone_at}}",
+		};
+		let reinstated = match lane {
+			"snapshotted" => r#"{{#if reinstated_at}}<span class="ok">reinstated after {{days requested_at reinstated_at}}d</span>{{/if}}"#,
+			_ => "",
+		};
+		let root = lane_root(lane);
+		let query = Query {
+			operation: op_id(super::track_board),
+			path: &track,
+			params: &[],
+			select: Some(Select {
+				root_selector: &root,
+				columns: &lane_columns,
+			}),
+		};
+		let i = u32::try_from(i).expect("four lanes");
+		board = board.panel(
+			Panel {
+				id: 10 + i,
+				kind: "marcusolsson-dynamictext-panel",
+				title: &format!("{title} · ${{n_{lane}}}"),
+				// the gone lanes share one gridPos: the plugin opens them as tabs of one tile
+				grid: [8 * i.min(1), 0, 8, 22],
+			},
+			query,
+			json!({
+				"dock": { "minWRem": 15.75, "minHRem": 8.5 },
+				"transparent": true,
+				"options": {
+					"renderMode": "allRows",
+					"wrap": false,
+					"editors": ["helpers", "afterRender", "styles", "default"],
+					"contentPartials": [],
+					"helpers": helpers,
+					"defaultContent": format!(r#"<div class="ra-lane" data-lane="{lane}"></div>"#),
+					"content": LANE_CONTENT.replace("@LANE@", lane).replace("@WHEN@", when).replace("@REINSTATED@", reinstated),
+					"afterRender": after_render,
+					"styles": LANE_STYLES,
+				},
+			}),
+		);
+	}
+	let runs_root = format!(r#"($tie := "{}"; $)"#, v(var::REV));
+	let runs = |params: &'static [(&'static str, &'static str)], columns: &'static [(&'static str, Column)]| Query {
+		operation: op_id(super::track_runs),
+		path: &track,
+		params,
+		select: Some(Select { root_selector: &runs_root, columns }),
+	};
+	let status: Value = serde_json::from_str(STATUS).expect("a JSON literal");
+	let by_start = json!([{ "id": "sortBy", "options": { "sort": [{ "field": "started_at" }] } }]);
+	let color = |name: &str, color: &str| json!({ "matcher": { "id": "byName", "options": name }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": color } }] });
+	board
+		.panel(
+			Panel {
+				id: 1,
+				kind: "state-timeline",
+				title: "Runs",
+				grid: [16, 0, 8, 6],
+			},
+			runs(&[("limit", "500")], &[("started_at", Column::Timestamp), ("status", Column::String)]),
+			json!({
+				"dock": { "minHRem": 3.5 },
+				"transparent": true,
+				"transformations": by_start,
+				"fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": status }, "overrides": [] },
+				"options": { "showValue": "never", "mergeValues": false, "rowHeight": 0.8, "legend": { "showLegend": false } },
+			}),
+		)
+		.panel(
+			Panel {
+				id: 2,
+				kind: "timeseries",
+				title: "Reviews per run",
+				grid: [16, 11, 8, 11],
+			},
+			runs(
+				&[("limit", "500")],
+				&[
+					("started_at", Column::Timestamp),
+					("new", Column::Number),
+					("gone", Column::Number),
+					("changed", Column::Number),
+					("seen", Column::Number),
+				],
+			),
+			json!({
+				"dock": { "minHRem": 10 },
+				"transparent": true,
+				"transformations": by_start,
+				"fieldConfig": {
+					"defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1 }, "decimals": 0 },
+					"overrides": [
+						{
+							"matcher": { "id": "byName", "options": "seen" },
+							"properties": [
+								{ "id": "custom.drawStyle", "value": "line" },
+								{ "id": "custom.fillOpacity", "value": 0 },
+								{ "id": "custom.axisPlacement", "value": "right" },
+							],
+						},
+						color("new", "green"),
+						color("gone", "red"),
+					],
+				},
+				"options": { "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+			}),
+		)
+		.panel(
+			Panel {
+				id: 3,
+				kind: "stat",
+				title: "Last run",
+				grid: [16, 6, 8, 5],
+			},
+			runs(&[("limit", "1")], &[("status", Column::String), ("seen", Column::Number), ("tokens", Column::Number)]),
+			json!({
+				"dock": { "minHRem": 6.5 },
+				"transparent": true,
+				"fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "text" }, "mappings": status }, "overrides": [] },
+				"options": {
+					"reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": false },
+					"colorMode": "value",
+					"graphMode": "none",
+					"textMode": "value_and_name",
+					"orientation": "vertical",
+				},
+			}),
+		)
+		.build(json!({
+			"uid": LOCATION,
+			"title": "review_archive · location",
+			"tags": ["review_archive"],
+			"schemaVersion": 41,
+			"editable": true,
+			"time": { "from": "now-30d", "to": "now" },
+			"refresh": "1m",
+			"templating": {
+				"list": ([var::GMB, var::TARGET, var::REV, var::API])
+					.into_iter()
+					.map(hidden)
+					.chain(Review::iter().map(|r| hidden(&format!("{r:?}"))))
+					.chain(LANES.iter().map(|(l, _)| hidden(&format!("n_{l}"))))
+					.collect::<Vec<_>>(),
+			},
+		}))
+}
 
 /// The member's places as cards, in the order the page's filter keeps them, and as a table.
 fn overview(doc: &OpenApi) -> Value {

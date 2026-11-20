@@ -8,7 +8,12 @@
 
 mod dashboards;
 
-use std::{io::Seek, sync::Arc, time::Duration};
+use std::{
+	io::Seek,
+	path::{Path, PathBuf},
+	sync::Arc,
+	time::Duration,
+};
 
 use axum::{
 	Json, Router,
@@ -52,6 +57,13 @@ use crate::{
 	worker::Signals,
 };
 
+type Gate = sa_auth::Gate<Timed>;
+
+/// One API operation: what a person reaches through the conductor's forward.
+type ApiRoute = Route<AppState, Gate>;
+
+type ApiResult<T> = Result<T, Refusal<Code>>;
+
 /// How long requests may take, and how many are served at once.
 #[derive(Clone, Debug, Deserialize, Serialize, SettingsNested, SmartDefault, schemars::JsonSchema)]
 #[settings(prefix = "http")]
@@ -92,57 +104,6 @@ impl AppState {
 #[derive(Clone, Copy, Debug)]
 pub struct Timed(bool);
 
-type Gate = sa_auth::Gate<Timed>;
-
-/// One API operation: what a person reaches through the conductor's forward.
-type ApiRoute = Route<AppState, Gate>;
-
-fn routes() -> Vec<ApiRoute> {
-	use Method as M;
-	let user = sa_auth::Gate::USER.with(Timed(true));
-	let operator = user.needs(sa_auth::Archive::Operate);
-	vec![
-		ApiRoute::new(M::GET, "/targets", operator, list_targets),
-		ApiRoute::new(M::POST, "/targets", operator, add_target),
-		ApiRoute::new(M::GET, "/targets/{id}", operator, get_target),
-		ApiRoute::new(M::PATCH, "/targets/{id}", operator, patch_target),
-		ApiRoute::new(M::DELETE, "/targets/{id}", operator, disable_target),
-		ApiRoute::new(M::GET, "/targets/{id}/reviews", operator, list_reviews),
-		ApiRoute::new(M::GET, "/targets/{id}/runs", operator, list_runs),
-		ApiRoute::new(M::POST, "/targets/{id}/scan", operator, scan_target),
-		ApiRoute::new(
-			M::GET,
-			"/targets/{id}/export.zip",
-			sa_auth::Gate::USER.with(Timed(false)).needs(sa_auth::Archive::Operate),
-			export_zip,
-		),
-		ApiRoute::new(M::POST, "/captures", operator, capture_place),
-		ApiRoute::new(M::GET, dto::CAPTURE, user, capture_webp),
-		ApiRoute::new(M::GET, "/jobs/{id}", operator, get_job),
-		ApiRoute::new(M::GET, "/reviews/{id}", operator, get_review),
-		ApiRoute::new(M::GET, "/stats", operator, stats),
-		ApiRoute::new(M::GET, "/webhooks", operator, list_webhooks),
-		ApiRoute::new(M::POST, "/webhooks", operator, add_webhook),
-		ApiRoute::new(M::DELETE, "/webhooks/{id}", operator, delete_webhook),
-		ApiRoute::new(M::GET, "/layouts/{dock}", user, list_layouts),
-		ApiRoute::new(M::PUT, "/layouts/{dock}/{band}", operator, publish_layout),
-		ApiRoute::new(M::GET, "/me", user, me),
-		ApiRoute::new(M::GET, "/me/overview", user, my_overview),
-		ApiRoute::new(M::GET, "/me/gmbs", user, my_gmbs),
-		ApiRoute::new(M::GET, "/me/settings", user, my_settings),
-		ApiRoute::new(M::PATCH, "/me/settings", user, patch_my_settings),
-		ApiRoute::new(M::DELETE, "/me/settings", user, reset_my_settings),
-		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/events", user, gmb_events),
-		ApiRoute::new(M::PATCH, "/me/gmbs/{gmb}/tracks/{target}", user, patch_track),
-		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/relink", user, relink_track),
-		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/scan", user, scan_track),
-		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/tracks/{target}/board", user, track_board),
-		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/tracks/{target}/runs", user, track_runs),
-		ApiRoute::new(M::PUT, "/me/gmbs/{gmb}/reinstatements/{review}", user, reinstate),
-		ApiRoute::new(M::DELETE, "/me/gmbs/{gmb}/reinstatements/{review}", user, withdraw_reinstatement),
-	]
-}
-
 /// The operations as an OpenAPI document, served under `/`: the conductor puts it under its forward.
 pub fn document() -> OpenApi {
 	let mut doc = ev_lib::api::document("review_archive", env!("CARGO_PKG_VERSION"), "/", &routes(), ev_lib::api_docs!(), Some(View::table()));
@@ -152,7 +113,7 @@ pub fn document() -> OpenApi {
 
 /// `mfe`: the built dashboard bundle, served under `/mfe/`; with `dev` too, `/` is the dashboard's
 /// page, its sign-in `/` itself.
-pub fn router(state: AppState, mfe: Option<&std::path::Path>, dev: Option<Dev>) -> Router {
+pub fn router(state: AppState, mfe: Option<&Path>, dev: Option<Dev>) -> Router {
 	let limit = state.cfg.request_timeout.duration();
 	let timeout = tower::ServiceBuilder::new()
 		.layer(axum::error_handling::HandleErrorLayer::new(move |e: tower::BoxError| async move {
@@ -216,11 +177,74 @@ pub fn router(state: AppState, mfe: Option<&std::path::Path>, dev: Option<Dev>) 
 	}
 }
 
+/// What a request is refused with: [`Rejected`]'s words, the gate's, and a bare `internal` for a bug.
+#[derive(Clone, Copy, Debug, Serialize, strum::VariantArray)]
+#[serde(rename_all = "snake_case")]
+pub enum Code {
+	NotFound,
+	Invalid,
+	Busy,
+	Conflict,
+	Unauthenticated,
+	Forbidden,
+	/// A sign-in whose address's rows from before people had ids it may not claim.
+	Unclaimable,
+	/// Past `http.request_timeout`.
+	TimedOut,
+	Internal,
+}
+
+fn routes() -> Vec<ApiRoute> {
+	use Method as M;
+	let user = sa_auth::Gate::USER.with(Timed(true));
+	let operator = user.needs(sa_auth::Archive::Operate);
+	vec![
+		ApiRoute::new(M::GET, "/targets", operator, list_targets),
+		ApiRoute::new(M::POST, "/targets", operator, add_target),
+		ApiRoute::new(M::GET, "/targets/{id}", operator, get_target),
+		ApiRoute::new(M::PATCH, "/targets/{id}", operator, patch_target),
+		ApiRoute::new(M::DELETE, "/targets/{id}", operator, disable_target),
+		ApiRoute::new(M::GET, "/targets/{id}/reviews", operator, list_reviews),
+		ApiRoute::new(M::GET, "/targets/{id}/runs", operator, list_runs),
+		ApiRoute::new(M::POST, "/targets/{id}/scan", operator, scan_target),
+		ApiRoute::new(
+			M::GET,
+			"/targets/{id}/export.zip",
+			sa_auth::Gate::USER.with(Timed(false)).needs(sa_auth::Archive::Operate),
+			export_zip,
+		),
+		ApiRoute::new(M::POST, "/captures", operator, capture_place),
+		ApiRoute::new(M::GET, dto::CAPTURE, user, capture_webp),
+		ApiRoute::new(M::GET, "/jobs/{id}", operator, get_job),
+		ApiRoute::new(M::GET, "/reviews/{id}", operator, get_review),
+		ApiRoute::new(M::GET, "/stats", operator, stats),
+		ApiRoute::new(M::GET, "/webhooks", operator, list_webhooks),
+		ApiRoute::new(M::POST, "/webhooks", operator, add_webhook),
+		ApiRoute::new(M::DELETE, "/webhooks/{id}", operator, delete_webhook),
+		ApiRoute::new(M::GET, "/layouts/{dock}", user, list_layouts),
+		ApiRoute::new(M::PUT, "/layouts/{dock}/{band}", operator, publish_layout),
+		ApiRoute::new(M::GET, "/me", user, me),
+		ApiRoute::new(M::GET, "/me/overview", user, my_overview),
+		ApiRoute::new(M::GET, "/me/gmbs", user, my_gmbs),
+		ApiRoute::new(M::GET, "/me/settings", user, my_settings),
+		ApiRoute::new(M::PATCH, "/me/settings", user, patch_my_settings),
+		ApiRoute::new(M::DELETE, "/me/settings", user, reset_my_settings),
+		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/events", user, gmb_events),
+		ApiRoute::new(M::PATCH, "/me/gmbs/{gmb}/tracks/{target}", user, patch_track),
+		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/relink", user, relink_track),
+		ApiRoute::new(M::POST, "/me/gmbs/{gmb}/tracks/{target}/scan", user, scan_track),
+		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/tracks/{target}/board", user, track_board),
+		ApiRoute::new(M::GET, "/me/gmbs/{gmb}/tracks/{target}/runs", user, track_runs),
+		ApiRoute::new(M::PUT, "/me/gmbs/{gmb}/reinstatements/{review}", user, reinstate),
+		ApiRoute::new(M::DELETE, "/me/gmbs/{gmb}/reinstatements/{review}", user, withdraw_reinstatement),
+	]
+}
+
 /// The whole bundle's digest, for every file in it: the nix store dates each file 1970, so a
 /// date tells one build from another for none of them.
-fn bundle_etag(dir: &std::path::Path) -> header::HeaderValue {
+fn bundle_etag(dir: &Path) -> header::HeaderValue {
 	use sha2::{Digest, Sha256};
-	fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+	fn walk(dir: &Path, files: &mut Vec<PathBuf>) {
 		for e in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("reading the bundle at {}: {e}", dir.display())) {
 			let path = e.expect("listing the bundle").path();
 			match path.is_dir() {
@@ -259,23 +283,6 @@ async fn revalidated(State(etag): State<header::HeaderValue>, mut req: axum::ext
 	h.insert(header::ETAG, etag);
 	h.insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-cache"));
 	res
-}
-
-/// What a request is refused with: [`Rejected`]'s words, the gate's, and a bare `internal` for a bug.
-#[derive(Clone, Copy, Debug, Serialize, strum::VariantArray)]
-#[serde(rename_all = "snake_case")]
-pub enum Code {
-	NotFound,
-	Invalid,
-	Busy,
-	Conflict,
-	Unauthenticated,
-	Forbidden,
-	/// A sign-in whose address's rows from before people had ids it may not claim.
-	Unclaimable,
-	/// Past `http.request_timeout`.
-	TimedOut,
-	Internal,
 }
 
 impl ErrorCode for Code {
@@ -495,8 +502,6 @@ impl OperationOutput for Stats {
 		answers
 	}
 }
-
-type ApiResult<T> = Result<T, Refusal<Code>>;
 
 /// Every watched place.
 async fn list_targets(State(s): State<AppState>) -> ApiResult<Json<Vec<TargetDto>>> {

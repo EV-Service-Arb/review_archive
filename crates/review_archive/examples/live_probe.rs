@@ -1,12 +1,14 @@
 //! Repeats the live test's scan with a kept data dir per run, to look at how each run ended.
 //! `cargo r --example live_probe -- <out_dir> <runs>`
 
+use std::path::PathBuf;
+
 use review_archive::{Archive, config::Config, core::dto::NewTarget};
 
 #[tokio::main]
 async fn main() {
 	let mut args = std::env::args().skip(1);
-	let out: std::path::PathBuf = args.next().expect("out dir").into();
+	let out: PathBuf = args.next().expect("out dir").into();
 	let runs: u32 = args.next().expect("run count").parse().unwrap();
 	for i in 0..runs {
 		let dir = out.join(format!("{}-{i}", jiff::Timestamp::now().as_second()));

@@ -85,10 +85,6 @@ pub fn backoff(base: Timeframe, cap: Timeframe, n: u32) -> SignedDuration {
 	span(base).saturating_mul(2i32.saturating_pow(n.saturating_sub(1))).min(span(cap))
 }
 
-fn span(t: Timeframe) -> SignedDuration {
-	SignedDuration::try_from(t.duration()).expect("a Timeframe is at most u64::MAX ms, well within SignedDuration")
-}
-
 /// Maps cannot work now (Google flagged the address we scan from, or Chromium cannot run):
 /// every Maps walk pauses, whatever the target, until `probe_after`, when one scan probes.
 /// Per-target backoff can't express this — the cause is not the target's.
@@ -105,7 +101,6 @@ pub struct Breaker {
 	/// When a job may try again: `schedule.job_probe_gap` after the last trip.
 	pub job_probe_after: Timestamp,
 }
-
 impl Breaker {
 	/// Trips a closed breaker, or trips again after a failed probe: the wait doubles, base to cap.
 	pub fn trip(prev: Option<Self>, reason: &str, now: Timestamp, schedule: &Schedule) -> Self {
@@ -118,6 +113,10 @@ impl Breaker {
 			job_probe_after: now + span(schedule.job_probe_gap),
 		}
 	}
+}
+
+fn span(t: Timeframe) -> SignedDuration {
+	SignedDuration::try_from(t.duration()).expect("a Timeframe is at most u64::MAX ms, well within SignedDuration")
 }
 
 /// A well-mixed value in `[-1, 1]` from a seed (splitmix64).
@@ -158,7 +157,8 @@ mod tests {
 			spread = (spread.0.min(secs), spread.1.max(secs));
 		}
 		// the jitter actually spreads, rather than sitting at one end
-		assert!(spread.0 < 6 * 3600 - 1800 && spread.1 > 6 * 3600 + 1800, "{spread:?}");
+		assert!(spread.0 < 6 * 3600 - 1800, "{spread:?}");
+		assert!(spread.1 > 6 * 3600 + 1800, "{spread:?}");
 	}
 
 	#[test]

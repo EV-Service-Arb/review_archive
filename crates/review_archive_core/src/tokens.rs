@@ -80,16 +80,6 @@ pub struct Meter {
 	spent: i64,
 	steps: Steps,
 }
-
-#[derive(Debug)]
-enum Tariff {
-	Priced(WalkPrices),
-	/// No walk starts; one that did would be a bug.
-	Shut,
-	/// Nothing stored, so no one to charge and no hour to keep.
-	Uncounted,
-}
-
 impl Meter {
 	/// A walk that may spend `allowance` at `prices`.
 	pub fn new(prices: WalkPrices, allowance: i64) -> Self {
@@ -169,7 +159,6 @@ impl Meter {
 /// A walk's steps done; every clone reads the same walk.
 #[derive(Clone, Debug, Default)]
 pub struct Steps(Arc<Mutex<BTreeMap<WalkStep, i64>>>);
-
 impl Steps {
 	/// So far.
 	pub fn now(&self) -> BTreeMap<WalkStep, i64> {
@@ -179,4 +168,13 @@ impl Steps {
 	fn add(&self, step: WalkStep) {
 		*self.0.lock().expect("held only to count or copy").entry(step).or_default() += 1;
 	}
+}
+
+#[derive(Debug)]
+enum Tariff {
+	Priced(WalkPrices),
+	/// No walk starts; one that did would be a bug.
+	Shut,
+	/// Nothing stored, so no one to charge and no hour to keep.
+	Uncounted,
 }

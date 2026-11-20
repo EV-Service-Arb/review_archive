@@ -103,7 +103,8 @@ pub(crate) fn corrupted(rgb: &image::RgbImage) -> bool {
 /// libwebp's simple file (`RIFF … WEBP VP8 …`) extended with an `EXIF` chunk, which the format
 /// only allows after a `VP8X` header that flags it.
 fn with_exif(simple: &[u8], width: u32, height: u32, exif: &[u8]) -> Vec<u8> {
-	assert!(simple.starts_with(b"RIFF") && &simple[8..16] == b"WEBPVP8 ", "libwebp writes lossy RGB as a simple file");
+	assert!(simple.starts_with(b"RIFF"), "libwebp writes lossy RGB as a simple file");
+	assert!(&simple[8..16] == b"WEBPVP8 ", "libwebp writes lossy RGB as a simple file");
 	let chunk = |out: &mut Vec<u8>, fourcc: &[u8; 4], data: &[u8]| {
 		out.extend_from_slice(fourcc);
 		out.extend_from_slice(&u32::try_from(data.len()).expect("a capture is far below 4 GiB").to_le_bytes());

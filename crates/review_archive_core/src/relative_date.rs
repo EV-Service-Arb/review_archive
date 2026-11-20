@@ -3,16 +3,6 @@
 
 use jiff::{Span, Timestamp, tz::TimeZone};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Unit {
-	Minute,
-	Hour,
-	Day,
-	Week,
-	Month,
-	Year,
-}
-
 /// Word stems per unit across the languages the scanner is run in (en, fr, de, es, it).
 /// Matched against whole lowercase tokens by prefix, except the entries in `EXACT`.
 const STEMS: &[(Unit, &[&str])] = &[
@@ -28,8 +18,8 @@ const STEMS: &[(Unit, &[&str])] = &[
 const EXACT: &[(Unit, &[&str])] = &[(Unit::Year, &["an", "ans"])];
 
 const YESTERDAY: &[&str] = &["yesterday", "hier", "gestern", "ayer", "ieri"];
-const JUST_NOW: &[&str] = &["now", "instant", "jetzt", "ahora", "adesso"];
 
+const JUST_NOW: &[&str] = &["now", "instant", "jetzt", "ahora", "adesso"];
 /// Estimates when a review was published from its relative date text, or `None`
 /// when the phrase is not one this recognises.
 ///
@@ -54,6 +44,16 @@ pub fn lower_bound(raw: &str, est: Timestamp) -> Option<Timestamp> {
 		Phrase::Now => shift(est, Unit::Minute, 1),
 		Phrase::Ago(unit, _) => shift(est, unit, 1),
 	}
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Unit {
+	Minute,
+	Hour,
+	Day,
+	Week,
+	Month,
+	Year,
 }
 
 enum Phrase {

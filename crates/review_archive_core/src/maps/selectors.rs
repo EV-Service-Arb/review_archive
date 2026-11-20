@@ -8,23 +8,14 @@
 //! a `jsaction` name — it does; the obfuscated class names are fallbacks. Each list is
 //! tried in order and the first that matches wins.
 
-/// Where a place's page lives. `hl` sets the UI language, which decides the language
-/// of the relative dates the parser reads.
-pub fn place_url(place_id: &str, lang: &str) -> String {
-	// Both are checked before they get here; encoding them anyway means neither can add a
-	// query parameter of its own, and valid values come out as they went in.
-	let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
-	format!("https://www.google.com/maps/place/?q=place_id:{}&hl={}", enc(place_id), enc(lang))
-}
-
 /// Maps on no place: where a standby profile's account is checked.
 pub const MAPS_HOME: &str = "https://www.google.com/maps?hl=en";
 
 /// The EU consent interstitial is served from this host.
 pub const CONSENT_HOST: &str = "consent.google.com";
+
 /// Google's "unusual traffic" page. Hitting it fails the run; nothing tries to get past it.
 pub const BLOCKED_PATH: &str = "/sorry/";
-
 /// What the walk never looks at, refused by Chromium before it is fetched (URL parts): the map's
 /// vector and raster tiles, satellite imagery, Street View, and 3D/terrain imagery. Never fonts,
 /// scripts, styles, avatars or review photos: cards are screenshotted as evidence.
@@ -74,11 +65,12 @@ pub const REVIEWS_TAB: &[&str] = &[
 
 /// The side panel's toggle while the panel is open. Its action, not its label, which is translated.
 pub const PANEL_OPEN: &[&str] = &[r#"button[jsaction^="drawer.close"]"#];
+
 /// The same toggle while the panel is collapsed.
 pub const PANEL_COLLAPSED: &[&str] = &[r#"button[jsaction^="drawer.open"]"#];
-
 /// The place's name heading: present once the place panel has rendered.
 pub const PLACE_TITLE: &[&str] = &["h1.DUwDvf", r#"[role="main"] h1"#];
+
 /// The address line of the overview. Service-area businesses hide it.
 pub const PLACE_ADDRESS: &[&str] = &[r#"button[data-item-id="address"] .Io6YTe"#, r#"button[data-item-id="address"] .fontBodyMedium"#];
 /// The star average under the name ("4.6 stars"). A place without reviews has none.
@@ -86,7 +78,6 @@ pub const RATING_SUMMARY: &[&str] = &[r#".F7nice [role="img"][aria-label]"#];
 /// The per-star rows of the review list's histogram, labelled "5 stars, 4,377 reviews" /
 /// "5 étoiles, 396 164 avis". Their sum is how many reviews the list holds.
 pub const HISTOGRAM_ROW: &str = r#"table tr[role="img"][aria-label]"#;
-
 /// The sort menu button of the review list.
 pub const SORT_BUTTON: &[&str] = &[
 	r#"button[data-value="Sort"]"#,
@@ -116,14 +107,15 @@ pub const SIGNED_OUT: &[&str] = &[r#"a[href^="https://accounts.google.com/Servic
 /// A review card. Inner buttons carry the same attribute, so only the outermost element
 /// with it counts (the parser and the in-page scripts both apply that rule).
 pub const CARD: &str = "[data-review-id]";
+
 /// The attribute holding the review's id.
 pub const CARD_ID_ATTR: &str = "data-review-id";
-
 /// "More" on a truncated review or owner reply.
 pub const EXPAND: &[&str] = &[r#"button[jsaction*="review.expandReview"]"#, r#"button[jsaction*="expandOwnerResponse"]"#, "button.w8nwRe"];
 
 /// The reviewer's display name.
 pub const AUTHOR_NAME: &[&str] = &[".d4r55", r#"[class*="d4r55"]"#];
+
 /// The author's profile link, as `data-href` or `href`.
 pub const AUTHOR_LINK: &[&str] = &[r#"[data-href*="/maps/contrib/"]"#, r#"a[href*="/maps/contrib/"]"#];
 /// Star rating: an `role=img` whose `aria-label` holds the number ("5 stars", "5 étoiles").
@@ -146,14 +138,22 @@ pub const PHOTO: &[&str] = &["button[data-photo-index]", "button.Tya61d"];
 pub const PHOTO_MORE: &[&str] = &[r#"button[jsaction*="showMorePhotos"]"#];
 /// The number on that tile.
 pub const PHOTO_MORE_COUNT: &[&str] = &[".Tap5If"];
-
 /// The owner's latest post, under "From the owner" on the place's overview; clicking it
 /// opens the rest. Matched by its action, not its label, which is translated.
 pub const OWNER_POST: &[&str] = &[r#"[jsaction*="local-post.expand"]"#];
+
 /// The post's text, inside `OWNER_POST`.
 pub const OWNER_POST_TEXT: &[&str] = &[".VpMB0"];
 /// When it was posted: "6 hours ago", or a date once it is older ("16 sept. 2026").
 pub const OWNER_POST_DATE: &[&str] = &[".lqMB"];
+/// Where a place's page lives. `hl` sets the UI language, which decides the language
+/// of the relative dates the parser reads.
+pub fn place_url(place_id: &str, lang: &str) -> String {
+	// Both are checked before they get here; encoding them anyway means neither can add a
+	// query parameter of its own, and valid values come out as they went in.
+	let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
+	format!("https://www.google.com/maps/place/?q=place_id:{}&hl={}", enc(place_id), enc(lang))
+}
 
 /// In-page helpers. Selectors reach them as JSON arguments, so this file stays the only
 /// place a selector is spelled.

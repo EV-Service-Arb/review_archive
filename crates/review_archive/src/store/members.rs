@@ -19,6 +19,24 @@ use sqlx::{FromRow, SqliteConnection};
 
 use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow};
 
+/// The rows a page of [`Store::gmb_events`] aims at; it grows to hold a whole day.
+const EVENTS_PAGE: u32 = 200;
+
+/// Days in [`GmbReviews::live_30d`].
+const LIVE_DAYS: usize = 30;
+
+/// The target GMB `m`'s figures are from: its most recently walked tracked one. A GMB's
+/// tracks in other languages list the same reviews, so its figures are never summed over them.
+const WORKING: &str = "SELECT k.target_id FROM tracks k JOIN runs r ON r.target_id = k.target_id
+	 WHERE k.gmb_id = m.id AND r.status IN ('ok', 'partial') AND r.ad_hoc = 0
+	 ORDER BY r.finished_at DESC, r.id DESC LIMIT 1";
+
+/// The ids of the GMBs of person `?1`, not removed.
+const MEMBERS_GMBS: &str = "SELECT m.id FROM gmb_mirror m JOIN people p ON p.sub = m.owner WHERE p.id = ?1 AND NOT m.removed";
+
+/// GMB `?` if it is person `?`'s and not removed, as a scalar subquery.
+const MEMBERS_GMB: &str = "SELECT m.id FROM gmb_mirror m JOIN people p ON p.sub = m.owner WHERE m.id = ? AND p.id = ? AND NOT m.removed";
+
 #[derive(FromRow)]
 struct LocationRow {
 	gmb_id: i64,
@@ -59,9 +77,6 @@ struct CardRow {
 	requested_at: Option<String>,
 	reinstated_at: Option<String>,
 }
-
-/// The rows a page of [`Store::gmb_events`] aims at; it grows to hold a whole day.
-const EVENTS_PAGE: u32 = 200;
 
 fn no_gmb(id: i64) -> Rejected {
 	Rejected::not_found(format!("no GMB {id}"))
@@ -529,18 +544,3 @@ impl Store {
 		Ok(())
 	}
 }
-
-/// Days in [`GmbReviews::live_30d`].
-const LIVE_DAYS: usize = 30;
-
-/// The target GMB `m`'s figures are from: its most recently walked tracked one. A GMB's
-/// tracks in other languages list the same reviews, so its figures are never summed over them.
-const WORKING: &str = "SELECT k.target_id FROM tracks k JOIN runs r ON r.target_id = k.target_id
-	 WHERE k.gmb_id = m.id AND r.status IN ('ok', 'partial') AND r.ad_hoc = 0
-	 ORDER BY r.finished_at DESC, r.id DESC LIMIT 1";
-
-/// The ids of the GMBs of person `?1`, not removed.
-const MEMBERS_GMBS: &str = "SELECT m.id FROM gmb_mirror m JOIN people p ON p.sub = m.owner WHERE p.id = ?1 AND NOT m.removed";
-
-/// GMB `?` if it is person `?`'s and not removed, as a scalar subquery.
-const MEMBERS_GMB: &str = "SELECT m.id FROM gmb_mirror m JOIN people p ON p.sub = m.owner WHERE m.id = ? AND p.id = ? AND NOT m.removed";

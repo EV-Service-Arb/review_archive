@@ -21,57 +21,57 @@ review_archive = { path = "crates/review_archive", version = "0.1.0", default-fe
 review_archive_core = { path = "crates/review_archive_core", version = "0.1.0" }
 review_archive_server = { path = "crates/review_archive_server", version = "0.1.0" }
 
-axum = "0.8"
-base64 = "0.22"
+axum = "0.8.9"
+base64 = "0.22.1"
 browser_manipulation = "0.4.6"
-clap = { version = "4", features = ["derive"] }
-color-eyre = "0.6"
+clap = { version = "4.6.8", features = ["derive"] }
+color-eyre = "0.6.5"
 concierge_iam = "0.1.0"
-csv = "1"
+csv = "1.4.0"
 ev_lib = { version = "0.34", default-features = false }
-eyre = "0.6"
-futures = "0.3"
-hmac = "0.13"
-image = { version = "0.25", default-features = false, features = ["png", "webp"] }
-jiff = { version = "0.2", features = ["serde"] }
-kamadak-exif = "0.6"
-libwebp = { package = "webp", version = "0.3", default-features = false } # the `image` crate encodes WebP lossless only
-miette = "7"
+eyre = "0.6.14"
+futures = "0.3.34"
+hmac = "0.13.0"
+image = { version = "0.25.10", default-features = false, features = ["png", "webp"] }
+jiff = { version = "0.2.46", features = ["serde"] }
+kamadak-exif = "0.6.1"
+libwebp = { package = "webp", version = "0.3.1", default-features = false } # the `image` crate encodes WebP lossless only
+miette = "7.6.0"
 playwright-rs = "=0.19.0" # the version browser_manipulation pins: its launch errors are this crate's `Error`
-rand = "0.10"
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }
+rand = "0.10.3"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "form", "rustls"] }
 sa_alerts = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_auth = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_core = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_places = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_ui = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
-schemars = "1"
-scraper = "0.27"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_with = { version = "3", default-features = false, features = ["macros"] }
-sha2 = "0.11"
-smart-default = "0.7"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
-strum = { version = "0.28", features = ["derive"] }
-thiserror = "2"
-tokio = { version = "1", features = ["full"] }
-tokio-util = "0.7"
-toml = "1"
-tower = "0.5"
-tower-http = "0.6"
-tracing = "0.1"
-tracing-error = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-url = "2"
-uuid = { version = "1", features = ["v4"] }
+schemars = "1.2.3"
+scraper = "0.27.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+serde_with = { version = "3.24.0", default-features = false, features = ["macros"] }
+sha2 = "0.11.1"
+smart-default = "0.7.1"
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
+strum = { version = "0.28.0", features = ["derive"] }
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
+tokio-util = "0.7.19"
+toml = "1.1.6"
+tower = "0.5.3"
+tower-http = "0.7.0"
+tracing = "0.1.44"
+tracing-error = "0.2.1"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+uuid = { version = "1.29.3", features = ["v4"] }
 v_utils = { version = "2.24.1", default-features = false, features = ["macros"] }
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 ev_lib_classes = "0.20.0"
-insta = { version = "1", features = ["yaml"] }
-png = "0.18"
-tempfile = "3"
+insta = { version = "1.48.0", features = ["yaml"] }
+png = "0.18.1"
+tempfile = "3.27.0"
 
 [workspace.lints.clippy]
 float_cmp = "allow"

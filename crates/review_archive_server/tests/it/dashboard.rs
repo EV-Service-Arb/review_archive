@@ -24,6 +24,18 @@ const SHORT: &str = "Shiny Maids";
 const TWO_LINES: &str = "Long Island Premier Christmas & Holiday Lighting Decorators";
 const LONGER: &str = "Long Island Premier Christmas & Holiday Lighting Decorators of Nassau and Suffolk Counties, New York, Serving Long Beach, Garden City, Hempstead and Huntington";
 
+const MEASURE: &str = r#"labels => Object.fromEntries([...document.querySelectorAll("[data-slot=card] div")]
+	.filter(el => el.childElementCount == 0 && labels.includes(el.textContent))
+	.map(el => {
+		const card = el.closest("[data-slot=card]");
+		const box = el.getBoundingClientRect();
+		const top = box.top - card.getBoundingClientRect().top - parseFloat(getComputedStyle(card).borderTopWidth);
+		const text = document.createRange();
+		text.selectNodeContents(el);
+		const lines = new Set([...text.getClientRects()].filter(r => r.top < box.bottom).map(r => Math.round(r.top))).size;
+		return [el.textContent, { lines, top, cut: el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth, titled: el.title == el.textContent }];
+	}))"#;
+
 #[derive(Debug, Deserialize, PartialEq)]
 struct Name {
 	lines: u32,
@@ -171,18 +183,6 @@ async fn dashboard_a_place_name_wraps_once_into_the_space_above_it() {
 		"{names:#?}"
 	);
 }
-
-const MEASURE: &str = r#"labels => Object.fromEntries([...document.querySelectorAll("[data-slot=card] div")]
-	.filter(el => el.childElementCount == 0 && labels.includes(el.textContent))
-	.map(el => {
-		const card = el.closest("[data-slot=card]");
-		const box = el.getBoundingClientRect();
-		const top = box.top - card.getBoundingClientRect().top - parseFloat(getComputedStyle(card).borderTopWidth);
-		const text = document.createRange();
-		text.selectNodeContents(el);
-		const lines = new Set([...text.getClientRects()].filter(r => r.top < box.bottom).map(r => Math.round(r.top))).size;
-		return [el.textContent, { lines, top, cut: el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth, titled: el.title == el.textContent }];
-	}))"#;
 
 /// As `nix run .#dev-mfe` builds it, in a target dir of its own: the one `cargo test` runs from is locked.
 fn bundle(out: &Path) {

@@ -2,7 +2,12 @@
 //! is never started: the worker's part is played by recording a scripted scan and
 //! finishing the job through the store.
 
-use std::{io::Read, sync::Arc, time::Duration};
+use std::{
+	collections::BTreeSet,
+	io::Read,
+	sync::{Arc, Mutex},
+	time::Duration,
+};
 
 use jiff::{SignedDuration, Timestamp};
 use reqwest::StatusCode;
@@ -45,6 +50,15 @@ const ALICE: &str = "00000000-0000-0000-0000-0000000a11ce";
 const BOB: &str = "00000000-0000-0000-0000-000000000b0b";
 const CAROL: &str = "00000000-0000-0000-0000-0000000ca201";
 const PLACE: &str = "ChIJLU7jZClu5kcR4PcOOO6p3I0";
+
+/// A 1×1 PNG.
+const PNG_1X1: &[u8] = &[
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15,
+	0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e,
+	0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+const TEST: &str = "00000000-0000-0000-0000-00000000007e";
 
 /// A concierge account, as the panel's assertion names it.
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
@@ -117,57 +131,8 @@ struct Env {
 	client: Client,
 	server: tokio::task::JoinHandle<()>,
 	/// What the conductor pushed last.
-	mirror: std::sync::Mutex<Snapshot>,
+	mirror: Mutex<Snapshot>,
 }
-
-async fn env() -> Env {
-	env_with(HttpConfig::default()).await
-}
-
-async fn env_with(http: HttpConfig) -> Env {
-	let dir = tempfile::tempdir().unwrap();
-	let mut config = Config {
-		data_dir: Some(dir.path().to_owned()),
-		..Config::default()
-	};
-	// the webhooks here point at loopback, which only a listed host may
-	config.webhooks.allowed_hosts = vec!["127.0.0.1".into()];
-	let archive = Archive::open(config).await.unwrap();
-	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
-	let signals = Arc::new(Signals::default());
-	let signer: Arc<Signer> = Arc::new(PANEL_KEY.parse().unwrap());
-	let panel = {
-		let signer = signer.clone();
-		axum::middleware::from_fn(move |mut req: axum::extract::Request, next: axum::middleware::Next| {
-			let signer = signer.clone();
-			async move {
-				if let Some(who) = req.headers_mut().remove(CALLER_HEADER) {
-					let who: Who = serde_json::from_slice(who.as_bytes()).expect("http_as serialized it");
-					let token = sign(&signer, &who, req.method().as_str(), req.uri().path(), alive());
-					req.headers_mut().insert(sa_auth::HEADER, token.parse().expect("a JWS is base64url and dots"));
-				}
-				next.run(req).await
-			}
-		})
-	};
-	let verifier = sa_auth::Verifier::new(signer.public().parse().unwrap(), sa_auth::Service::ReviewArchive);
-	let app = router(AppState::new(archive.clone(), verifier, signals.clone(), http), None, None).layer(panel);
-	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-	let base = format!("http://{}", listener.local_addr().unwrap());
-	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-	let client = Client::ambient(http_as(&operator()), &base).unwrap();
-	Env {
-		dir,
-		archive,
-		signals,
-		signer,
-		base,
-		client,
-		server,
-		mirror: std::sync::Mutex::new(priced::snapshot()),
-	}
-}
-
 impl Env {
 	fn caller(&self, who: &Who) -> Client {
 		Client::ambient(http_as(who), &self.base).unwrap()
@@ -228,6 +193,54 @@ impl Env {
 			m.clone()
 		};
 		self.archive.apply_snapshot(&snap).await.unwrap();
+	}
+}
+
+async fn env() -> Env {
+	env_with(HttpConfig::default()).await
+}
+
+async fn env_with(http: HttpConfig) -> Env {
+	let dir = tempfile::tempdir().unwrap();
+	let mut config = Config {
+		data_dir: Some(dir.path().to_owned()),
+		..Config::default()
+	};
+	// the webhooks here point at loopback, which only a listed host may
+	config.webhooks.allowed_hosts = vec!["127.0.0.1".into()];
+	let archive = Archive::open(config).await.unwrap();
+	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
+	let signals = Arc::new(Signals::default());
+	let signer: Arc<Signer> = Arc::new(PANEL_KEY.parse().unwrap());
+	let panel = {
+		let signer = signer.clone();
+		axum::middleware::from_fn(move |mut req: axum::extract::Request, next: axum::middleware::Next| {
+			let signer = signer.clone();
+			async move {
+				if let Some(who) = req.headers_mut().remove(CALLER_HEADER) {
+					let who: Who = serde_json::from_slice(who.as_bytes()).expect("http_as serialized it");
+					let token = sign(&signer, &who, req.method().as_str(), req.uri().path(), alive());
+					req.headers_mut().insert(sa_auth::HEADER, token.parse().expect("a JWS is base64url and dots"));
+				}
+				next.run(req).await
+			}
+		})
+	};
+	let verifier = sa_auth::Verifier::new(signer.public().parse().unwrap(), sa_auth::Service::ReviewArchive);
+	let app = router(AppState::new(archive.clone(), verifier, signals.clone(), http), None, None).layer(panel);
+	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let base = format!("http://{}", listener.local_addr().unwrap());
+	let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+	let client = Client::ambient(http_as(&operator()), &base).unwrap();
+	Env {
+		dir,
+		archive,
+		signals,
+		signer,
+		base,
+		client,
+		server,
+		mirror: Mutex::new(priced::snapshot()),
 	}
 }
 
@@ -501,13 +514,6 @@ async fn webhooks() {
 	e.server.abort();
 }
 
-/// A 1×1 PNG.
-const PNG_1X1: &[u8] = &[
-	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15,
-	0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e,
-	0x44, 0xae, 0x42, 0x60, 0x82,
-];
-
 fn captured(id: &str) -> Observed {
 	Observed {
 		capture: Some(review_archive::core::Capture {
@@ -741,7 +747,8 @@ async fn export_zip_holds_each_first_capture_under_its_manifest_name() {
 		.map(|r| (r["source_review_id"].as_str().unwrap().to_owned(), r["capture"].as_str().map(str::to_owned)))
 		.collect();
 	let a_file = files.iter().find(|(id, _)| id == "a").unwrap().1.clone().expect("a has a capture in the export");
-	assert!(a_file.starts_with("captures/") && a_file.ends_with(".webp"), "{a_file}");
+	assert!(a_file.starts_with("captures/"), "{a_file}");
+	assert!(a_file.ends_with(".webp"), "{a_file}");
 	assert_eq!(files.iter().find(|(id, _)| id == "b").unwrap().1, None, "no capture, no file");
 	assert_eq!(archive.len(), 2, "the manifest and a's capture");
 
@@ -957,7 +964,7 @@ async fn a_write_is_told_on_the_feed_by_the_tables_a_read_names() {
 		..Default::default()
 	};
 	alice.patch_track(g, t, &favorite).await.unwrap();
-	let mut told = std::collections::BTreeSet::new();
+	let mut told = BTreeSet::new();
 	while let Ok(line) = tokio::time::timeout(Duration::from_millis(500), next()).await {
 		let sa_core::feeds::Line::Changed { topic } = line else { panic!("{line:?} amid a write") };
 		told.insert(topic);
@@ -1024,8 +1031,6 @@ async fn an_address_another_account_holds_cannot_be_claimed() {
 	assert_eq!(e.caller(&twin).me().await.unwrap_err().status(), Some(StatusCode::FORBIDDEN));
 	e.server.abort();
 }
-
-const TEST: &str = "00000000-0000-0000-0000-00000000007e";
 
 /// The `--dev-member` the dev tests sign for, holding nothing.
 fn test_user() -> sa_auth::User {
@@ -1377,7 +1382,8 @@ async fn members_share_places_but_see_only_their_own() {
 	};
 	alice.patch_track(a, t.id, &favorite(true)).await.unwrap();
 	let loc = first(&alice.my_overview().await.unwrap()).clone();
-	assert!(loc.favorite && loc.enabled, "a favorite leaves the switch as it was");
+	assert!(loc.favorite, "a favorite leaves the switch as it was");
+	assert!(loc.enabled, "a favorite leaves the switch as it was");
 	assert!(!first(&bob.my_overview().await.unwrap()).favorite, "alice's favorite is not bob's");
 	assert_eq!(bob.patch_track(a, t.id, &favorite(true)).await.unwrap_err().status(), Some(StatusCode::NOT_FOUND));
 	alice.patch_track(a, t.id, &favorite(false)).await.unwrap();
@@ -1780,7 +1786,8 @@ async fn the_conductor_pulls_alerts_on_tracked_places() {
 		"bob's track is off, so his GMB hears nothing"
 	);
 	let gone = &all[1];
-	assert!(gone.text.text.starts_with("Review removed · ") && gone.text.text.contains("author r1"), "{:?}", gone.text);
+	assert!(gone.text.text.starts_with("Review removed · "), "{:?}", gone.text);
+	assert!(gone.text.text.contains("author r1"), "{:?}", gone.text);
 	assert_eq!(
 		e.archive.store().unwrap().delivery_counts(hook.id).await.unwrap(),
 		(4, 0, 0),

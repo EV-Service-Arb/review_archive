@@ -30,6 +30,9 @@ use uuid::Uuid;
 #[path = "../support/priced.rs"]
 mod priced;
 
+/// Past the walk's step checkpoint, with room for its write.
+const PAST_A_CHECKPOINT: Duration = Duration::from_secs(12);
+
 /// A walk that costs `.0` tokens: that many scrolls, at [`priced::snapshot`]'s prices.
 struct Spends(i64);
 
@@ -100,9 +103,6 @@ impl ReviewSource for Gated {
 		Spends(self.after).scan(target, known, meter).await
 	}
 }
-
-/// Past the walk's step checkpoint, with room for its write.
-const PAST_A_CHECKPOINT: Duration = Duration::from_secs(12);
 
 /// A walk that reads `member`'s card for its place while it goes.
 struct Peeks<'a> {

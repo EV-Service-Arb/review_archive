@@ -107,7 +107,8 @@ async fn pauses_maps_until_a_probe(failing: impl ReviewSource, said: &str) {
 	let Some(Rejected::Busy(why)) = refused.downcast_ref::<Rejected>() else {
 		panic!("{refused:#}")
 	};
-	assert!(why.contains(said) && !why.contains("Google"), "the pause names its reason: {why}");
+	assert!(why.contains(said), "the pause names its reason: {why}");
+	assert!(!why.contains("Google"), "the pause names its reason: {why}");
 
 	let archive = open(dir.path()).await;
 	assert_eq!(due(&archive, now).await, []);

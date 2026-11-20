@@ -56,6 +56,10 @@ const ARGS: &[&str] = &[
 	"--enable-precise-memory-info", // `performance.memory` unrounded, for the walk's log
 ];
 
+/// How long Playwright gives a start: the driver's initialization in playwright-rs, and
+/// Chromium's launch in the driver, are both 30 s and neither is configurable from here.
+const LAUNCH_LIMIT: Duration = Duration::from_secs(30);
+
 /// The review list, open and ready to walk.
 #[derive(Debug)]
 pub(crate) struct Opened {
@@ -84,13 +88,6 @@ pub(crate) struct Session {
 	/// pod shrunk under a live Chromium is killed for its memory.
 	_lease: Lease,
 }
-
-/// One walk's tab.
-pub(crate) struct Page<'s> {
-	tab: Tab<'s, Robot>,
-	cfg: &'s BrowserConfig,
-}
-
 impl Session {
 	pub(crate) async fn launch(cfg: &BrowserConfig, profile_dir: &Path) -> eyre::Result<Self> {
 		let executable = cfg.executable.clone().ok_or_else(|| SessionError::new_launch("`browser.executable` is not set".to_owned()))?;
@@ -143,77 +140,11 @@ impl Session {
 	}
 }
 
-/// Chromium remembers a site's `WWW-Authenticate: Negotiate` in `Local State`, and from then on
-/// hangs every start with `NetworkServiceInProcess2` until it is killed; nothing here authenticates with Negotiate.
-fn forget_negotiate(profile_dir: &Path) -> eyre::Result<()> {
-	let path = profile_dir.join("Local State");
-	let text = match std::fs::read_to_string(&path) {
-		Ok(t) => t,
-		Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()), // a fresh profile
-		Err(e) => return Err(eyre::Report::new(e).wrap_err(format!("reading {}", path.display()))),
-	};
-	let mut state: serde_json::Value = serde_json::from_str(&text).wrap_err_with(|| format!("parsing {}", path.display()))?;
-	let Some(net) = state.get_mut("net").and_then(serde_json::Value::as_object_mut) else {
-		return Ok(());
-	};
-	if net.remove("received_http_auth_negotiate_headers").is_none() {
-		return Ok(());
-	}
-	let tmp = path.with_extension("tmp");
-	std::fs::write(&tmp, serde_json::to_vec(&state)?).wrap_err_with(|| format!("writing {}", tmp.display()))?;
-	std::fs::rename(&tmp, &path).wrap_err_with(|| format!("replacing {}", path.display()))
+/// One walk's tab.
+pub(crate) struct Page<'s> {
+	tab: Tab<'s, Robot>,
+	cfg: &'s BrowserConfig,
 }
-
-fn args(lean: &[Lean]) -> Vec<String> {
-	let mut args: Vec<String> = ARGS.iter().map(|a| (*a).to_owned()).collect();
-	let mut js = Vec::new();
-	for l in lean {
-		match *l {
-			Lean::JsHeapMib(mib) => js.extend([format!("--max-old-space-size={mib}"), "--optimize-for-size".to_owned()]),
-			Lean::SmallYoungGeneration => js.push("--max-semi-space-size=1".to_owned()),
-			Lean::JsLiteMode => js.push("--lite-mode".to_owned()),
-			Lean::OneRasterThread => args.push("--num-raster-threads=1".to_owned()),
-			Lean::LowEndDevice => args.push("--enable-low-end-device-mode".to_owned()),
-		}
-	}
-	if !js.is_empty() {
-		args.push(format!("--js-flags={}", js.join(" "))); // Chromium keeps only the last `--js-flags`
-	}
-	args
-}
-
-/// How long Playwright gives a start: the driver's initialization in playwright-rs, and
-/// Chromium's launch in the driver, are both 30 s and neither is configurable from here.
-const LAUNCH_LIMIT: Duration = Duration::from_secs(30);
-
-/// A slow start becomes [`SessionError::LaunchTimeout`] with what the host looked like, its
-/// figures saved as a file the error names as `[<path>]` for the alerts to attach; any other
-/// failure is the setup's, as it came.
-async fn launch_failure(e: browser_manipulation::Error, took: Duration, leased: Option<Ceiling>, cfg: &BrowserConfig) -> eyre::Report {
-	let ErrorKind::Launch(source) = &*e.kind else { return SessionError::from(e).into() };
-	if !launch_is_transient(source) {
-		return SessionError::from(e).into();
-	}
-	let reason = source.to_string().split('\n').next().expect("split yields at least one piece").trim_end().to_owned(); // the rest is the driver's JS stack
-	let host = host::Snapshot::capture(leased).await.to_string();
-	let report = Report {
-		reason: &reason,
-		took,
-		limit: LAUNCH_LIMIT,
-		host: &host,
-	};
-	let saved = match &cfg.artifacts {
-		Some(a) => Some(launch_report::save(&a.dir, &report, Timestamp::now()).await),
-		None => None,
-	};
-	let timeout = eyre::Report::new(SessionError::new_launch_timeout(reason, took, LAUNCH_LIMIT, host));
-	match saved {
-		Some(Ok(path)) => timeout.wrap_err(format!("figures [{}]", path.display())),
-		Some(Err(e)) => timeout.wrap_err(format!("figures not saved: {e}")),
-		None => timeout,
-	}
-}
-
 impl Page<'_> {
 	pub(crate) async fn close(self) -> Result<(), SessionError> {
 		Ok(self.tab.close().await?)
@@ -579,6 +510,73 @@ impl Page<'_> {
 	}
 }
 
+/// Chromium remembers a site's `WWW-Authenticate: Negotiate` in `Local State`, and from then on
+/// hangs every start with `NetworkServiceInProcess2` until it is killed; nothing here authenticates with Negotiate.
+fn forget_negotiate(profile_dir: &Path) -> eyre::Result<()> {
+	let path = profile_dir.join("Local State");
+	let text = match std::fs::read_to_string(&path) {
+		Ok(t) => t,
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()), // a fresh profile
+		Err(e) => return Err(eyre::Report::new(e).wrap_err(format!("reading {}", path.display()))),
+	};
+	let mut state: serde_json::Value = serde_json::from_str(&text).wrap_err_with(|| format!("parsing {}", path.display()))?;
+	let Some(net) = state.get_mut("net").and_then(serde_json::Value::as_object_mut) else {
+		return Ok(());
+	};
+	if net.remove("received_http_auth_negotiate_headers").is_none() {
+		return Ok(());
+	}
+	let tmp = path.with_extension("tmp");
+	std::fs::write(&tmp, serde_json::to_vec(&state)?).wrap_err_with(|| format!("writing {}", tmp.display()))?;
+	std::fs::rename(&tmp, &path).wrap_err_with(|| format!("replacing {}", path.display()))
+}
+
+fn args(lean: &[Lean]) -> Vec<String> {
+	let mut args: Vec<String> = ARGS.iter().map(|a| (*a).to_owned()).collect();
+	let mut js = Vec::new();
+	for l in lean {
+		match *l {
+			Lean::JsHeapMib(mib) => js.extend([format!("--max-old-space-size={mib}"), "--optimize-for-size".to_owned()]),
+			Lean::SmallYoungGeneration => js.push("--max-semi-space-size=1".to_owned()),
+			Lean::JsLiteMode => js.push("--lite-mode".to_owned()),
+			Lean::OneRasterThread => args.push("--num-raster-threads=1".to_owned()),
+			Lean::LowEndDevice => args.push("--enable-low-end-device-mode".to_owned()),
+		}
+	}
+	if !js.is_empty() {
+		args.push(format!("--js-flags={}", js.join(" "))); // Chromium keeps only the last `--js-flags`
+	}
+	args
+}
+
+/// A slow start becomes [`SessionError::LaunchTimeout`] with what the host looked like, its
+/// figures saved as a file the error names as `[<path>]` for the alerts to attach; any other
+/// failure is the setup's, as it came.
+async fn launch_failure(e: browser_manipulation::Error, took: Duration, leased: Option<Ceiling>, cfg: &BrowserConfig) -> eyre::Report {
+	let ErrorKind::Launch(source) = &*e.kind else { return SessionError::from(e).into() };
+	if !launch_is_transient(source) {
+		return SessionError::from(e).into();
+	}
+	let reason = source.to_string().split('\n').next().expect("split yields at least one piece").trim_end().to_owned(); // the rest is the driver's JS stack
+	let host = host::Snapshot::capture(leased).await.to_string();
+	let report = Report {
+		reason: &reason,
+		took,
+		limit: LAUNCH_LIMIT,
+		host: &host,
+	};
+	let saved = match &cfg.artifacts {
+		Some(a) => Some(launch_report::save(&a.dir, &report, Timestamp::now()).await),
+		None => None,
+	};
+	let timeout = eyre::Report::new(SessionError::new_launch_timeout(reason, took, LAUNCH_LIMIT, host));
+	match saved {
+		Some(Ok(path)) => timeout.wrap_err(format!("figures [{}]", path.display())),
+		Some(Err(e)) => timeout.wrap_err(format!("figures not saved: {e}")),
+		None => timeout,
+	}
+}
+
 fn markup_changed(step: &'static str, sels: &[&str]) -> SessionError {
 	SessionError::new_markup_changed(step, sels.iter().map(ToString::to_string).collect())
 }
@@ -626,10 +624,12 @@ mod tests {
 			assert_eq!(remedy(&e), Remedy::Pause);
 			let text = crate::describe(&e);
 			let first = text.lines().next().unwrap();
-			assert!(first.contains("Timeout 30000ms exceeded.") && !text.contains("browserType.js"), "{text}");
+			assert!(first.contains("Timeout 30000ms exceeded."), "{text}");
+			assert!(!text.contains("browserType.js"), "{text}");
 			let report = bracketed(first).unwrap_or_else(|| panic!("no [path] in {first:?}"));
 			let figures = std::fs::read_to_string(report).unwrap();
-			assert!(figures.contains("limit 30s") && figures.contains("Timeout 30000ms exceeded."), "{figures}");
+			assert!(figures.contains("limit 30s"), "{figures}");
+			assert!(figures.contains("Timeout 30000ms exceeded."), "{figures}");
 		}
 		assert_eq!(std::fs::read_dir(dir.path().join("browser_captures")).unwrap().count(), 2, "every slow start saves its figures");
 	}
@@ -645,7 +645,8 @@ mod tests {
 
 		assert_eq!(remedy(&e), Remedy::Pause);
 		let text = format!("{e:#}");
-		assert!(text.starts_with("figures not saved: ") && bracketed(&text).is_none(), "{text}");
+		assert!(text.starts_with("figures not saved: "), "{text}");
+		assert!(bracketed(&text).is_none(), "{text}");
 	}
 
 	#[tokio::test]

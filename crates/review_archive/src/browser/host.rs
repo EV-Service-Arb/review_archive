@@ -115,16 +115,6 @@ pub(crate) struct Snapshot {
 	/// By PSS, most first.
 	processes: Vec<Processes>,
 }
-
-/// The cgroup's processes of one kind.
-#[derive(Clone, Debug, PartialEq)]
-struct Processes {
-	kind: String,
-	count: usize,
-	/// Bytes.
-	pss: u64,
-}
-
 impl Snapshot {
 	/// Reads the host as it is now, beside what the lease was granted ([`limit`] then). Never
 	/// fails and never waits for long: what could not be read is left out.
@@ -160,6 +150,15 @@ impl Snapshot {
 			processes: vec![],
 		}
 	}
+}
+
+/// The cgroup's processes of one kind.
+#[derive(Clone, Debug, PartialEq)]
+struct Processes {
+	kind: String,
+	count: usize,
+	/// Bytes.
+	pss: u64,
 }
 
 impl fmt::Display for Snapshot {

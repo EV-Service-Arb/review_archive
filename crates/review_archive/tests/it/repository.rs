@@ -134,6 +134,27 @@ struct Env {
 	clock: FixedClock,
 	target: Target,
 }
+impl Env {
+	fn archive(&self) -> Recorder<'_> {
+		Recorder {
+			store: &self.store,
+			blobs: &self.blobs,
+			now,
+			schedule: &SCHEDULE,
+			tokens: &TOKENS,
+		}
+	}
+
+	async fn by_source_id(&self) -> HashMap<String, review_archive::core::dto::ReviewDto> {
+		self.store
+			.reviews(self.target.id, None, None)
+			.await
+			.unwrap()
+			.into_iter()
+			.map(|r| (r.source_review_id.clone(), r))
+			.collect()
+	}
+}
 
 async fn env() -> Env {
 	let dir = tempfile::tempdir().unwrap();
@@ -162,28 +183,6 @@ async fn env() -> Env {
 	Env { dir, store, blobs, clock, target }
 }
 
-impl Env {
-	fn archive(&self) -> Recorder<'_> {
-		Recorder {
-			store: &self.store,
-			blobs: &self.blobs,
-			now,
-			schedule: &SCHEDULE,
-			tokens: &TOKENS,
-		}
-	}
-
-	async fn by_source_id(&self) -> HashMap<String, review_archive::core::dto::ReviewDto> {
-		self.store
-			.reviews(self.target.id, None, None)
-			.await
-			.unwrap()
-			.into_iter()
-			.map(|r| (r.source_review_id.clone(), r))
-			.collect()
-	}
-}
-
 #[tokio::test]
 async fn new_changed_gone_reappeared() {
 	let e = env().await;
@@ -200,7 +199,8 @@ async fn new_changed_gone_reappeared() {
 	let s = e.archive().run(&src, &e.target).await.unwrap();
 	assert_eq!((s.status, s.counts.new, s.counts.seen, s.captured), (RunStatus::Ok, 2, 2, 1));
 	let rows = e.by_source_id().await;
-	assert!(!rows["a"].capture_pending && rows["b"].capture_pending);
+	assert!(!rows["a"].capture_pending);
+	assert!(rows["b"].capture_pending);
 	let sha = rows["a"].capture_sha256.clone().unwrap();
 	let texts = exif_texts(&e.blobs, &sha);
 	assert_eq!(texts["DateTimeOriginal"], "2026:09:01 10:00:00");
@@ -249,7 +249,8 @@ async fn new_changed_gone_reappeared() {
 	// missing → gone; b (2026-08-01) was not reached
 	assert_eq!((s.counts.new, s.counts.gone), (1, 1));
 	let rows = e.by_source_id().await;
-	assert!(rows["a"].gone_at.is_some() && rows["b"].gone_at.is_none());
+	assert!(rows["a"].gone_at.is_some());
+	assert!(rows["b"].gone_at.is_none());
 
 	// filters used by the API
 	let gone = e.store.reviews(e.target.id, None, Some(true)).await.unwrap();

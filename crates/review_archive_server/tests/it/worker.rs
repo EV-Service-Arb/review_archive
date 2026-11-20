@@ -235,10 +235,9 @@ fn serve_with_every_account_signed_out_exits_78_at_boot() {
 	let mut stderr = String::new();
 	std::io::Read::read_to_string(&mut serve.stderr.take().unwrap(), &mut stderr).unwrap();
 	assert_eq!(status.code(), Some(78), "{stderr}");
-	assert!(
-		stderr.contains("at boot, every Google account is signed out: ") && stderr.contains("help: ") && stderr.contains("code: review_archive::google::signed_out"),
-		"{stderr}"
-	);
+	assert!(stderr.contains("at boot, every Google account is signed out: "), "{stderr}");
+	assert!(stderr.contains("help: "), "{stderr}");
+	assert!(stderr.contains("code: review_archive::google::signed_out"), "{stderr}");
 	rt.block_on(async {
 		let archive = Archive::open(Config {
 			data_dir: Some(data.clone()),

@@ -68,13 +68,6 @@ pub struct Client {
 	http: reqwest::Client,
 	base: Url,
 }
-
-impl fmt::Debug for Client {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("Client").field("base", &self.base.as_str()).finish_non_exhaustive()
-	}
-}
-
 impl Client {
 	/// A client whose HTTP client carries what authenticates: in a browser, the panel's
 	/// session cookie and CSRF header.
@@ -107,6 +100,12 @@ impl Client {
 		}
 		let Refused { code, error } = resp.json().await?;
 		Err(Error::Api { status, code, message: error })
+	}
+}
+
+impl fmt::Debug for Client {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("Client").field("base", &self.base.as_str()).finish_non_exhaustive()
 	}
 }
 

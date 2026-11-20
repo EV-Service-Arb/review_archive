@@ -30,6 +30,19 @@ use wasm_bindgen::{JsCast, prelude::*};
 
 const TAG: &str = "mfe-review-archive-dashboard";
 
+const UI: &str = "review_archive.ui";
+
+const SHELL: &str = "flex min-h-0 flex-1 bg-background text-ink text-[13px] font-sans";
+
+/// Called by the entry module with its own URL; registers the element.
+#[wasm_bindgen]
+pub fn define(bundle: String) {
+	BUNDLE.set(bundle).expect("the entry module runs once");
+	let mount = Closure::<dyn Fn(web_sys::Element)>::new(mount);
+	ev_lib::mfe::register(TAG, &mount);
+	mount.forget(); // the element can mount at any time after registration
+}
+
 /// English only, for now: each key's English is written where it renders.
 fn catalogue(_: Locale) -> Messages {
 	Messages::new()
@@ -69,15 +82,6 @@ enum Ui {
 	Legacy,
 	/// Grafana draws the overview and a place's board: [`grafana`].
 	Grafana,
-}
-
-/// Called by the entry module with its own URL; registers the element.
-#[wasm_bindgen]
-pub fn define(bundle: String) {
-	BUNDLE.set(bundle).expect("the entry module runs once");
-	let mount = Closure::<dyn Fn(web_sys::Element)>::new(mount);
-	ev_lib::mfe::register(TAG, &mount);
-	mount.forget(); // the element can mount at any time after registration
 }
 
 fn mount(el: web_sys::Element) {
@@ -307,8 +311,6 @@ fn Page(at: Routed<View>) -> Element {
 	rsx! { Workspace { at: view } }
 }
 
-const UI: &str = "review_archive.ui";
-
 fn session() -> web_sys::Storage {
 	web_sys::window()
 		.expect("a browser")
@@ -385,8 +387,6 @@ fn act<F: Future<Output = Result<(), review_archive_client::Error>> + 'static>(f
 		refresh += 1;
 	});
 }
-
-const SHELL: &str = "flex min-h-0 flex-1 bg-background text-ink text-[13px] font-sans";
 
 /// The GMBs the host's outline lists (`sa:gmbs`, the conductor's ids): what the dashboard narrows to.
 #[derive(Clone, PartialEq)]

@@ -57,24 +57,6 @@ pub fn remedy(e: &eyre::Report) -> Remedy {
 	Remedy::Unknown
 }
 
-/// Whether a failed Chromium start says the host was too slow rather than the setup broken:
-/// the client's own `Timeout` (the driver's 30 s initialization), or the driver's
-/// `Timeout <n>ms exceeded` (Chromium's launch). The driver reports the second as a
-/// `ProtocolError` that is only a message, so that one is told by its text. Everything else —
-/// a missing driver or executable, a dead pipe — is fatal, as is an error kind that a later
-/// playwright-rs adds: restarting the process is the only thing that tells a person the setup
-/// is wrong.
-#[cfg(feature = "maps")]
-pub(crate) fn launch_is_transient(source: &playwright_rs::Error) -> bool {
-	use playwright_rs::Error;
-	match source {
-		Error::Timeout(_) => true,
-		Error::ProtocolError(message) => message.contains("Timeout ") && message.contains("ms exceeded"),
-		// the rest of a launch's failures are permanent; `non_exhaustive` needs the arm anyway
-		_ => false,
-	}
-}
-
 /// `e` for a text sink (the log, a run's `error`, a webhook): the chain on the first line,
 /// then the diagnostic's help and code. `[<path>]`s in it are what the alerts attach.
 pub fn describe(e: &eyre::Report) -> String {
@@ -296,6 +278,24 @@ pub enum PlacesError {
 	},
 }
 
+/// Whether a failed Chromium start says the host was too slow rather than the setup broken:
+/// the client's own `Timeout` (the driver's 30 s initialization), or the driver's
+/// `Timeout <n>ms exceeded` (Chromium's launch). The driver reports the second as a
+/// `ProtocolError` that is only a message, so that one is told by its text. Everything else —
+/// a missing driver or executable, a dead pipe — is fatal, as is an error kind that a later
+/// playwright-rs adds: restarting the process is the only thing that tells a person the setup
+/// is wrong.
+#[cfg(feature = "maps")]
+pub(crate) fn launch_is_transient(source: &playwright_rs::Error) -> bool {
+	use playwright_rs::Error;
+	match source {
+		Error::Timeout(_) => true,
+		Error::ProtocolError(message) => message.contains("Timeout ") && message.contains("ms exceeded"),
+		// the rest of a launch's failures are permanent; `non_exhaustive` needs the arm anyway
+		_ => false,
+	}
+}
+
 /// A place resolution's failure: the caller's mistake is [`Rejected::Invalid`], the rest [`PlacesError`].
 #[cfg(feature = "store")]
 pub(crate) fn places_error(e: sa_places::Error) -> eyre::Report {
@@ -419,7 +419,9 @@ mod tests {
 		));
 		let text = describe(&e);
 		let first = text.lines().next().unwrap();
-		assert!(first.contains("did not start in 30.4s (limit 30s)") && first.contains("avg10=40.00"), "{text}");
-		assert!(text.contains("\nhelp: ") && text.ends_with("code: review_archive::browser::launch_timeout"), "{text}");
+		assert!(first.contains("did not start in 30.4s (limit 30s)"), "{text}");
+		assert!(first.contains("avg10=40.00"), "{text}");
+		assert!(text.contains("\nhelp: "), "{text}");
+		assert!(text.ends_with("code: review_archive::browser::launch_timeout"), "{text}");
 	}
 }

@@ -1,6 +1,8 @@
 //! One headless walk on a kept profile with every `browser.lean` trade, its WebPs written out, to look at
 //! what the Pi's launch does to Maps. `cargo r --example lean_walk -- <profile> <out_dir> <cards> <place> <lang>`
 
+use std::path::PathBuf;
+
 use review_archive::{
 	Archive, CaptureRequest,
 	config::{Config, Lean},
@@ -10,8 +12,8 @@ use review_archive::{
 async fn main() {
 	tracing_subscriber::fmt().with_env_filter("review_archive=info").init();
 	let mut args = std::env::args().skip(1);
-	let profile: std::path::PathBuf = args.next().expect("profile dir").into();
-	let out: std::path::PathBuf = args.next().expect("out dir").into();
+	let profile: PathBuf = args.next().expect("profile dir").into();
+	let out: PathBuf = args.next().expect("out dir").into();
 	let cards: usize = args.next().expect("card count").parse().unwrap();
 	let place = args.next().expect("place id");
 	let lang = args.next().expect("lang");

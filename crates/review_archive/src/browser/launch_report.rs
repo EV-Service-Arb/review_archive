@@ -100,7 +100,8 @@ mod tests {
 
 		let path = save(&dir.path().join("captures"), &REPORT, at("2026-10-12T14:00:00Z")).await.unwrap();
 
-		assert!(path.is_absolute() && path.starts_with(dir.path().join("captures")), "{path:?}");
+		assert!(path.is_absolute(), "{path:?}");
+		assert!(path.starts_with(dir.path().join("captures")), "{path:?}");
 		assert_eq!(path.file_name().unwrap(), "20261012T140000.000Z-launch.txt");
 		let text = std::fs::read_to_string(&path).unwrap();
 		assert_eq!(

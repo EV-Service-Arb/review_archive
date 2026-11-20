@@ -25,6 +25,8 @@ const NOTE_RETENTION: SignedDuration = SignedDuration::from_hours(24);
 const MESSAGE_MAX: usize = 4096;
 const CAPTION_MAX: usize = 1024;
 
+type NoteRow = (i64, Vec<u8>, String, String, Option<String>, String, String);
+
 pub(super) struct Emitter {
 	hooks: Vec<(i64, HashSet<Event>)>,
 	/// A target's first scan: what it finds is the archive's start, not news to its owners.
@@ -194,8 +196,6 @@ fn truncate(s: String, max: usize) -> String {
 		.expect("longer than max, so some char crosses it");
 	format!("{}…", &s[..end])
 }
-
-type NoteRow = (i64, Vec<u8>, String, String, Option<String>, String, String);
 
 impl Store {
 	/// The Alerts feed past `after`, `limit` notes at most.

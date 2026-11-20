@@ -79,7 +79,8 @@ mod tests {
 
 		let (lease, ended_during_start, _) = around(async move { Ok(Held(flag)) }, Duration::from_secs(5), start).await.unwrap();
 
-		assert!(!ended_during_start && !ended.load(Ordering::SeqCst), "the lease is still held");
+		assert!(!ended_during_start, "the lease is still held");
+		assert!(!ended.load(Ordering::SeqCst), "the lease is still held");
 		drop(lease);
 		assert!(ended.load(Ordering::SeqCst), "dropping it ends the burst");
 	}

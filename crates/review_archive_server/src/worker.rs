@@ -108,6 +108,22 @@ pub async fn run(archive: &Archive, signals: &Signals, cfg: &WorkerConfig, sched
 	}
 }
 
+/// Delivers the webhook outbox every few seconds, until `shutdown`.
+pub async fn deliver(archive: &Archive, cfg: &WorkerConfig, mut shutdown: watch::Receiver<bool>) -> eyre::Result<()> {
+	//LOOP: runs for the life of `serve`
+	loop {
+		match archive.deliver_webhooks().await {
+			Ok(r) if r.delivered + r.retrying + r.gave_up > 0 => tracing::info!(delivered = r.delivered, retrying = r.retrying, gave_up = r.gave_up, "webhooks"),
+			Ok(_) => {}
+			Err(e) => report(&e, "webhook delivery pass failed"),
+		}
+		tokio::select! {
+			() = tokio::time::sleep(cfg.delivery_tick.duration()) => {}
+			_ = shutdown.changed() => return Ok(()),
+		}
+	}
+}
+
 enum Step {
 	Scanned,
 	/// The worker cannot go on; the process exits with this.
@@ -177,20 +193,4 @@ fn failed(e: eyre::Report, what: &str, login_check: bool) -> Step {
 	}
 	report(&e, what);
 	Step::Scanned
-}
-
-/// Delivers the webhook outbox every few seconds, until `shutdown`.
-pub async fn deliver(archive: &Archive, cfg: &WorkerConfig, mut shutdown: watch::Receiver<bool>) -> eyre::Result<()> {
-	//LOOP: runs for the life of `serve`
-	loop {
-		match archive.deliver_webhooks().await {
-			Ok(r) if r.delivered + r.retrying + r.gave_up > 0 => tracing::info!(delivered = r.delivered, retrying = r.retrying, gave_up = r.gave_up, "webhooks"),
-			Ok(_) => {}
-			Err(e) => report(&e, "webhook delivery pass failed"),
-		}
-		tokio::select! {
-			() = tokio::time::sleep(cfg.delivery_tick.duration()) => {}
-			_ = shutdown.changed() => return Ok(()),
-		}
-	}
 }

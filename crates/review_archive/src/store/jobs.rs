@@ -12,6 +12,8 @@ use sqlx::{FromRow, SqliteConnection};
 
 use super::{RunId, Store};
 
+const JOB_COLUMNS: &str = "id, kind, target_id, params, status, created_at, started_at, finished_at, run_id, error, review_ids";
+
 /// A job the caller now owns and must finish.
 #[derive(Clone, Debug)]
 pub struct ClaimedJob {
@@ -39,9 +41,6 @@ struct JobRow {
 	error: Option<String>,
 	review_ids: Option<String>,
 }
-
-const JOB_COLUMNS: &str = "id, kind, target_id, params, status, created_at, started_at, finished_at, run_id, error, review_ids";
-
 impl JobRow {
 	fn kind(&self) -> eyre::Result<JobKind> {
 		self.kind.parse().wrap_err_with(|| format!("job {} has an unknown kind", self.id))

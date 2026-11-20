@@ -10,24 +10,6 @@ use tilers_dioxus::{Band, Config, DockPanel, Group, GroupId, MinSize, PackedApi,
 
 use crate::{Api, Badge, Refresh, Tone, act, ago, filter::reviews::Reviews, host, may, shown};
 
-#[derive(Clone, Copy, PartialEq)]
-enum Column {
-	Snapshotted,
-	Suspended,
-	Removed,
-	Reinstating,
-}
-
-impl Column {
-	/// Where a gone review without an open appeal sits.
-	fn gone(rating: Option<i64>) -> Self {
-		match rating {
-			Some(5) => Self::Suspended,
-			_ => Self::Removed,
-		}
-	}
-}
-
 const LANES: [(Column, &str, &str); 4] = [
 	(Column::Snapshotted, "snapshotted", "Snapshotted"),
 	(Column::Suspended, "suspended", "Suspended"),
@@ -162,6 +144,24 @@ pub fn Lanes(gmb: i64, target: i64) -> Element {
 					PackedArea { panels, on_band: Some(on_band), config: Some(config) }
 				}
 			}
+		}
+	}
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Column {
+	Snapshotted,
+	Suspended,
+	Removed,
+	Reinstating,
+}
+
+impl Column {
+	/// Where a gone review without an open appeal sits.
+	fn gone(rating: Option<i64>) -> Self {
+		match rating {
+			Some(5) => Self::Suspended,
+			_ => Self::Removed,
 		}
 	}
 }

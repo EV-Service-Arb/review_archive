@@ -72,7 +72,7 @@ pub struct Deliverer {
 impl Deliverer {
 	/// A deliverer with its own HTTP client: short timeouts, no redirects, no proxy, and a
 	/// resolver that refuses addresses webhooks may not reach.
-	pub fn new(cfg: &WebhookConfig) -> eyre::Result<Self> {
+	pub fn try_new(cfg: &WebhookConfig) -> eyre::Result<Self> {
 		let allowed: Arc<[String]> = cfg.allowed_hosts.iter().map(|h| h.to_ascii_lowercase()).collect();
 		let http = reqwest::Client::builder()
 			.redirect(reqwest::redirect::Policy::none())
@@ -267,12 +267,13 @@ mod tests {
 		assert_eq!(delay(5), SignedDuration::from_secs(480));
 		assert_eq!(delay(40), SignedDuration::from_hours(6));
 		let total: SignedDuration = (1..c.max_attempts).map(delay).fold(SignedDuration::ZERO, |a, b| a + b);
-		assert!(total > SignedDuration::from_hours(12) && total < SignedDuration::from_hours(48), "{total:?}");
+		assert!(total > SignedDuration::from_hours(12), "{total:?}");
+		assert!(total < SignedDuration::from_hours(48), "{total:?}");
 	}
 
 	#[test]
 	fn hooks_go_only_where_they_may() {
-		let open = Deliverer::new(&WebhookConfig::default()).unwrap();
+		let open = Deliverer::try_new(&WebhookConfig::default()).unwrap();
 		for public in [
 			"https://hooks.example.com/x",
 			"http://8.8.8.8/x",
@@ -302,7 +303,7 @@ mod tests {
 		] {
 			assert!(open.check_url(local).is_err(), "{local}");
 		}
-		let listed = Deliverer::new(&WebhookConfig {
+		let listed = Deliverer::try_new(&WebhookConfig {
 			allowed_hosts: vec!["Concierge".into()],
 			..WebhookConfig::default()
 		})

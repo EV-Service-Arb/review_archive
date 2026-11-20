@@ -54,6 +54,7 @@
         pre-commit-check = pre-commit-hooks.lib.${system}.run (v_flakes.files.preCommit { inherit pkgs; stripClaudeSignature = true; });
         rs = v_flakes.rs {
           inherit pkgs rust;
+          pinDeps = true;
           build.workspace = {
             "./crates/review_archive" = [ "git_version" ];
             "./crates/review_archive_server" = [ "git_version" "log_directives" "api_docs" ];

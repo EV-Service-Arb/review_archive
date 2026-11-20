@@ -2,6 +2,8 @@
 //! request it forwards ([`sa_auth`]), found or made here by its `sub`, or the conductor itself.
 //! What a person may do is their `sa:review_archive:*` permissions, as the route's gate checks.
 
+use std::sync::Arc;
+
 use axum::{extract::FromRequestParts, http::request::Parts};
 use ev_lib::api::{OperationInput, Refusal};
 use review_archive::store::people::{Claim, Seen};
@@ -69,7 +71,7 @@ impl sa_core::prices::Payer for Caller {
 /// here and held by nothing else, so a local dashboard goes through the same gate as the conductor's.
 #[derive(Clone)]
 pub struct Dev {
-	signer: std::sync::Arc<sa_auth::Signer>,
+	signer: Arc<sa_auth::Signer>,
 	user: User,
 }
 
@@ -78,10 +80,7 @@ impl Dev {
 		use base64::{Engine, engine::general_purpose::STANDARD};
 		let seed: [u8; 32] = rand::random();
 		let signer = format!("dev:{}", STANDARD.encode(seed)).parse().expect("a kid and a 32-byte seed");
-		Self {
-			signer: std::sync::Arc::new(signer),
-			user,
-		}
+		Self { signer: Arc::new(signer), user }
 	}
 
 	/// The gate's keys: only this one's.

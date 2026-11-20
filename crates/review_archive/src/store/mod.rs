@@ -21,6 +21,7 @@ mod webhooks;
 use std::{
 	collections::{BTreeMap, HashMap},
 	path::{Path, PathBuf},
+	sync::Arc,
 	time::Duration,
 };
 
@@ -44,14 +45,14 @@ pub use tokens::{Bill, Rail};
 use v_utils::Timeframe;
 pub use webhooks::Delivery;
 
-fn parse_ts(s: &str) -> eyre::Result<Timestamp> {
-	s.parse().wrap_err_with(|| format!("stored timestamp {s:?}"))
-}
+/// Every column a [`ReviewDto`] needs, the first capture that is not corrupted (else the first) joined in; filter with `WHERE`.
+const REVIEW_SELECT: &str = "SELECT r.id, r.target_id, r.source_review_id, r.author, r.author_url, r.rating, r.text, r.reply, r.photo_count,
+        r.published_raw, r.published_est, r.first_seen, r.last_seen, r.gone_at, r.capture_pending,
+        c.sha256 AS capture_sha256, c.captured_at AS captured_at, c.corrupted AS capture_corrupted
+ FROM reviews r
+ LEFT JOIN captures c ON c.id = (SELECT id FROM captures WHERE review_id = r.id ORDER BY corrupted IS 1, id LIMIT 1)";
 
-/// A count as the API reports it; a count past `u32::MAX` says `u32::MAX`.
-pub(crate) fn sat_u32(n: impl TryInto<u32>) -> u32 {
-	n.try_into().unwrap_or(u32::MAX)
-}
+const RUN_COLUMNS: &str = "id, target_id, started_at, finished_at, status, error, n_seen, n_new, n_changed, n_gone, tokens";
 
 /// The archive's database.
 #[derive(Clone, Debug)]
@@ -62,351 +63,8 @@ pub struct Store {
 	/// What a member who chose none scans by.
 	default_interval: Timeframe,
 	/// [`target_columns`] at `default_interval`.
-	target_columns: std::sync::Arc<str>,
+	target_columns: Arc<str>,
 }
-
-/// A target to insert.
-#[derive(Clone, Debug)]
-pub struct InsertTarget {
-	/// What a person called it.
-	pub label: Option<String>,
-	/// The place's name, when known.
-	pub name: Option<String>,
-	/// The place's address, when known.
-	pub address: Option<String>,
-	/// Where its reviews are read from.
-	pub kind: TargetKind,
-	/// The Google place id.
-	pub place_id: String,
-	/// Required for `gbp`.
-	pub gbp: Option<GbpLocation>,
-	/// UI language of the Maps page.
-	pub lang: String,
-	/// At least `schedule.min_interval`.
-	pub interval: Timeframe,
-	/// Disabled targets are kept but not scheduled (ad-hoc captures).
-	pub enabled: bool,
-}
-
-/// A screenshot already written to the blob store, ready to be recorded.
-#[derive(Clone, Debug)]
-pub struct StoredCapture {
-	/// Its blob name.
-	pub sha256: String,
-	/// Pixels.
-	pub width: u32,
-	/// Pixels.
-	pub height: u32,
-	/// When it was taken.
-	pub captured_at: Timestamp,
-	/// The page it was taken on.
-	pub page_url: String,
-	/// See [`crate::webp::Webp::corrupted`].
-	pub corrupted: bool,
-}
-
-/// A run's row id.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RunId(pub i64);
-
-/// How a run ended, and the job it ran for, if any: both are written in one transaction.
-#[derive(Clone, Copy, Debug)]
-pub struct RunEnd<'a> {
-	/// The run.
-	pub run: RunId,
-	/// How it went.
-	pub status: RunStatus,
-	/// The failure, or the warnings of a partial run.
-	pub error: Option<&'a str>,
-	/// The job whose run this is.
-	pub job: Option<i64>,
-	/// What its walk spent and did; a failed one too, Google saw it all the same.
-	pub meter: &'a Meter,
-	/// Who pays for it: [`Bill::payers`].
-	pub payers: &'a [String],
-	/// Its charges go back to its payers: it failed, or met a [`review_archive_core::Warning::Failure`].
-	pub kick_back: bool,
-}
-
-/// What a scan saw, ready to be written.
-#[derive(Clone, Copy, Debug)]
-pub struct ScanWrite<'a> {
-	/// The reconciled scan.
-	pub plan: &'a Plan<'a>,
-	/// Screenshots, keyed by `source_review_id`.
-	pub captures: &'a HashMap<String, StoredCapture>,
-	/// See [`review_archive_core::Scan::cut_after`].
-	pub cut_after: Option<&'a str>,
-	/// See [`review_archive_core::Scan::listed`].
-	pub listed: Option<u64>,
-	/// See [`review_archive_core::Scan::rating`].
-	pub rating: Option<f64>,
-	/// See [`review_archive_core::Scan::deepest`].
-	pub deepest: bool,
-	/// See [`review_archive_core::Scan::post`].
-	pub post: Option<&'a OwnerPost>,
-	/// See [`review_archive_core::Scan::name`].
-	pub name: Option<&'a str>,
-	/// See [`review_archive_core::Scan::address`].
-	pub address: Option<&'a str>,
-	/// An ad-hoc capture: it may record a gap but never closes one.
-	pub ad_hoc: bool,
-	/// See [`Known::initial`]: its new reviews go to hooks, not to the owners' Alerts.
-	pub baseline: bool,
-	/// Recorded with each capture.
-	pub scanner_version: &'a str,
-}
-
-#[derive(Clone, Debug, FromRow)]
-struct ReviewRow {
-	id: i64,
-	target_id: i64,
-	source_review_id: String,
-	author: String,
-	author_url: Option<String>,
-	rating: Option<i64>,
-	text: Option<String>,
-	reply: Option<String>,
-	photo_count: i64,
-	published_raw: Option<String>,
-	published_est: Option<String>,
-	first_seen: String,
-	last_seen: String,
-	gone_at: Option<String>,
-	capture_pending: bool,
-	capture_sha256: Option<String>,
-	captured_at: Option<String>,
-	capture_corrupted: Option<bool>,
-}
-
-impl From<ReviewRow> for ReviewDto {
-	fn from(r: ReviewRow) -> Self {
-		Self {
-			id: r.id,
-			target_id: r.target_id,
-			source_review_id: r.source_review_id,
-			author: r.author,
-			author_url: r.author_url,
-			rating: r.rating,
-			text: r.text,
-			reply: r.reply,
-			photo_count: r.photo_count,
-			published_raw: r.published_raw,
-			published_est: r.published_est,
-			first_seen: r.first_seen,
-			last_seen: r.last_seen,
-			gone_at: r.gone_at,
-			capture_pending: r.capture_pending,
-			capture_url: r.capture_sha256.as_deref().map(capture_url),
-			capture_sha256: r.capture_sha256,
-			captured_at: r.captured_at,
-			capture_corrupted: r.capture_corrupted,
-		}
-	}
-}
-
-/// Every column a [`ReviewDto`] needs, the first capture that is not corrupted (else the first) joined in; filter with `WHERE`.
-const REVIEW_SELECT: &str = "SELECT r.id, r.target_id, r.source_review_id, r.author, r.author_url, r.rating, r.text, r.reply, r.photo_count,
-        r.published_raw, r.published_est, r.first_seen, r.last_seen, r.gone_at, r.capture_pending,
-        c.sha256 AS capture_sha256, c.captured_at AS captured_at, c.corrupted AS capture_corrupted
- FROM reviews r
- LEFT JOIN captures c ON c.id = (SELECT id FROM captures WHERE review_id = r.id ORDER BY corrupted IS 1, id LIMIT 1)";
-
-#[derive(FromRow)]
-struct RunRow {
-	id: i64,
-	target_id: i64,
-	started_at: String,
-	finished_at: Option<String>,
-	status: Option<String>,
-	error: Option<String>,
-	n_seen: i64,
-	n_new: i64,
-	n_changed: i64,
-	n_gone: i64,
-	tokens: i64,
-}
-
-const RUN_COLUMNS: &str = "id, target_id, started_at, finished_at, status, error, n_seen, n_new, n_changed, n_gone, tokens";
-
-impl TryFrom<RunRow> for RunDto {
-	type Error = eyre::Report;
-
-	fn try_from(r: RunRow) -> eyre::Result<Self> {
-		Ok(Self {
-			status: r.status.as_deref().map(str::parse).transpose().wrap_err_with(|| format!("run {} has an unknown status", r.id))?,
-			id: r.id,
-			target_id: r.target_id,
-			started_at: r.started_at,
-			finished_at: r.finished_at,
-			error: r.error,
-			counts: Counts {
-				seen: sat_u32(r.n_seen),
-				new: sat_u32(r.n_new),
-				changed: sat_u32(r.n_changed),
-				gone: sat_u32(r.n_gone),
-			},
-			tokens: r.tokens,
-		})
-	}
-}
-
-#[derive(FromRow)]
-struct CaptureRow {
-	sha256: String,
-	captured_at: String,
-	width: i64,
-	height: i64,
-	page_url: String,
-	scanner_version: String,
-	corrupted: Option<bool>,
-}
-
-impl From<CaptureRow> for CaptureDto {
-	fn from(c: CaptureRow) -> Self {
-		Self {
-			url: capture_url(&c.sha256),
-			sha256: c.sha256,
-			captured_at: c.captured_at,
-			width: c.width,
-			height: c.height,
-			page_url: c.page_url,
-			scanner_version: c.scanner_version,
-			corrupted: c.corrupted,
-		}
-	}
-}
-
-#[derive(FromRow)]
-struct VersionRow {
-	seen_at: String,
-	content_hash: String,
-	rating: Option<i64>,
-	text: Option<String>,
-	reply: Option<String>,
-}
-
-impl From<VersionRow> for VersionDto {
-	fn from(v: VersionRow) -> Self {
-		Self {
-			seen_at: v.seen_at,
-			content_hash: v.content_hash,
-			rating: v.rating,
-			text: v.text,
-			reply: v.reply,
-		}
-	}
-}
-
-/// What [`Store::apply`] wrote.
-#[derive(Clone, Debug, Default)]
-pub struct Applied {
-	/// The counts of the run.
-	pub counts: Counts,
-	/// Every review the scan listed, in its order.
-	pub seen: Vec<ReviewId>,
-}
-
-/// Archived totals of a target.
-#[derive(Clone, Copy, Debug, Default, FromRow)]
-pub struct TargetCounts {
-	/// Reviews archived.
-	pub reviews: i64,
-	/// Of which gone now.
-	pub gone: i64,
-	/// Screenshots.
-	pub captures: i64,
-}
-
-/// A browser profile, and its Google account.
-#[derive(Clone, Debug)]
-pub struct Profile {
-	/// As in `browser.profile_dirs`, made absolute.
-	pub path: PathBuf,
-	/// Since when its account is signed out; `None`: signed in, as far as anyone saw.
-	pub signed_out_at: Option<Timestamp>,
-	/// When a walk or a touch last had it open on Google.
-	pub used_at: Option<Timestamp>,
-}
-
-fn profile_key(path: &Path) -> eyre::Result<&str> {
-	path.to_str().ok_or_else(|| eyre::eyre!("the browser profile {} is not UTF-8", path.display()))
-}
-
-#[derive(FromRow)]
-struct TargetRow {
-	id: i64,
-	label: Option<String>,
-	name: Option<String>,
-	address: Option<String>,
-	kind: String,
-	place_id: String,
-	gbp_account: Option<String>,
-	gbp_location: Option<String>,
-	lang: String,
-	interval_secs: i64,
-	enabled: bool,
-	created_at: String,
-}
-
-impl TryFrom<TargetRow> for Target {
-	type Error = eyre::Report;
-
-	fn try_from(r: TargetRow) -> eyre::Result<Self> {
-		let gbp = r.gbp_account.zip(r.gbp_location).map(|(account, location)| GbpLocation { account, location });
-		Ok(Self {
-			id: TargetId(r.id),
-			label: r.label,
-			name: r.name,
-			address: r.address,
-			kind: r.kind.parse().wrap_err_with(|| format!("target {} has an unknown kind", r.id))?,
-			place_id: r.place_id,
-			gbp,
-			lang: r.lang,
-			interval: Timeframe(
-				u64::try_from(r.interval_secs)
-					.wrap_err("negative interval_secs")?
-					.checked_mul(1000)
-					.ok_or_else(|| eyre::eyre!("interval_secs {} overflows", r.interval_secs))?,
-			),
-			enabled: r.enabled,
-			created_at: parse_ts(&r.created_at)?,
-		})
-	}
-}
-
-#[derive(FromRow)]
-struct KnownRow {
-	id: i64,
-	source_review_id: String,
-	content_hash: String,
-	capture_pending: bool,
-	replied: bool,
-	gone_at: Option<String>,
-	published_est: Option<String>,
-	published_raw: Option<String>,
-	author: String,
-	rating: Option<i64>,
-	text: Option<String>,
-}
-
-/// Over `targets t`. A tracked target's interval is the shortest its payers chose, a payer
-/// without a choice counting as `default_interval`; the target's own is for when nobody pays.
-fn target_columns(default_interval: Timeframe) -> String {
-	let default = default_interval.duration().as_secs();
-	format!(
-		"t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang,
-		 COALESCE((SELECT MIN(COALESCE(pe.interval_secs, {default})) FROM tracks tr
-		           JOIN gmb_mirror mg ON mg.id = tr.gmb_id LEFT JOIN people pe ON pe.sub = mg.owner
-		           WHERE tr.target_id = t.id AND tr.enabled AND mg.enabled AND mg.state = 'verified'), t.interval_secs) AS interval_secs,
-		 t.enabled, t.created_at"
-	)
-}
-
-fn no_target(id: TargetId) -> Rejected {
-	Rejected::not_found(format!("no target {id}"))
-}
-
 impl Store {
 	/// Opens (creating if need be) and migrates the database at `db_path`; members who chose no
 	/// interval scan by `default_interval`.
@@ -1097,6 +755,348 @@ impl Store {
 			.await
 			.wrap_err("counting captures")
 	}
+}
+
+/// A target to insert.
+#[derive(Clone, Debug)]
+pub struct InsertTarget {
+	/// What a person called it.
+	pub label: Option<String>,
+	/// The place's name, when known.
+	pub name: Option<String>,
+	/// The place's address, when known.
+	pub address: Option<String>,
+	/// Where its reviews are read from.
+	pub kind: TargetKind,
+	/// The Google place id.
+	pub place_id: String,
+	/// Required for `gbp`.
+	pub gbp: Option<GbpLocation>,
+	/// UI language of the Maps page.
+	pub lang: String,
+	/// At least `schedule.min_interval`.
+	pub interval: Timeframe,
+	/// Disabled targets are kept but not scheduled (ad-hoc captures).
+	pub enabled: bool,
+}
+
+/// A screenshot already written to the blob store, ready to be recorded.
+#[derive(Clone, Debug)]
+pub struct StoredCapture {
+	/// Its blob name.
+	pub sha256: String,
+	/// Pixels.
+	pub width: u32,
+	/// Pixels.
+	pub height: u32,
+	/// When it was taken.
+	pub captured_at: Timestamp,
+	/// The page it was taken on.
+	pub page_url: String,
+	/// See [`crate::webp::Webp::corrupted`].
+	pub corrupted: bool,
+}
+
+/// A run's row id.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RunId(pub i64);
+
+/// How a run ended, and the job it ran for, if any: both are written in one transaction.
+#[derive(Clone, Copy, Debug)]
+pub struct RunEnd<'a> {
+	/// The run.
+	pub run: RunId,
+	/// How it went.
+	pub status: RunStatus,
+	/// The failure, or the warnings of a partial run.
+	pub error: Option<&'a str>,
+	/// The job whose run this is.
+	pub job: Option<i64>,
+	/// What its walk spent and did; a failed one too, Google saw it all the same.
+	pub meter: &'a Meter,
+	/// Who pays for it: [`Bill::payers`].
+	pub payers: &'a [String],
+	/// Its charges go back to its payers: it failed, or met a [`review_archive_core::Warning::Failure`].
+	pub kick_back: bool,
+}
+
+/// What a scan saw, ready to be written.
+#[derive(Clone, Copy, Debug)]
+pub struct ScanWrite<'a> {
+	/// The reconciled scan.
+	pub plan: &'a Plan<'a>,
+	/// Screenshots, keyed by `source_review_id`.
+	pub captures: &'a HashMap<String, StoredCapture>,
+	/// See [`review_archive_core::Scan::cut_after`].
+	pub cut_after: Option<&'a str>,
+	/// See [`review_archive_core::Scan::listed`].
+	pub listed: Option<u64>,
+	/// See [`review_archive_core::Scan::rating`].
+	pub rating: Option<f64>,
+	/// See [`review_archive_core::Scan::deepest`].
+	pub deepest: bool,
+	/// See [`review_archive_core::Scan::post`].
+	pub post: Option<&'a OwnerPost>,
+	/// See [`review_archive_core::Scan::name`].
+	pub name: Option<&'a str>,
+	/// See [`review_archive_core::Scan::address`].
+	pub address: Option<&'a str>,
+	/// An ad-hoc capture: it may record a gap but never closes one.
+	pub ad_hoc: bool,
+	/// See [`Known::initial`]: its new reviews go to hooks, not to the owners' Alerts.
+	pub baseline: bool,
+	/// Recorded with each capture.
+	pub scanner_version: &'a str,
+}
+
+/// What [`Store::apply`] wrote.
+#[derive(Clone, Debug, Default)]
+pub struct Applied {
+	/// The counts of the run.
+	pub counts: Counts,
+	/// Every review the scan listed, in its order.
+	pub seen: Vec<ReviewId>,
+}
+
+/// Archived totals of a target.
+#[derive(Clone, Copy, Debug, Default, FromRow)]
+pub struct TargetCounts {
+	/// Reviews archived.
+	pub reviews: i64,
+	/// Of which gone now.
+	pub gone: i64,
+	/// Screenshots.
+	pub captures: i64,
+}
+
+/// A browser profile, and its Google account.
+#[derive(Clone, Debug)]
+pub struct Profile {
+	/// As in `browser.profile_dirs`, made absolute.
+	pub path: PathBuf,
+	/// Since when its account is signed out; `None`: signed in, as far as anyone saw.
+	pub signed_out_at: Option<Timestamp>,
+	/// When a walk or a touch last had it open on Google.
+	pub used_at: Option<Timestamp>,
+}
+
+fn parse_ts(s: &str) -> eyre::Result<Timestamp> {
+	s.parse().wrap_err_with(|| format!("stored timestamp {s:?}"))
+}
+
+/// A count as the API reports it; a count past `u32::MAX` says `u32::MAX`.
+pub(crate) fn sat_u32(n: impl TryInto<u32>) -> u32 {
+	n.try_into().unwrap_or(u32::MAX)
+}
+
+#[derive(Clone, Debug, FromRow)]
+struct ReviewRow {
+	id: i64,
+	target_id: i64,
+	source_review_id: String,
+	author: String,
+	author_url: Option<String>,
+	rating: Option<i64>,
+	text: Option<String>,
+	reply: Option<String>,
+	photo_count: i64,
+	published_raw: Option<String>,
+	published_est: Option<String>,
+	first_seen: String,
+	last_seen: String,
+	gone_at: Option<String>,
+	capture_pending: bool,
+	capture_sha256: Option<String>,
+	captured_at: Option<String>,
+	capture_corrupted: Option<bool>,
+}
+
+impl From<ReviewRow> for ReviewDto {
+	fn from(r: ReviewRow) -> Self {
+		Self {
+			id: r.id,
+			target_id: r.target_id,
+			source_review_id: r.source_review_id,
+			author: r.author,
+			author_url: r.author_url,
+			rating: r.rating,
+			text: r.text,
+			reply: r.reply,
+			photo_count: r.photo_count,
+			published_raw: r.published_raw,
+			published_est: r.published_est,
+			first_seen: r.first_seen,
+			last_seen: r.last_seen,
+			gone_at: r.gone_at,
+			capture_pending: r.capture_pending,
+			capture_url: r.capture_sha256.as_deref().map(capture_url),
+			capture_sha256: r.capture_sha256,
+			captured_at: r.captured_at,
+			capture_corrupted: r.capture_corrupted,
+		}
+	}
+}
+
+#[derive(FromRow)]
+struct RunRow {
+	id: i64,
+	target_id: i64,
+	started_at: String,
+	finished_at: Option<String>,
+	status: Option<String>,
+	error: Option<String>,
+	n_seen: i64,
+	n_new: i64,
+	n_changed: i64,
+	n_gone: i64,
+	tokens: i64,
+}
+
+impl TryFrom<RunRow> for RunDto {
+	type Error = eyre::Report;
+
+	fn try_from(r: RunRow) -> eyre::Result<Self> {
+		Ok(Self {
+			status: r.status.as_deref().map(str::parse).transpose().wrap_err_with(|| format!("run {} has an unknown status", r.id))?,
+			id: r.id,
+			target_id: r.target_id,
+			started_at: r.started_at,
+			finished_at: r.finished_at,
+			error: r.error,
+			counts: Counts {
+				seen: sat_u32(r.n_seen),
+				new: sat_u32(r.n_new),
+				changed: sat_u32(r.n_changed),
+				gone: sat_u32(r.n_gone),
+			},
+			tokens: r.tokens,
+		})
+	}
+}
+
+#[derive(FromRow)]
+struct CaptureRow {
+	sha256: String,
+	captured_at: String,
+	width: i64,
+	height: i64,
+	page_url: String,
+	scanner_version: String,
+	corrupted: Option<bool>,
+}
+
+impl From<CaptureRow> for CaptureDto {
+	fn from(c: CaptureRow) -> Self {
+		Self {
+			url: capture_url(&c.sha256),
+			sha256: c.sha256,
+			captured_at: c.captured_at,
+			width: c.width,
+			height: c.height,
+			page_url: c.page_url,
+			scanner_version: c.scanner_version,
+			corrupted: c.corrupted,
+		}
+	}
+}
+
+#[derive(FromRow)]
+struct VersionRow {
+	seen_at: String,
+	content_hash: String,
+	rating: Option<i64>,
+	text: Option<String>,
+	reply: Option<String>,
+}
+
+impl From<VersionRow> for VersionDto {
+	fn from(v: VersionRow) -> Self {
+		Self {
+			seen_at: v.seen_at,
+			content_hash: v.content_hash,
+			rating: v.rating,
+			text: v.text,
+			reply: v.reply,
+		}
+	}
+}
+
+fn profile_key(path: &Path) -> eyre::Result<&str> {
+	path.to_str().ok_or_else(|| eyre::eyre!("the browser profile {} is not UTF-8", path.display()))
+}
+
+#[derive(FromRow)]
+struct TargetRow {
+	id: i64,
+	label: Option<String>,
+	name: Option<String>,
+	address: Option<String>,
+	kind: String,
+	place_id: String,
+	gbp_account: Option<String>,
+	gbp_location: Option<String>,
+	lang: String,
+	interval_secs: i64,
+	enabled: bool,
+	created_at: String,
+}
+
+impl TryFrom<TargetRow> for Target {
+	type Error = eyre::Report;
+
+	fn try_from(r: TargetRow) -> eyre::Result<Self> {
+		let gbp = r.gbp_account.zip(r.gbp_location).map(|(account, location)| GbpLocation { account, location });
+		Ok(Self {
+			id: TargetId(r.id),
+			label: r.label,
+			name: r.name,
+			address: r.address,
+			kind: r.kind.parse().wrap_err_with(|| format!("target {} has an unknown kind", r.id))?,
+			place_id: r.place_id,
+			gbp,
+			lang: r.lang,
+			interval: Timeframe(
+				u64::try_from(r.interval_secs)
+					.wrap_err("negative interval_secs")?
+					.checked_mul(1000)
+					.ok_or_else(|| eyre::eyre!("interval_secs {} overflows", r.interval_secs))?,
+			),
+			enabled: r.enabled,
+			created_at: parse_ts(&r.created_at)?,
+		})
+	}
+}
+
+#[derive(FromRow)]
+struct KnownRow {
+	id: i64,
+	source_review_id: String,
+	content_hash: String,
+	capture_pending: bool,
+	replied: bool,
+	gone_at: Option<String>,
+	published_est: Option<String>,
+	published_raw: Option<String>,
+	author: String,
+	rating: Option<i64>,
+	text: Option<String>,
+}
+
+/// Over `targets t`. A tracked target's interval is the shortest its payers chose, a payer
+/// without a choice counting as `default_interval`; the target's own is for when nobody pays.
+fn target_columns(default_interval: Timeframe) -> String {
+	let default = default_interval.duration().as_secs();
+	format!(
+		"t.id, t.label, t.name, t.address, t.kind, t.place_id, t.gbp_account, t.gbp_location, t.lang,
+		 COALESCE((SELECT MIN(COALESCE(pe.interval_secs, {default})) FROM tracks tr
+		           JOIN gmb_mirror mg ON mg.id = tr.gmb_id LEFT JOIN people pe ON pe.sub = mg.owner
+		           WHERE tr.target_id = t.id AND tr.enabled AND mg.enabled AND mg.state = 'verified'), t.interval_secs) AS interval_secs,
+		 t.enabled, t.created_at"
+	)
+}
+
+fn no_target(id: TargetId) -> Rejected {
+	Rejected::not_found(format!("no target {id}"))
 }
 
 /// Adds a target.

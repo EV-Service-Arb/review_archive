@@ -59,6 +59,8 @@ fn limited_view_has_a_place_but_no_reviews_tab() {
 fn the_panel_toggle_tells_open_from_collapsed() {
 	let open = fixture("maps_en_panel_open.html");
 	let collapsed = fixture("maps_en_panel_collapsed.html");
-	assert!(first(&open, sel::PANEL_OPEN).is_some() && first(&open, sel::PANEL_COLLAPSED).is_none());
-	assert!(first(&collapsed, sel::PANEL_COLLAPSED).is_some() && first(&collapsed, sel::PANEL_OPEN).is_none());
+	assert!(first(&open, sel::PANEL_OPEN).is_some());
+	assert!(first(&open, sel::PANEL_COLLAPSED).is_none());
+	assert!(first(&collapsed, sel::PANEL_COLLAPSED).is_some());
+	assert!(first(&collapsed, sel::PANEL_OPEN).is_none());
 }

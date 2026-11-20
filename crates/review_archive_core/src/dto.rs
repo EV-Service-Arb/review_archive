@@ -3,7 +3,7 @@
 //!
 //! Timestamps are strings in [`crate::fmt_ts`]'s shape.
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 pub use sa_core::{
 	gbp::{Country, Managed, OnGoogle, Snapshot},
@@ -14,6 +14,12 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 use crate::{Target, TargetKind, fmt_ts};
+
+/// The operation that serves a capture, its `file` `<sha256>.webp`: its route's path.
+pub const CAPTURE: &str = "/captures/{file}";
+
+/// The largest page of a feed.
+pub const MAX_PAGE: u32 = 500;
 
 /// A watched place.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -107,9 +113,6 @@ pub struct ReviewDto {
 	/// See [`CaptureDto::corrupted`].
 	pub capture_corrupted: Option<bool>,
 }
-
-/// The operation that serves a capture, its `file` `<sha256>.webp`: its route's path.
-pub const CAPTURE: &str = "/captures/{file}";
 
 /// Where the API serves a capture.
 pub fn capture_url(sha256: &str) -> String {
@@ -895,7 +898,7 @@ pub struct Me {
 #[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
 pub struct MyGmbs {
 	/// By GMB id; removed GMBs are left out.
-	pub gmbs: std::collections::BTreeMap<i64, GmbReviews>,
+	pub gmbs: BTreeMap<i64, GmbReviews>,
 	/// Places with a track on under a verified GMB switched on, now.
 	pub places_tracked: i64,
 }
@@ -940,6 +943,3 @@ pub struct FeedQuery {
 	/// At most this many, 1 to [`MAX_PAGE`].
 	pub limit: u32,
 }
-
-/// The largest page of a feed.
-pub const MAX_PAGE: u32 = 500;
