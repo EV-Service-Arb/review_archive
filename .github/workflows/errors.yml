@@ -1,6 +1,8 @@
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_NET_RETRY: "10"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_DEV_STRIP: debuginfo
   RUSTC_WRAPPER: ""
   RUSTUP_MAX_RETRIES: "10"
   RUST_BACKTRACE: short
@@ -103,7 +105,7 @@ jobs:
         run: |
           mkdir -p /tmp/nix-lean-cache
           chmod 0777 /tmp/nix-lean-cache
-          printf '#!/bin/sh\nexport PATH=/nix/var/nix/profiles/default/bin:$PATH\nnix copy --to "file:///tmp/nix-lean-cache?compression=zstd&parallel-compression=true" $OUT_PATHS || true\n' > /tmp/nix-lean-pbh.sh
+          printf '#!/bin/sh\nexport PATH=/nix/var/nix/profiles/default/bin:$PATH\nnix copy --no-recursive --to "file:///tmp/nix-lean-cache?compression=zstd&parallel-compression=true" $OUT_PATHS || true\n' > /tmp/nix-lean-pbh.sh
           chmod 0755 /tmp/nix-lean-pbh.sh
         shell: bash
       - name: Install Nix
@@ -120,11 +122,11 @@ jobs:
         name: Restore lean nix cache
         uses: actions/cache/restore@v5
         with:
-          key: nix-lean-particle-rust-tests-${{ runner.os }}-${{ hashFiles('flake.lock') }}-${{ hashFiles('**/*.nix') }}
+          key: nix-lean3-particle-rust-tests-${{ runner.os }}-${{ hashFiles('flake.lock') }}-${{ hashFiles('**/*.nix') }}
           path: /tmp/nix-lean-cache
           restore-keys: |-
-            nix-lean-particle-rust-tests-${{ runner.os }}-${{ hashFiles('flake.lock') }}-
-            nix-lean-particle-rust-tests-${{ runner.os }}-
+            nix-lean3-particle-rust-tests-${{ runner.os }}-${{ hashFiles('flake.lock') }}-
+            nix-lean3-particle-rust-tests-${{ runner.os }}-
       - id: eval-cache
         name: Restore nix eval cache
         uses: actions/cache/restore@v5
@@ -195,10 +197,7 @@ jobs:
           shopt -s nullglob
           narinfos=(*.narinfo)
           ((${#narinfos[@]})) || exit 0
-          paths=$(sed -n 's/^StorePath: //p' "${narinfos[@]}")
-          { xargs nix-store --check-validity --print-invalid <<< "$paths"
-            sed 's|^/nix/store/\([a-z0-9]*\)-.*|-o /dev/null https://valeratrades.cachix.org/\1.narinfo|' <<< "$paths" | xargs curl -s --parallel -w '%{http_code} %{url}\n' | sed -n 's|^200 .*/\(.*\)\.narinfo$|/nix/store/\1|p'
-          } | while read -r p; do
+          sed -n 's/^StorePath: //p' "${narinfos[@]}" | xargs nix-store --check-validity --print-invalid | while read -r p; do
             n=$(basename "$p") && n=${n%%-*}.narinfo
             echo "$n" && sed -n 's/^URL: //p' "$n"
           done | sudo xargs -r rm -f
@@ -207,10 +206,10 @@ jobs:
         name: Save lean nix cache
         uses: actions/cache/save@v5
         with:
-          key: nix-lean-particle-rust-tests-${{ runner.os }}-${{ hashFiles('flake.lock') }}-${{ hashFiles('**/*.nix') }}
+          key: nix-lean3-particle-rust-tests-${{ runner.os }}-${{ hashFiles('flake.lock') }}-${{ hashFiles('**/*.nix') }}
           path: /tmp/nix-lean-cache
       - env:
-          FAMILY: nix-lean-particle-rust-tests-${{ runner.os }}-
+          FAMILY: nix-lean3-particle-rust-tests-${{ runner.os }}-
           GH_TOKEN: ${{ github.token }}
           KEY: ${{ steps.lean-restore.outputs.cache-primary-key }}
         if: always() && github.ref_name == github.event.repository.default_branch && steps.lean-restore.outputs.cache-hit != 'true'

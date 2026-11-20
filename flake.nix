@@ -54,7 +54,7 @@
         pre-commit-check = pre-commit-hooks.lib.${system}.run (v_flakes.files.preCommit { inherit pkgs; stripClaudeSignature = true; });
         rs = v_flakes.rs {
           inherit pkgs rust;
-          pinDeps = true;
+          pinDeps = { exclude = [ "getrandom" ]; }; # review_archive_web names it only to turn wasm_js on for ahash's copy, so its version is ahash's
           build.workspace = {
             "./crates/review_archive" = [ "git_version" ];
             "./crates/review_archive_server" = [ "git_version" "log_directives" "api_docs" ];

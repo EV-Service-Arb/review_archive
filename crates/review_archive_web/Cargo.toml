@@ -18,7 +18,7 @@ crate-type = ["cdylib"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dioxus = { version = "0.7.10", default-features = false, features = ["launch", "logger", "lib", "web", "router"] } # no devtools: nothing serves its /_dioxus socket
 ev_lib = { workspace = true, features = ["mfe", "uikit_dioxus", "views_dioxus"] }
-getrandom = { version = "0.4.3", features = ["wasm_js"] } # v_utils (via the core) hashes with ahash; the flake's RUSTFLAGS pick this backend
+getrandom = { version = "0.3.4", features = ["wasm_js"] } # v_utils (via the core) hashes with ahash; the flake's RUSTFLAGS pick this backend
 jiff.workspace = true
 js-sys = "0.3.106"
 regex-lite = "0.1.9"
