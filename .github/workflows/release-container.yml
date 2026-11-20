@@ -28,8 +28,9 @@ jobs:
         with:
           extra-conf: |
             lazy-trees = true
+            extra-substituters = https://valeratrades.cachix.org file:///tmp/nix-lean-cache
+            extra-trusted-public-keys = valeratrades.cachix.org-1:gXVwhzO5YB+BaiEJYT48qZgzdaErGQew6xtZcz4Fo1Q=
             post-build-hook = /tmp/nix-lean-pbh.sh
-            extra-substituters = file:///tmp/nix-lean-cache
             extra-trusted-substituters = file:///tmp/nix-lean-cache
             require-sigs = false
       - if: github.ref_name != github.event.repository.default_branch

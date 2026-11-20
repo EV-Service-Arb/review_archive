@@ -22,9 +22,9 @@ review_archive_core = { path = "crates/review_archive_core", version = "0.1.0" }
 review_archive_server = { path = "crates/review_archive_server", version = "0.1.0" }
 
 axum = "0.8.9"
-base64 = "0.22.1"
+base64 = "0.23.1"
 browser_manipulation = "0.4.6"
-clap = { version = "4.6.8", features = ["derive"] }
+clap = { version = "4.6.9", features = ["derive"] }
 color-eyre = "0.6.5"
 concierge_iam = "0.1.0"
 csv = "1.4.0"
@@ -34,11 +34,11 @@ futures = "0.3.34"
 hmac = "0.13.0"
 image = { version = "0.25.10", default-features = false, features = ["png", "webp"] }
 jiff = { version = "0.2.46", features = ["serde"] }
-kamadak-exif = "0.6.1"
+kamadak-exif = "0.6.2"
 libwebp = { package = "webp", version = "0.3.1", default-features = false } # the `image` crate encodes WebP lossless only
 miette = "7.6.0"
 playwright-rs = "=0.19.0" # the version browser_manipulation pins: its launch errors are this crate's `Error`
-rand = "0.10.3"
+rand = "0.10.4"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "form", "rustls"] }
 sa_alerts = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_auth = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
@@ -46,30 +46,30 @@ sa_core = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "
 sa_places = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 sa_ui = { git = "https://github.com/EV-Service-Arb/site_conductor", branch = "main" }
 schemars = "1.2.3"
-scraper = "0.27.0"
+scraper = "0.29.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-serde_with = { version = "3.24.0", default-features = false, features = ["macros"] }
+serde_with = { version = "3.25.0", default-features = false, features = ["macros"] }
 sha2 = "0.11.1"
 smart-default = "0.7.1"
 sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
 strum = { version = "0.28.0", features = ["derive"] }
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["full"] }
-tokio-util = "0.7.19"
-toml = "1.1.6"
+tokio-util = "0.7.20"
+toml = "1.2.1"
 tower = "0.5.3"
-tower-http = "0.7.0"
+tower-http = "0.7.1"
 tracing = "0.1.44"
 tracing-error = "0.2.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 uuid = { version = "1.29.3", features = ["v4"] }
 v_utils = { version = "2.24.1", default-features = false, features = ["macros"] }
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.8.1", default-features = false, features = ["deflate"] }
 
 ev_lib_classes = "0.20.0"
-insta = { version = "1.48.0", features = ["yaml"] }
+insta = { version = "1.49.0", features = ["yaml"] }
 png = "0.18.1"
 tempfile = "3.27.0"
 
