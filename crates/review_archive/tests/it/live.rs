@@ -17,6 +17,8 @@ use review_archive::{
 
 #[path = "../support/busy.rs"]
 mod busy;
+#[path = "../support/priced.rs"]
+mod priced;
 
 /// The Eiffel Tower: public, and reviewed every few minutes.
 const PLACE_ID: &str = "ChIJLU7jZClu5kcR4PcOOO6p3I0";
@@ -73,6 +75,7 @@ fn config(dir: &Path) -> Config {
 async fn live_scan_of_a_real_place() {
 	let dir = Kept::new();
 	let archive = Archive::open(config(dir.path())).await.unwrap();
+	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 	let added = archive
 		.add_target(&NewTarget {
 			place: Some(PLACE_ID.into()),
