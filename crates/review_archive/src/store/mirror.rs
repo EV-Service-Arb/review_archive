@@ -59,10 +59,17 @@ impl Store {
 			.fetch_one(&mut *tx)
 			.await
 			.wrap_err("loading the charge cursor")?;
-		if snap.charges_through < through || snap.charges_through > last.unwrap_or(0) {
-			// an empty feed holds nothing past 0
+		if snap.charges_through < through {
 			return Err(Rejected::Conflict(format!(
-				"charges_through {} is behind the {through} stored, or past the feed's last charge ({last:?})",
+				"the conductor has taken charges through #{}, behind the #{through} its last snapshot here said: another conductor pushes here too, or this one's database is older than this review_archive's",
+				snap.charges_through
+			))
+			.into());
+		}
+		let last = last.unwrap_or(0); // an empty feed holds nothing past 0
+		if snap.charges_through > last {
+			return Err(Rejected::Conflict(format!(
+				"the conductor has taken charges through #{}, past this review_archive's last (#{last}): it took them from another review_archive (its database is another stack's), or this one's database was reset since",
 				snap.charges_through
 			))
 			.into());
