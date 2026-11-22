@@ -10,14 +10,9 @@
       url = "github:valeratrades/browser_manipulation?ref=v0.4.6";
       inputs.v_flakes.follows = "v_flakes";
     };
-    # its google.nix: the Google billing accounts the prod config bakes in
-    accounting = {
-      url = "git+ssh://git@github.com/EV-Service-Arb/accounting";
-      flake = false;
-    };
   };
 
-  outputs = { self, v_flakes, browser_manipulation, accounting }:
+  outputs = { self, v_flakes, browser_manipulation }:
     let
       # the first of this repository's ten in SA_PORT_RANGE: site_conductor's docs/port_range.md
       SA_PORTS = 52810;
@@ -64,7 +59,7 @@
           inherit pkgs pname rs;
           enable = true;
           lastSupportedVersion = "nightly-2026-09-24";
-          containerRelease = { registry = "ghcr.io/ev-service-arb"; deployKeys = [ "EV-Service-Arb/accounting" ]; };
+          containerRelease = { registry = "ghcr.io/ev-service-arb"; };
           jobs.default = true;
           lfs = false;
           gitignore.extra = ''
@@ -223,12 +218,10 @@
 
         # Secret-free prod config baked into the image; the container has no `nix`,
         # so it is evaluated to TOML here. Secrets arrive from the k8s Secret.
-        google = import "${accounting}/google_env.nix" "SA_GOOGLE";
         prodConfig = (pkgs.formats.toml { }).generate "config.toml" (import ./deploy/config.nix {
           inherit port;
           chromium = headlessShell;
           mfe = "${mfe}";
-          google = google.accounts;
         });
 
         imageEnv = playwrightEnv // {
@@ -245,8 +238,6 @@
         launchChecked = pkgs.runCommand "${pname}-launch-checked" { } ''
           export ${lib.concatStringsSep " " (lib.mapAttrsToList (k: v: "${k}=${lib.escapeShellArg v}") imageEnv)}
           export HOME=$TMPDIR VK_DRIVER_FILES=/nonexistent
-          # the config reads the Google keys at load; the k8s Secret carries them, the build has none
-          export ${lib.concatMapStringsSep " " (v: "${v}=launch-check") (builtins.attrNames google.vars)}
           ${bin}/bin/${pname} --config ${prodConfig} check-browser
           mkdir -p $out/bin
           ln -s ${bin}/bin/${pname} $out/bin/${pname}
@@ -263,7 +254,7 @@
             healthPath = "/health";
             # an archive that misses a scan catches up on the next one
             criticality = "normal";
-            entrypoint = [ "${launchChecked}/bin/${pname}" "--config" "${prodConfig}" "--spend-real-quota-i-am-certain" "serve" ];
+            entrypoint = [ "${launchChecked}/bin/${pname}" "--config" "${prodConfig}" "serve" ];
             workingDir = "/data";
             contents = [ pkgs.nodejs ];
             imageEnv = lib.mapAttrsToList (k: v: "${k}=${v}") (imageEnv // {

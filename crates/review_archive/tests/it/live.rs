@@ -77,12 +77,15 @@ async fn live_scan_of_a_real_place() {
 	let archive = Archive::open(config(dir.path())).await.unwrap();
 	archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 	let added = archive
-		.add_target(&NewTarget {
-			place: Some(PLACE_ID.into()),
-			label: Some("Tour Eiffel".into()),
-			interval: Some("6h".into()),
-			..Default::default()
-		})
+		.add_target(
+			&NewTarget {
+				place: Some(PLACE_ID.into()),
+				label: Some("Tour Eiffel".into()),
+				interval: Some("6h".into()),
+				..Default::default()
+			},
+			"",
+		)
 		.await
 		.unwrap();
 	let id = added.target.id;

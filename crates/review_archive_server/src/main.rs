@@ -27,9 +27,6 @@ struct Cli {
 	settings_flags: config::SettingsFlags,
 	#[command(subcommand)]
 	cmd: Cmd,
-	/// Buy the Places answers the queries cache lacks, on real quota; without it only cached ones are served.
-	#[arg(long, global = true)]
-	spend_real_quota_i_am_certain: bool,
 }
 
 #[derive(Subcommand)]
@@ -169,11 +166,7 @@ async fn run(cli: Cli, config: AppConfig, settings: Settings) -> eyre::Result<()
 	if let Cmd::Serve(_) = cli.cmd {
 		eyre::ensure!(config.bind.is_some(), "serve needs a `bind`: the config's, or REVIEW_ARCHIVE_SERVER_BIND (the dev shell sets it)");
 	}
-	let archive = Archive::open(review_archive::config::Config {
-		spend: cli.spend_real_quota_i_am_certain,
-		..config.archive(settings.secrets())
-	})
-	.await?;
+	let archive = Archive::open(config.archive(settings.secrets())).await?;
 
 	match cli.cmd {
 		Cmd::Config { .. } | Cmd::CheckBrowser => unreachable!("handled before the archive opens"),

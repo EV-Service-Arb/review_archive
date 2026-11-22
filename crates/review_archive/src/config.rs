@@ -27,15 +27,8 @@ pub struct Config {
 	pub webhooks: WebhookConfig,
 	/// API keys and tokens.
 	pub secrets: Secrets,
-	/// The Google billing accounts whose Places keys name a place and resolve a Maps URL that
-	/// carries no place id, in rotation order.
-	#[cfg(feature = "store")]
-	pub google: Vec<sa_places::Account>,
-	/// Buy the Places answers the queries cache lacks, on real quota; without it only cached ones are served.
-	#[cfg(feature = "store")]
-	pub spend: bool,
 	/// The conductor's queries cache, `<origin>/api/queries_cache`, where every Places answer is
-	/// kept for everyone: asking Places needs it.
+	/// kept for everyone and bought for the person a request is for: asking Places needs it.
 	pub queries_cache: Option<String>,
 }
 

@@ -89,7 +89,7 @@ Out — do not build, even as an option:
 
 A new target's place resolves through `sa_places` (the conductor's crate, which its GMBs use too): a place id, a Google Maps URL, or a share link (`maps.app.goo.gl`, `share.google`, expanded to the Maps or Search URL behind it; a Search URL's `q` is the name). From a URL, take the id it carries
 (`!1s0x…:0x…` in `data=` is the place id, re-encoded). A cid alone (`?cid=`, a Search viewer's `svid`) makes an id Places details answers with the place's own; otherwise search Places API (New)
-`places:searchText` (the config's `google` accounts' Places keys) for the URL's name. A place is never guessed: only
+`places:searchText` for the URL's name, which the conductor buys for the person asking (its queries cache's buy; without `queries_cache` a place is added by its id alone). A place is never guessed: only
 hits bearing that exact name count, and when several do, the operator adds one by its id.
 
 ## Storage
@@ -117,7 +117,10 @@ blob dir. Everything under one data dir (`/data` in the container).
   — `ad_hoc` marks the runs of ad-hoc captures; `tokens` is what its walk cost (see Tokens), a failed one's too. A run a stopped process left open is
   failed ("interrupted") on the next start of `serve`.
 - Places answers are not here: every one is kept in the conductor's queries cache (`sa_places`,
-  the config's `queries_cache`): details for good, a search a day; re-linking asks afresh.
+  the config's `queries_cache`), and bought there for the person the request is for (a relink as
+  their GMB's gmail, an operator's add or capture as theirs), carrying the conductor's own
+  assertion on it: details for good, a search a day; re-linking asks afresh. The archive holds no
+  Places key and no Google account.
 - Blobs: `<data>/blobs/<sha256[0..2]>/<sha256>.webp`, lossy (quality 80). Exif carries the provenance:
   capture time (`DateTimeOriginal`, `OffsetTimeOriginal` `+00:00`), page URL (`DocumentName`),
   target label (`ImageDescription`), source review id (`ImageUniqueID`), scanner version

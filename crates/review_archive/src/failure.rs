@@ -238,7 +238,7 @@ pub enum PlacesError {
 	#[error("Places API, {asked}: {status}: {body}")]
 	#[diagnostic(
 		code(review_archive::places::api),
-		help("check the config's `google` accounts' Places keys, and that the Places API (New) is enabled for their projects")
+		help("the conductor asked on a key Places refused: its Google accounts' Places keys, and the Places API (New) on their projects")
 	)]
 	Api {
 		/// What was asked of it.
@@ -251,10 +251,7 @@ pub enum PlacesError {
 	/// Every key is sitting out.
 	#[leaf]
 	#[error("every Places key is spent: {}", .spent.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
-	#[diagnostic(
-		code(review_archive::places::exhausted),
-		help("wait for the soonest reset, or add an account with a Places key to the config's `google`")
-	)]
+	#[diagnostic(code(review_archive::places::exhausted), help("wait for the soonest reset of the conductor's Places keys"))]
 	Exhausted {
 		/// Why each key sits out.
 		spent: Vec<sa_places::Spent>,
@@ -307,8 +304,9 @@ pub(crate) fn places_error(e: sa_places::Error) -> eyre::Report {
 		sa_places::Error::Decode(e) => PlacesError::from(e).into(),
 		sa_places::Error::QueriesCache(why) => PlacesError::new_queries_cache(why).into(),
 		e @ sa_places::Error::Unbought => Rejected::Busy(e.to_string()).into(),
-		e @ (sa_places::Error::OwnKey { .. } | sa_places::Error::Unpaid(_) | sa_places::Error::Purse(_) | sa_places::Error::Rank(_)) => {
-			unreachable!("the archive asks as the house, its accounts in order: no own key, no purse, no rank to fail; got {e}")
+		sa_places::Error::Unpaid(why) => Rejected::Busy(why).into(),
+		e @ (sa_places::Error::OwnKey { .. } | sa_places::Error::Purse(_) | sa_places::Error::Rank(_)) => {
+			unreachable!("the conductor buys: no key, purse nor rank of the archive's to fail; got {e}")
 		}
 	}
 }
