@@ -10,7 +10,6 @@ use axum::{Json, Router, extract::State, http::HeaderMap, routing::post};
 use review_archive::{
 	Archive,
 	config::Config,
-	core::dto::{Country, Managed, OnGoogle, Snapshot},
 	store::people::{Claim, Seen},
 };
 use serde_json::{Value, json};
@@ -51,24 +50,7 @@ async fn a_relink_is_bought_by_the_conductor_for_the_member_as_their_gmbs_gmail(
 		name: "owner",
 	};
 	let Claim::Person(_) = archive.person(&seen).await.unwrap() else { panic!("a fresh archive") };
-	let snapshot = Snapshot {
-		gmbs: vec![Managed {
-			id: 2,
-			gmail_id: 1,
-			gmail: "ops@gmail.com".into(),
-			owner: OWNER.parse().unwrap(),
-			removed: false,
-			enabled: true,
-			place_id: PLACE.into(),
-			state: OnGoogle::Verified,
-			country: Some(Country::FR),
-			name: "GBP 2".into(),
-			address: None,
-		}],
-		balances: Default::default(),
-		charges_through: 0,
-		prices: Default::default(),
-	};
+	let snapshot = super::snapshot(OWNER, 2, PLACE);
 	archive.apply_snapshot(&snapshot).await.unwrap();
 	let target = archive
 		.targets()
