@@ -91,7 +91,7 @@ async fn pauses_maps_until_a_probe(failing: impl ReviewSource, said: &str) {
 			place: Some(format!("ChIJlaunchtest{i:0>12}")),
 			..Default::default()
 		};
-		targets.push(archive.add_target(&t).await.unwrap().target);
+		targets.push(archive.add_target(&t, "").await.unwrap().target);
 	}
 
 	let recorded = archive.record(&failing, &targets[0]).await.unwrap();

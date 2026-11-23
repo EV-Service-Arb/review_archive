@@ -23,12 +23,15 @@ async fn main() {
 		config.defaults.lang = "fr".into();
 		let archive = Archive::open(config).await.unwrap();
 		let added = archive
-			.add_target(&NewTarget {
-				place: Some("ChIJLU7jZClu5kcR4PcOOO6p3I0".into()),
-				label: Some("Tour Eiffel".into()),
-				interval: Some("6h".into()),
-				..Default::default()
-			})
+			.add_target(
+				&NewTarget {
+					place: Some("ChIJLU7jZClu5kcR4PcOOO6p3I0".into()),
+					label: Some("Tour Eiffel".into()),
+					interval: Some("6h".into()),
+					..Default::default()
+				},
+				"",
+			)
 			.await
 			.unwrap();
 		let summary = archive.scan_target(added.target.id).await.unwrap();

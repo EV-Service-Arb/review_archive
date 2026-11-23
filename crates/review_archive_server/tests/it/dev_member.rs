@@ -5,7 +5,7 @@ use std::time::Duration;
 use review_archive::{
 	Archive,
 	config::Config,
-	core::dto::{Country, Managed, Me, OnGoogle, Snapshot},
+	core::dto::Me,
 	store::people::{Claim, Seen},
 };
 
@@ -31,24 +31,7 @@ async fn the_dev_member_is_whoever_manages_the_archive() {
 	let Claim::Person(owner) = archive.person(&seen).await.unwrap() else {
 		panic!("a fresh archive")
 	};
-	let snapshot = Snapshot {
-		gmbs: vec![Managed {
-			id: 1,
-			gmail_id: 1,
-			gmail: "ops@gmail.com".into(),
-			owner: OWNER.parse().unwrap(),
-			removed: false,
-			enabled: true,
-			place_id: "ChIJdevmembertest0000000".into(),
-			state: OnGoogle::Verified,
-			country: Some(Country::US),
-			name: "GBP 1".into(),
-			address: None,
-		}],
-		balances: Default::default(),
-		charges_through: 0,
-		prices: Default::default(),
-	};
+	let snapshot = super::snapshot(OWNER, 1, "ChIJdevmembertest0000000");
 	archive.apply_snapshot(&snapshot).await.unwrap();
 	archive.close().await;
 

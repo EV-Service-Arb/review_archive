@@ -3727,7 +3727,7 @@
             "description": "`internal`"
           }
         },
-        "summary": "Asks Google about a tracked place again: its id, name and address become what Google gives now.",
+        "summary": "Asks Google about a tracked place again: its id, name and address become what Google gives now, the member paying as their GMB's gmail.",
         "tags": [
           "http"
         ],
@@ -5033,7 +5033,7 @@
             "description": "`internal`"
           }
         },
-        "summary": "Watches a place: a place id, or a Maps URL, resolved through Places.",
+        "summary": "Watches a place: a place id, or a Maps URL, resolved through Places, the caller paying.",
         "tags": [
           "http"
         ],

@@ -24,7 +24,7 @@
 //! let mut config = Config::default();
 //! config.data_dir = Some("/var/lib/review_archive".into());
 //! let archive = Archive::open(config).await?;
-//! let added = archive.add_target(&NewTarget { place: Some("ChIJLU7jZClu5kcR4PcOOO6p3I0".into()), ..Default::default() }).await?;
+//! let added = archive.add_target(&NewTarget { place: Some("ChIJLU7jZClu5kcR4PcOOO6p3I0".into()), ..Default::default() }, "").await?;
 //! let run = archive.scan_target(added.target.id).await?;
 //! println!("{run}");
 //! archive.close().await;

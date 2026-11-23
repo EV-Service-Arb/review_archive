@@ -172,7 +172,7 @@ async fn target(archive: &Archive, place: &str) -> Target {
 		place: Some(place.to_owned()),
 		..Default::default()
 	};
-	archive.add_target(&t).await.unwrap().target
+	archive.add_target(&t, "").await.unwrap().target
 }
 
 /// The concierge `sub` of the member named `name`, 16 bytes at most.

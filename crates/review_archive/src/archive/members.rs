@@ -29,15 +29,15 @@ impl Archive {
 	}
 
 	/// Asks Google about a tracked place again and takes its id, name and address as Google
-	/// gives them now. Refused when the newer id is another target's already.
-	pub async fn relink(&self, member: PersonId, gmb: i64, target: TargetId) -> eyre::Result<TargetDto> {
+	/// gives them now, bought by the conductor for the member `assertion` names, as their GMB's
+	/// gmail. Refused when the newer id is another target's already.
+	pub async fn relink(&self, member: PersonId, gmb: i64, target: TargetId, assertion: &str) -> eyre::Result<TargetDto> {
 		let store = self.store()?;
 		store.check_track(member, gmb, target).await?;
 		let t = store.target(target).await?;
 		let place = self
-			.stored()?
-			.google
-			.details(&t.place_id, sa_places::Ask::Afresh, &sa_places::Payer::house())
+			.places()?
+			.details(&t.place_id, sa_places::Ask::Afresh, &sa_places::Vouched { assertion, gbp: Some(gmb) })
 			.await
 			.map_err(crate::failure::places_error)?;
 		if place.place_id != t.place_id

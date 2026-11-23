@@ -290,9 +290,8 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
   appears (a first scan too), goes or comes back, which the conductor pulls as
   `GET /api/conductor/reviews` (`sa_core::feeds::ReviewPage`), kept for good.
 - **Secrets come from the environment only**, through `ev_lib::settings` in the server
-  (`PANEL_ASSERTION_KEYS`, `GBP_*`, `SENTRY_DSN`, `ALERT_WEBHOOK_*`), and the Google accounts'
-  keys, which the config's `google` names (`{ env = "…" }`, the conductor's accounts); the
-  library takes them as `config::Secrets` and `Config::google` and never reads the environment. Each is required
+  (`PANEL_ASSERTION_KEYS`, `GBP_*`, `SENTRY_DSN`, `ALERT_WEBHOOK_*`); the library takes them as
+  `config::Secrets` and never reads the environment. Each is required
   only by what uses it and a missing one fails that with its name — except
   `PANEL_ASSERTION_KEYS`, required at boot when `APP_ENV=production`
   (`review_archive --print-required-vars` lists what a profile needs).

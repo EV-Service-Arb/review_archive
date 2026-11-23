@@ -140,12 +140,7 @@ impl Archive {
 		let store = match (config.db_path(), config.blob_dir()) {
 			(Some(db), Some(blobs)) => {
 				let stored = Stored {
-					google: sa_places::Google::try_new(
-						sa_places::Keys::new(config.google.iter().filter_map(|a| Some((a.name.clone(), a.provides.places.as_deref()?.to_owned()))).collect()),
-						Arc::new(sa_places::InOrder),
-						queries_cache(config.queries_cache.as_deref())?,
-					)?
-					.spend(config.spend),
+					google: config.queries_cache.as_deref().map(sa_places::Google::remote).transpose()?,
 					store: Store::open(&db, config.defaults.interval).await?,
 					blobs: BlobStore::new(blobs),
 				};
@@ -242,10 +237,33 @@ impl Archive {
 			.ok_or_else(|| eyre::eyre!("this archive was opened without a data dir, so it stores nothing"))
 	}
 
-	/// Watches a place: a place id, or a Google Maps URL (resolved with the Places API when
-	/// it has no id, which needs an account's Places key). A `gbp` location makes it a `gbp`
-	/// target.
-	pub async fn add_target(&self, req: &NewTarget) -> eyre::Result<Added> {
+	/// Places, through the conductor.
+	#[cfg(feature = "store")]
+	pub(crate) fn places(&self) -> eyre::Result<&sa_places::Google<sa_places::Remote>> {
+		self.stored()?
+			.google
+			.as_ref()
+			.ok_or_else(|| Rejected::invalid("asking Places needs the conductor: `queries_cache` in the config, its `<origin>/api/queries_cache`").into())
+	}
+
+	/// The place `place` names, asked of Places for the person `assertion` names; without the
+	/// conductor, a place id alone, unasked.
+	#[cfg(feature = "store")]
+	async fn resolve(&self, place: &str, assertion: &str) -> eyre::Result<(String, Option<sa_places::Place>)> {
+		if self.stored()?.google.is_none()
+			&& let Ok(sa_places::parse::Parsed::PlaceId(id)) = sa_places::parse::parse(place.trim())
+		{
+			return Ok((id, None));
+		}
+		self.places()?
+			.resolve(place, &sa_places::Vouched { assertion, gbp: None })
+			.await
+			.map_err(crate::failure::places_error)
+	}
+
+	/// Watches a place: a place id, or a Google Maps URL (resolved with the Places API, bought by
+	/// the conductor for the person `assertion` names). A `gbp` location makes it a `gbp` target.
+	pub async fn add_target(&self, req: &NewTarget, assertion: &str) -> eyre::Result<Added> {
 		let place = req
 			.place
 			.as_deref()
@@ -253,7 +271,7 @@ impl Archive {
 			.ok_or_else(|| Rejected::invalid("name the place: `place` or `maps_url`"))?;
 		let interval = req.interval.as_deref().map(parse_interval).transpose()?;
 		let gbp = req.gbp.as_deref().map(str::parse::<GbpLocation>).transpose()?;
-		let (place_id, resolved) = self.stored()?.google.resolve(place, &sa_places::Payer::house()).await.map_err(crate::failure::places_error)?;
+		let (place_id, resolved) = self.resolve(place, assertion).await?;
 		Ok(Added {
 			target: self.insert_target(place_id, resolved.as_ref(), req.label.clone(), req.lang.clone(), interval, gbp, true).await?,
 			resolved,
@@ -645,7 +663,7 @@ impl Archive {
 	/// Queues an ad-hoc capture of a place. Nothing is registered: the results are kept
 	/// under the place's existing `maps` target for that language if there is one, else
 	/// under a new, disabled one, so nothing captured is lost and nothing gets scheduled.
-	pub async fn enqueue_capture(&self, req: &dto::CaptureRequest) -> eyre::Result<i64> {
+	pub async fn enqueue_capture(&self, req: &dto::CaptureRequest, assertion: &str) -> eyre::Result<i64> {
 		let store = self.store()?;
 		let place = req
 			.place
@@ -662,7 +680,7 @@ impl Archive {
 		}
 		let lang = req.lang.clone().unwrap_or_else(|| self.inner.defaults.lang.clone());
 		check_lang(&lang)?;
-		let (place_id, resolved) = self.stored()?.google.resolve(place, &sa_places::Payer::house()).await.map_err(crate::failure::places_error)?;
+		let (place_id, resolved) = self.resolve(place, assertion).await?;
 		let target = match store.find_target(&place_id, &lang, None).await? {
 			Some(t) => t,
 			None => self.insert_target(place_id, resolved.as_ref(), None, Some(lang), None, None, false).await?,
@@ -967,7 +985,8 @@ struct Inner {
 struct Stored {
 	store: Store,
 	blobs: BlobStore,
-	google: sa_places::Google,
+	/// Places, through the conductor; `None` without its queries cache.
+	google: Option<sa_places::Google<sa_places::Remote>>,
 }
 
 impl std::fmt::Debug for Archive {
@@ -1004,42 +1023,4 @@ impl ReviewSource for NoGbpCredentials {
 	async fn scan(&self, _: &Target, _: &review_archive_core::Known, _: &mut review_archive_core::tokens::Meter) -> eyre::Result<review_archive_core::Scan> {
 		Err(crate::GbpError::new_no_credentials().into())
 	}
-}
-
-/// The conductor's queries cache, else one that refuses every Places answer for want of it: asking
-/// Places is the one thing that needs it.
-#[cfg(feature = "store")]
-fn queries_cache(url: Option<&str>) -> eyre::Result<Arc<dyn sa_places::QueriesCache>> {
-	#[derive(Debug)]
-	struct Unset;
-	impl Unset {
-		fn refuse<T: Send + 'static>(&self) -> sa_places::Pending<'_, T> {
-			Box::pin(async {
-				Err(sa_places::Error::QueriesCache(
-					"asking Places needs `queries_cache` in the config: the conductor's `<origin>/api/queries_cache`".into(),
-				))
-			})
-		}
-	}
-	impl sa_places::QueriesCache for Unset {
-		fn get(&self, _: sa_core::queries_cache::Scheme, _: sa_core::queries_cache::Key) -> sa_places::Pending<'_, Option<sa_core::queries_cache::Stored>> {
-			self.refuse()
-		}
-
-		fn claim(&self, _: sa_core::queries_cache::Scheme, _: sa_core::queries_cache::Key, _: Option<jiff::Timestamp>) -> sa_places::Pending<'_, sa_core::queries_cache::Claim> {
-			self.refuse()
-		}
-
-		fn put(&self, _: sa_core::queries_cache::Scheme, _: sa_core::queries_cache::Key, _: sa_core::queries_cache::Put) -> sa_places::Pending<'_, ()> {
-			self.refuse()
-		}
-
-		fn release(&self, _: sa_core::queries_cache::Scheme, _: sa_core::queries_cache::Key) -> sa_places::Pending<'_, ()> {
-			self.refuse()
-		}
-	}
-	Ok(match url {
-		Some(url) => Arc::new(sa_places::Remote::try_new(url)?),
-		None => Arc::new(Unset),
-	})
 }

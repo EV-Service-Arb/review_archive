@@ -52,7 +52,7 @@ async fn gbp_target(archive: &Archive, disabled: bool) -> TargetId {
 		gbp: Some("1/2".into()),
 		..Default::default()
 	};
-	let id = archive.add_target(&req).await.unwrap().target.id;
+	let id = archive.add_target(&req, "").await.unwrap().target.id;
 	if disabled {
 		let off = TargetPatch {
 			enabled: Some(false),
@@ -127,7 +127,7 @@ async fn a_browser_that_cannot_be_set_up_ends_the_worker() {
 		place: Some(PLACE.into()),
 		..Default::default()
 	};
-	archive.add_target(&maps).await.unwrap();
+	archive.add_target(&maps, "").await.unwrap();
 
 	let signals = Signals::default();
 	let (_stop, stopped) = watch::channel(false);
@@ -166,7 +166,7 @@ fn serve_whose_worker_cannot_go_on_exits_78() {
 		})
 		.await
 		.unwrap();
-		archive.add_target(&maps_target()).await.unwrap();
+		archive.add_target(&maps_target(), "").await.unwrap();
 		archive.apply_snapshot(&priced::snapshot()).await.unwrap();
 		archive.close().await;
 	});
@@ -207,10 +207,13 @@ fn serve_with_every_account_signed_out_exits_78_at_boot() {
 		.await
 		.unwrap();
 		archive
-			.add_target(&NewTarget {
-				interval: Some("1d".into()),
-				..maps_target()
-			})
+			.add_target(
+				&NewTarget {
+					interval: Some("1d".into()),
+					..maps_target()
+				},
+				"",
+			)
 			.await
 			.unwrap();
 		archive.apply_snapshot(&priced::snapshot()).await.unwrap();
@@ -274,10 +277,13 @@ fn serve_without_the_login_check_outlives_every_account_signed_out() {
 	let target = rt.block_on(async {
 		let archive = open().await;
 		archive
-			.add_target(&NewTarget {
-				interval: Some("1d".into()),
-				..maps_target()
-			})
+			.add_target(
+				&NewTarget {
+					interval: Some("1d".into()),
+					..maps_target()
+				},
+				"",
+			)
 			.await
 			.unwrap();
 		archive.apply_snapshot(&priced::snapshot()).await.unwrap();

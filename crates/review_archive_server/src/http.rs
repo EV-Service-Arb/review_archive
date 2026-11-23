@@ -1,5 +1,5 @@
 //! The HTTP API: the archive's operations, and `/me` for members; at `/`, the dashboard's page.
-//! The operations are one table ([`routes`]): the router is built from it and its OpenAPI
+//! The operations are one table (`routes`): the router is built from it and its OpenAPI
 //! document ([`document`]) derived from it. Every row's gate is `sa_auth`'s (see [`crate::auth`]);
 //! the conductor's own calls (`/api/conductor/*`, `/dashboards`) are outside the table, and
 //! `/openapi.json` is the conductor's or anyone's signed in.
@@ -53,7 +53,7 @@ use tower_http::services::ServeDir;
 use v_utils::{Timeframe, macros::SettingsNested};
 
 use crate::{
-	auth::{Caller, Dev},
+	auth::{Caller, Dev, Vouched},
 	worker::Signals,
 };
 
@@ -508,9 +508,9 @@ async fn list_targets(State(s): State<AppState>) -> ApiResult<Json<Vec<TargetDto
 	Ok(Json(s.archive.targets().await?.into_iter().map(TargetDto::from).collect()))
 }
 
-/// Watches a place: a place id, or a Maps URL, resolved through Places.
-async fn add_target(State(s): State<AppState>, Body(req): Body<NewTarget>) -> ApiResult<Created<TargetDto>> {
-	Ok(Created(s.archive.add_target(&req).await?.target.into()))
+/// Watches a place: a place id, or a Maps URL, resolved through Places, the caller paying.
+async fn add_target(State(s): State<AppState>, Vouched(assertion): Vouched, Body(req): Body<NewTarget>) -> ApiResult<Created<TargetDto>> {
+	Ok(Created(s.archive.add_target(&req, &assertion).await?.target.into()))
 }
 
 /// A target with its last run, what is archived, and the next scheduled scan.
@@ -558,10 +558,10 @@ async fn scan_target(State(s): State<AppState>, Ids(Id { id }): Ids<Id>) -> ApiR
 /// so nothing is lost. `max_reviews` and the number of `review_ids` are at most
 /// `max_reviews_initial`. With `wait`, answers the finished job if it finishes by then; else
 /// the job's id, to poll. Past the queue's `max_queued_jobs`, 429.
-async fn capture_place(State(s): State<AppState>, Params(q): Params<WaitQuery>, Body(req): Body<CaptureRequest>) -> ApiResult<Captured> {
+async fn capture_place(State(s): State<AppState>, Vouched(assertion): Vouched, Params(q): Params<WaitQuery>, Body(req): Body<CaptureRequest>) -> ApiResult<Captured> {
 	// subscribed before queueing, so the job cannot end unseen in between
 	let mut finished = s.signals.job_finished.subscribe();
-	let job_id = s.archive.enqueue_capture(&req).await?;
+	let job_id = s.archive.enqueue_capture(&req, &assertion).await?;
 	s.signals.job_queued.notify_one();
 	let deadline = tokio::time::Instant::now() + Duration::from_secs(q.wait.unwrap_or(0)).min(s.cfg.max_wait.duration());
 	loop {
@@ -700,9 +700,10 @@ async fn patch_track(State(s): State<AppState>, Caller(m): Caller, Ids(Track { g
 	Ok(NoContent)
 }
 
-/// Asks Google about a tracked place again: its id, name and address become what Google gives now.
-async fn relink_track(State(s): State<AppState>, Caller(m): Caller, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<TargetDto>> {
-	Ok(Json(s.archive.relink(m, gmb, TargetId(target)).await?))
+/// Asks Google about a tracked place again: its id, name and address become what Google gives now,
+/// the member paying as their GMB's gmail.
+async fn relink_track(State(s): State<AppState>, Caller(m): Caller, Vouched(assertion): Vouched, Ids(Track { gmb, target }): Ids<Track>) -> ApiResult<Json<TargetDto>> {
+	Ok(Json(s.archive.relink(m, gmb, TargetId(target), &assertion).await?))
 }
 
 /// Queues a scan of a tracked place, on top of its schedule; the member who asks pays for it in tokens.

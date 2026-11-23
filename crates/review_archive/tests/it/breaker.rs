@@ -69,14 +69,14 @@ async fn a_block_pauses_every_maps_target_until_one_probe() {
 			place: Some(format!("ChIJbreakertest{i:0>12}")),
 			..Default::default()
 		};
-		targets.push(archive.add_target(&t).await.unwrap().target);
+		targets.push(archive.add_target(&t, "").await.unwrap().target);
 	}
 	let gbp = NewTarget {
 		place: Some("ChIJbreakertestgbp000000".into()),
 		gbp: Some("1/2".into()),
 		..Default::default()
 	};
-	let gbp = archive.add_target(&gbp).await.unwrap().target;
+	let gbp = archive.add_target(&gbp, "").await.unwrap().target;
 	let blocked = &targets[0];
 
 	let failed = archive.record(&Blocked, blocked).await.unwrap();
@@ -116,7 +116,7 @@ async fn a_scan_asked_for_probes_a_paused_maps() {
 			place: Some(format!("ChIJbreakerasked{i:0>12}")),
 			..Default::default()
 		};
-		targets.push(archive.add_target(&t).await.unwrap().target);
+		targets.push(archive.add_target(&t, "").await.unwrap().target);
 	}
 	let gap = std::time::Duration::from_millis(1100);
 

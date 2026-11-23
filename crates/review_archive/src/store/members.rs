@@ -338,7 +338,7 @@ impl Store {
 	}
 
 	/// What happened to a member's GMB before `before` (none: ever): its reviews' moves in the review feed, its appeals, its
-	/// tracked place's failed scans; newest first, whole UTC days, [`EVENTS_PAGE`] rows or one day at least.
+	/// tracked place's failed scans; newest first, whole UTC days, `EVENTS_PAGE` rows or one day at least.
 	pub async fn gmb_events(&self, member: PersonId, gmb: i64, before: Option<Timestamp>) -> eyre::Result<GmbEvents> {
 		self.check_gmb(member, gmb).await?;
 		const ROWS: &str = "SELECT * FROM (

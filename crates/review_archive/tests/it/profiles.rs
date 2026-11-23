@@ -44,7 +44,7 @@ async fn target(archive: &Archive) -> Target {
 		place: Some("ChIJprofilestest000000000".into()),
 		..Default::default()
 	};
-	archive.add_target(&t).await.unwrap().target
+	archive.add_target(&t, "").await.unwrap().target
 }
 
 /// The profile `archive` scans on: the one whose lock it takes.

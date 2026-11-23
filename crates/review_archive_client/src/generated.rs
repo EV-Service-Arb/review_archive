@@ -149,7 +149,7 @@ impl Client {
 		Ok(res.json().await?)
 	}
 
-	/// Asks Google about a tracked place again: its id, name and address become what Google gives now.
+	/// Asks Google about a tracked place again: its id, name and address become what Google gives now, the member paying as their GMB's gmail.
 	///
 	/// `POST /me/gmbs/{gmb}/tracks/{target}/relink`
 	pub async fn relink_track(&self, gmb: i64, target: i64) -> Result<review_archive_core::dto::TargetDto, Error> {
@@ -257,7 +257,7 @@ impl Client {
 		Ok(res.json().await?)
 	}
 
-	/// Watches a place: a place id, or a Maps URL, resolved through Places.
+	/// Watches a place: a place id, or a Maps URL, resolved through Places, the caller paying.
 	///
 	/// `POST /targets`
 	pub async fn add_target(&self, body: &review_archive_core::dto::NewTarget) -> Result<review_archive_core::dto::TargetDto, Error> {

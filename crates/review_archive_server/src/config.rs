@@ -40,13 +40,9 @@ pub struct AppConfig {
 	#[settings(flatten)]
 	pub http: HttpConfig,
 	/// The conductor's queries cache, `<origin>/api/queries_cache`, where every Places answer is
-	/// kept for everyone; in the cluster, the contract's `consumes` sets it. Asking Places needs it.
+	/// kept for everyone and bought for the caller; in the cluster, the contract's `consumes` sets
+	/// it. None: a place is added by its id alone.
 	pub queries_cache: Option<String>,
-	/// accounting's `google.nix` accounts (site_conductor docs/spec/google.md); those that provide
-	/// `places` are asked in rotation order. None: a place is added by its id alone.
-	#[serde(default)]
-	#[settings(skip)]
-	pub google: Vec<sa_places::Account>,
 }
 
 impl AppConfig {
@@ -72,8 +68,6 @@ impl AppConfig {
 			webhooks: self.webhooks.clone(),
 			secrets,
 			queries_cache: self.queries_cache.clone(),
-			google: self.google.clone(),
-			spend: false,
 		}
 	}
 }

@@ -59,6 +59,21 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 
 impl OperationInput for Caller {}
 
+/// The conductor's assertion on this request, as it came: what the conductor takes back as the
+/// caller's say for the Places buys the request makes (`sa_places::Vouched`).
+pub struct Vouched(pub String);
+
+impl<S: Send + Sync> FromRequestParts<S> for Vouched {
+	type Rejection = std::convert::Infallible;
+
+	async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+		let token = parts.headers.get(sa_auth::HEADER).expect("the route's gate admitted the request by it");
+		Ok(Self(token.to_str().expect("the gate verified it: base64url and dots").to_owned()))
+	}
+}
+
+impl OperationInput for Vouched {}
+
 impl sa_core::prices::Payer for Caller {
 	type Who = PersonId;
 
