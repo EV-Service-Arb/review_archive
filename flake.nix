@@ -160,7 +160,7 @@
             cd "$repo"
             RUSTFLAGS='${wasmFlags}' nix develop "$repo" --command bash -euc "
               cargo build -p review_archive_web --target wasm32-unknown-unknown
-              bash crates/review_archive_web/package.sh target/wasm32-unknown-unknown/debug/review_archive_web.wasm '$out'
+              bash crates/review_archive_web/package.sh \"\''${CARGO_TARGET_DIR:-target}\"/wasm32-unknown-unknown/debug/review_archive_web.wasm '$out'
             "
           '';
         };
