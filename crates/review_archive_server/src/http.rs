@@ -1,5 +1,5 @@
 //! The HTTP API: the archive's operations, and `/me` for members; at `/`, the dashboard's page.
-//! The operations are one table ([`routes`]): the router is built from it and its OpenAPI
+//! The operations are one table (`routes`): the router is built from it and its OpenAPI
 //! document ([`document`]) derived from it. Every row's gate is `sa_auth`'s (see [`crate::auth`]);
 //! the conductor's own calls (`/api/conductor/*`, `/dashboards`) are outside the table, and
 //! `/openapi.json` is the conductor's or anyone's signed in.
