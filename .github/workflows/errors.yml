@@ -105,7 +105,7 @@ jobs:
         run: |
           mkdir -p /tmp/nix-lean-cache
           chmod 0777 /tmp/nix-lean-cache
-          printf '#!/bin/sh\nexport PATH=/nix/var/nix/profiles/default/bin:$PATH\nnix copy --no-recursive --to "file:///tmp/nix-lean-cache?compression=zstd&parallel-compression=true" $OUT_PATHS || true\n' > /tmp/nix-lean-pbh.sh
+          printf '#!/bin/sh\nexport PATH=/nix/var/nix/profiles/default/bin:$PATH\necho $OUT_PATHS >> /tmp/nix-lean-cache/built\nnix copy --to "file:///tmp/nix-lean-cache?compression=zstd&parallel-compression=true" $OUT_PATHS || true\n' > /tmp/nix-lean-pbh.sh
           chmod 0755 /tmp/nix-lean-pbh.sh
         shell: bash
       - name: Install Nix
@@ -131,19 +131,33 @@ jobs:
         name: Restore nix eval cache
         uses: actions/cache/restore@v5
         with:
-          key: nix-eval-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          key: nix-eval2-${{ runner.os }}-${{ hashFiles('flake.lock') }}
           path: ~/.cache/nix
       - id: particle-cache-0
         name: Restore particle's cache
         uses: actions/cache/restore@v5
         with:
-          key: particles-errors-rust-tests-0-${{ runner.os }}-${{ hashFiles('flake.lock') }}-${{ hashFiles('./Cargo.lock') }}
+          key: particles-errors-rust-tests-0-${{ runner.os }}-${{ hashFiles('flake.lock') }}-${{ hashFiles('./Cargo.lock', './**/Cargo.toml', './**/*.rs') }}
           path: |-
             ./target
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
           restore-keys: particles-errors-rust-tests-0-${{ runner.os }}-
+      - if: steps.particle-cache-0.outputs.cache-matched-key != ''
+        name: Align the checkout with particle's cache
+        run: |
+          [ -f ./target/.commit ] || exit 0
+          built=$(cat ./target/.commit)
+          git fetch -q --depth=1 origin "$built" || { echo "::notice::$built, the cached build's commit, can't be fetched: every watched file reads as changed"; exit 0; }
+          find . -path ./.git -prune -o -path ./target -prune -o -exec touch -h -d @1 {} +
+          git diff --no-renames --name-only "$built" HEAD | while read -r p; do
+            while [ "$p" != . ]; do
+              [ ! -e "$p" ] || touch -h "$p"
+              p=$(dirname "$p")
+            done
+          done
+        shell: bash
       - if: always() && github.ref_name == github.event.repository.default_branch && steps.particle-cache-0.outputs.cache-hit != 'true'
         name: Stamp particle's cache
         run: '[ ! -d ./target ] || find ./target -type f -exec touch -a -d @1 {} +'
@@ -166,6 +180,7 @@ jobs:
             dropped=$((dropped + 1))
           done
           echo "cargo units kept: $used, dropped: $dropped"
+          git rev-parse HEAD > ./target/.commit
         shell: bash
       - if: always() && github.ref_name == github.event.repository.default_branch && steps.particle-cache-0.outputs.cache-hit != 'true'
         name: Save particle's cache
@@ -185,11 +200,24 @@ jobs:
         name: Drop particle's older caches
         run: gh cache list -R "$GITHUB_REPOSITORY" -L 100 --key "$FAMILY" --json id,key -q 'if any(.[]; .key == $ENV.KEY) then .[] | select(.key != $ENV.KEY) | .id else empty end' | xargs -r -n1 gh cache delete -R "$GITHUB_REPOSITORY"
       - if: always() && steps.eval-cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch
+        name: Fetch the flake's inputs into the tarball cache
+        run: nix flake archive --store "$RUNNER_TEMP/inputs" --option substitute false > /dev/null && chmod -R u+w "$RUNNER_TEMP/inputs" && rm -rf "$RUNNER_TEMP/inputs"
+      - if: always() && steps.eval-cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch
         name: Save nix eval cache
         uses: actions/cache/save@v5
         with:
-          key: nix-eval-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          key: nix-eval2-${{ runner.os }}-${{ hashFiles('flake.lock') }}
           path: ~/.cache/nix
+      - env:
+          FAMILY: nix-eval2-${{ runner.os }}-
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.eval-cache.outputs.cache-primary-key }}
+        if: always() && steps.eval-cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch
+        name: Drop older nix eval caches
+        run: |
+          gh cache list -R "$GITHUB_REPOSITORY" -L 100 --key "$FAMILY" --json id,key -q 'if any(.[]; .key == $ENV.KEY) then .[] | select(.key != $ENV.KEY) | .id else empty end' | while read -r id; do
+            gh cache delete -R "$GITHUB_REPOSITORY" "$id" || ! gh cache list -R "$GITHUB_REPOSITORY" -L 100 --key "$FAMILY" --json id -q '.[].id' | grep -qx "$id"
+          done
       - if: always() && github.ref_name == github.event.repository.default_branch && steps.lean-restore.outputs.cache-hit != 'true'
         name: Prune lean nix cache to what this run used
         run: |
@@ -197,10 +225,15 @@ jobs:
           shopt -s nullglob
           narinfos=(*.narinfo)
           ((${#narinfos[@]})) || exit 0
-          sed -n 's/^StorePath: //p' "${narinfos[@]}" | xargs nix-store --check-validity --print-invalid | while read -r p; do
+          [ -e built ] || : > built
+          sed -n 's/^StorePath: //p' "${narinfos[@]}" | sort -u > /tmp/lean-all
+          tr -s ' ' '\n' < built | sed '/^$/d' | sort -u | comm -12 - /tmp/lean-all > /tmp/lean-built
+          xargs -r nix-store --check-validity --print-invalid < /tmp/lean-built | sort -u | comm -23 /tmp/lean-built - > /tmp/lean-keep
+          comm -23 /tmp/lean-all /tmp/lean-keep | while read -r p; do
             n=$(basename "$p") && n=${n%%-*}.narinfo
             echo "$n" && sed -n 's/^URL: //p' "$n"
           done | sudo xargs -r rm -f
+          sudo rm -f built && cp /tmp/lean-keep built
         shell: bash
       - if: always() && github.ref_name == github.event.repository.default_branch && steps.lean-restore.outputs.cache-hit != 'true'
         name: Save lean nix cache
@@ -216,7 +249,7 @@ jobs:
         name: Drop older lean nix caches
         run: gh cache list -R "$GITHUB_REPOSITORY" -L 100 --key "$FAMILY" --json id,key -q 'if any(.[]; .key == $ENV.KEY) then .[] | select(.key != $ENV.KEY) | .id else empty end' | xargs -r -n1 gh cache delete -R "$GITHUB_REPOSITORY"
     timeout-minutes: 90
-  rust-tests-release:
+  rust-tests-release-newest:
     if: needs.pre_ci.outputs.continue && startsWith(github.ref, 'refs/tags/v')
     name: Rust nightly-2026-09-24
     needs: pre_ci
@@ -226,6 +259,33 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-09-24
+      - name: Install mold
+        uses: rui314/setup-mold@v1
+      - name: Enable type layout randomization
+        run: |
+          printf '#!/bin/sh\nexec "$@" -Zrandomize-layout --cfg=exhaustive\n' > /tmp/randomize-layout.sh
+          chmod +x /tmp/randomize-layout.sh
+          echo RUSTC_WORKSPACE_WRAPPER=/tmp/randomize-layout.sh >> $GITHUB_ENV
+      - name: Download modified by pre-ci Cargo.toml files
+        uses: actions/download-artifact@v7
+        with:
+          name: modified-cargo-files
+      - run: cargo update
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+      - run: cargo test --workspace
+    timeout-minutes: 45
+  rust-tests-release-oldest:
+    if: needs.pre_ci.outputs.continue && startsWith(github.ref, 'refs/tags/v')
+    name: Rust nightly-2026-06-29
+    needs: pre_ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-29
       - name: Install mold
         uses: rui314/setup-mold@v1
       - name: Enable type layout randomization
