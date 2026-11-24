@@ -26,7 +26,8 @@ fn the_committed_client_and_document_are_the_documents() {
 	let derived = [
 		(
 			concat!(env!("CARGO_MANIFEST_DIR"), "/../review_archive_client/src/generated.rs"),
-			formatted(ev_lib::api::rust_client(&doc, "review_archive_core::dto")),
+			// codestyle leaves what is marked so as it is
+			formatted("// @generated\n".to_owned() + &ev_lib::api::rust_client(&doc, "review_archive_core::dto")),
 		),
 		(concat!(env!("CARGO_MANIFEST_DIR"), "/openapi.json"), serde_json::to_string_pretty(&doc).unwrap() + "\n"),
 	];
