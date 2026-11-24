@@ -25,10 +25,10 @@ const NOTE_RETENTION: SignedDuration = SignedDuration::from_hours(24);
 const MESSAGE_MAX: usize = 4096;
 const CAPTION_MAX: usize = 1024;
 
-type NoteRow = (i64, Vec<u8>, String, String, Option<String>, String, String, Option<String>);
-
 /// Stars an owner hears of the day they come.
 const LOW: i64 = 3;
+
+type NoteRow = (i64, Vec<u8>, String, String, Option<String>, String, String, Option<String>);
 
 pub(super) struct Emitter {
 	hooks: Vec<(i64, HashSet<Event>)>,
