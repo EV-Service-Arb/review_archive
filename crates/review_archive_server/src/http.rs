@@ -142,6 +142,7 @@ pub fn router(state: AppState, mfe: Option<&Path>, dev: Option<Dev>) -> Router {
 			// the conductor's own calls, each taking `Conductor`
 			Router::new()
 				.route(feeds::GMBS, axum::routing::put(apply_snapshot))
+				.route(feeds::GONE, get(gone))
 				.route(feeds::CHARGES, get(charges))
 				.route(feeds::USAGE, get(usage))
 				.route(feeds::REVIEWS, get(review_feed))
@@ -759,6 +760,11 @@ async fn changes(_: Conductor, State(s): State<AppState>) -> ApiResult<Response>
 async fn apply_snapshot(_: Conductor, State(s): State<AppState>, Body(snap): Body<Snapshot>) -> ApiResult<StatusCode> {
 	s.archive.apply_snapshot(&snap).await?;
 	Ok(StatusCode::NO_CONTENT)
+}
+
+/// A GMB's reviews currently gone, newest first; 404 while no track is its.
+async fn gone(_: Conductor, State(s): State<AppState>, Ids(gmb): Ids<i64>) -> ApiResult<Json<Vec<feeds::GoneReview>>> {
+	Ok(Json(s.archive.gone(gmb).await?))
 }
 
 /// What walks cost, for the conductor to charge: the feed past `after`.

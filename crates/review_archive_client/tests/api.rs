@@ -577,6 +577,7 @@ async fn every_route_but_health_wants_an_assertion() {
 		("GET", "/api/conductor/charges"),
 		("GET", "/api/conductor/usage"),
 		("GET", "/api/conductor/reviews"),
+		("GET", "/api/conductor/gmbs/1/gone"),
 		("GET", "/api/conductor/notifications"),
 		("GET", "/api/conductor/changes"),
 		("GET", &format!("/api/conductor/captures/{}.png", "0".repeat(64))),
@@ -1733,6 +1734,95 @@ async fn the_conductor_pulls_each_appearance_of_a_review() {
 	let summary: Vec<(&str, i64, u8, bool)> = all.iter().map(|r| (r.review_id.as_str(), r.gmb_id, r.rating, r.gone_at.is_some())).collect();
 	assert_eq!(summary, [("r1", a, 5, false), ("r2", a, 5, false), ("r1", a, 5, true), ("r1", a, 5, false)]);
 	assert_eq!(all[3].first_seen, all[0].first_seen, "back, it is the review first seen then");
+	e.server.abort();
+}
+
+/// The conductor reads a GMB's reviews gone now, newest gone first, each with its open appeal; a listed one is none of them.
+#[tokio::test]
+async fn the_conductor_reads_what_is_gone_from_a_gmb() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let g = e.gmb(ALICE, "a@gmail.com", PLACE).await;
+	let t = track_of(&alice, g).await.id;
+	let path = sa_core::feeds::GONE.replace("{gmb}", &g.to_string());
+	let gone = async || as_conductor(&e, &path).await.json::<Vec<sa_core::feeds::GoneReview>>().await.unwrap();
+	let target = e.archive.target(review_archive::core::TargetId(t)).await.unwrap();
+	let blobs = BlobStore::new(e.dir.path().join("blobs"));
+	let walk = async |now: fn() -> Timestamp, reviews: Vec<Observed>| {
+		Recorder {
+			store: e.archive.store().unwrap(),
+			blobs: &blobs,
+			now,
+			schedule: &Schedule::default(),
+			tokens: &Tokens::default(),
+		}
+		.run(&Listed(reviews), &target)
+		.await
+		.unwrap();
+	};
+	let asked = Observed {
+		author_url: Some("https://www.google.com/maps/contrib/1".into()),
+		published_raw: Some("a week ago".into()),
+		published_est: Some("2026-08-25T00:00:00Z".parse().unwrap()),
+		reply: Some("Thank you".into()),
+		..captured("asked")
+	};
+	let bare = Observed {
+		rating: None,
+		text: None,
+		..review("bare")
+	};
+	walk(|| "2026-09-01T00:00:00Z".parse().unwrap(), vec![asked.clone(), bare, review("kept")]).await;
+	assert_eq!(gone().await, []);
+	walk(|| "2026-09-02T00:00:00Z".parse().unwrap(), vec![asked.clone(), review("kept")]).await;
+	walk(|| "2026-09-03T00:00:00Z".parse().unwrap(), vec![review("kept")]).await;
+	let id = alice.track_board(g, t).await.unwrap().suspended[0].review.id;
+	alice.reinstate(g, id).await.unwrap();
+	alice.withdraw_reinstatement(g, id).await.unwrap();
+	assert_eq!(gone().await[0].reinstatement_requested_at, None, "a withdrawn request is not open");
+	let requested_at = alice.reinstate(g, id).await.unwrap().requested_at.parse().unwrap();
+
+	let first_seen = "2026-09-01T00:00:00Z".parse().unwrap();
+	assert_eq!(
+		gone().await,
+		[
+			sa_core::feeds::GoneReview {
+				review_id: "asked".into(),
+				author: "author asked".into(),
+				author_url: asked.author_url.clone(),
+				rating: Some(5),
+				text: asked.text.clone(),
+				published_raw: asked.published_raw.clone(),
+				published_est: asked.published_est,
+				first_seen,
+				gone_at: "2026-09-03T00:00:00Z".parse().unwrap(),
+				captured: true,
+				replied: true,
+				reinstatement_requested_at: Some(requested_at),
+			},
+			sa_core::feeds::GoneReview {
+				review_id: "bare".into(),
+				author: "author bare".into(),
+				author_url: None,
+				rating: None,
+				text: None,
+				published_raw: None,
+				published_est: None,
+				first_seen,
+				gone_at: "2026-09-02T00:00:00Z".parse().unwrap(),
+				captured: false,
+				replied: false,
+				reinstatement_requested_at: None,
+			},
+		]
+	);
+
+	for who in [Who::member(ALICE), operator()] {
+		let refused = http_as(&who).get(format!("{}{path}", e.base)).send().await.unwrap();
+		assert_eq!(refused.status(), StatusCode::UNAUTHORIZED, "{} is no conductor", who.sub);
+	}
+	e.remove(g).await;
+	assert_eq!(as_conductor(&e, &path).await.status(), StatusCode::NOT_FOUND, "no track is a removed GMB's");
 	e.server.abort();
 }
 

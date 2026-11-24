@@ -15,9 +15,10 @@ use review_archive_core::{
 	fmt_ts,
 	tokens::WalkPrices,
 };
+use sa_core::feeds::{GONE_MAX, GoneReview};
 use sqlx::{FromRow, SqliteConnection};
 
-use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow};
+use super::{REVIEW_SELECT, ReviewRow, Store, TargetRow, parse_ts};
 
 /// The rows a page of [`Store::gmb_events`] aims at; it grows to hold a whole day.
 const EVENTS_PAGE: u32 = 200;
@@ -284,6 +285,48 @@ impl Store {
 		let requested = |c: &BoardCard| c.reinstatement.as_ref().map(|x| x.requested_at.clone());
 		board.reinstating.sort_by_key(|c| std::cmp::Reverse((requested(c), c.review.id)));
 		Ok(board)
+	}
+
+	/// The reviews of a GMB's tracked place that are gone, newest gone first, each with the GMB's open appeal.
+	pub(crate) async fn gone(&self, gmb: i64) -> eyre::Result<Vec<GoneReview>> {
+		let target: i64 = sqlx::query_scalar("SELECT target_id FROM tracks WHERE gmb_id = ?")
+			.bind(gmb)
+			.fetch_optional(&self.pool)
+			.await
+			.wrap_err("looking up a GMB's track")?
+			.ok_or_else(|| no_gmb(gmb))?;
+		let select = REVIEW_SELECT.replacen("SELECT ", "SELECT x.requested_at, x.reinstated_at, ", 1);
+		let rows: Vec<CardRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+			"{select}
+			 LEFT JOIN reinstatements x ON x.review_id = r.id AND x.gmb_id = ?1 AND x.withdrawn_at IS NULL AND x.reinstated_at IS NULL
+			 WHERE r.target_id = ?2 AND r.gone_at IS NOT NULL
+			 ORDER BY r.gone_at DESC, r.id DESC
+			 LIMIT ?3"
+		)))
+		.bind(gmb)
+		.bind(target)
+		.bind(GONE_MAX)
+		.fetch_all(&self.pool)
+		.await
+		.wrap_err("loading a GMB's gone reviews")?;
+		rows.into_iter()
+			.map(|CardRow { review: r, requested_at, .. }| {
+				Ok(GoneReview {
+					rating: r.rating.map(u8::try_from).transpose().wrap_err_with(|| format!("review {}'s rating", r.id))?,
+					published_est: r.published_est.as_deref().map(parse_ts).transpose()?,
+					first_seen: parse_ts(&r.first_seen)?,
+					gone_at: parse_ts(r.gone_at.as_deref().expect("the query's WHERE"))?,
+					captured: r.capture_sha256.is_some(),
+					replied: r.reply.is_some(),
+					reinstatement_requested_at: requested_at.as_deref().map(parse_ts).transpose()?,
+					review_id: r.source_review_id,
+					author: r.author,
+					author_url: r.author_url,
+					text: r.text,
+					published_raw: r.published_raw,
+				})
+			})
+			.collect()
 	}
 
 	/// Opens an appeal of a gone review under a GMB tracking its place; one already open

@@ -337,6 +337,9 @@ publishes. Ops alerts stay on Discord.
   per GMB tracking the place, the review as it is then, `at` the move's time; never pruned. A GMB's
   log (`GET /me/gmbs/{gmb}/events`) reads its moves from it. A review without stars has
   none. `GET /api/conductor/reviews?after=&limit=` (1–500) is that feed, `sa_core::feeds::ReviewPage`.
+- `GET /api/conductor/gmbs/{gmb}/gone`: the reviews gone now from the place a GMB tracks, newest gone first, 100 at most
+  (`sa_core::feeds::{GoneReview, GONE_MAX}`), `captured` by a corrupted capture too, each with the GMB's open appeal's
+  `requested_at`; a GMB without a track is a 404. A Conductor assertion only.
 - `GET /api/conductor/notifications?after=&limit=` (1–500) is the feed, ascending by `seq`,
   `next` the page's last; `GET /api/conductor/captures/{sha}.png` a recorded capture as PNG
   (which `sendPhoto` is documented for). Both take a Conductor assertion only. Notes are kept

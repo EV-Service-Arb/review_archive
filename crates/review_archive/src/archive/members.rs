@@ -172,6 +172,11 @@ impl Archive {
 		page(limit)?;
 		self.store()?.review_feed(after, limit).await
 	}
+
+	/// The GMB's reviews currently gone, newest first, [`sa_core::feeds::GONE_MAX`] at most.
+	pub async fn gone(&self, gmb: i64) -> eyre::Result<Vec<sa_core::feeds::GoneReview>> {
+		self.store()?.gone(gmb).await
+	}
 }
 
 /// A feed's page holds 1 to [`MAX_PAGE`].
