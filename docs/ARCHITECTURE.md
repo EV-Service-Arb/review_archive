@@ -282,7 +282,9 @@ DELETE /me/gmbs/{gmb}/reinstatements/{review}
 - **Alerts are the conductor's; the archive publishes.** The same transaction writes a note to
   `alert_notes` per event on a target a live track names, with those tracks' GMBs (the
   conductor's ids): rendered here (Telegram text and entities; reviews are public, so no
-  private-chat variant), a `review_gone` with its capture as `/api/conductor/captures/<sha>.png`.
+  private-chat variant), its link the GBP's Reviews tab in the panel, a `review_gone` with its
+  capture as `/api/conductor/captures/<sha>.png`; a review of few stars as it comes, or as an edit
+  takes them, is `important`.
   A target's first scan publishes no `review_new` — it is the archive's start, not news; hooks
   still get it. The conductor pulls `GET /api/conductor/notifications` as it pulls charges;
   notes are kept a day (`serve`'s idle purge). The archive holds no bot, chat or Telegram secret.

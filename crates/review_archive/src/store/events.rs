@@ -11,7 +11,7 @@ use review_archive_core::{
 	dto::{Event, EventPayload},
 	fmt_ts,
 };
-use sa_alerts::{Note, NotePage, NoteText, Rule};
+use sa_alerts::{Note, NotePage, NoteText, Rule, Tier};
 use sa_core::feeds::{Review, ReviewPage};
 use sqlx::SqliteConnection;
 use uuid::Uuid;
@@ -25,7 +25,10 @@ const NOTE_RETENTION: SignedDuration = SignedDuration::from_hours(24);
 const MESSAGE_MAX: usize = 4096;
 const CAPTION_MAX: usize = 1024;
 
-type NoteRow = (i64, Vec<u8>, String, String, Option<String>, String, String);
+type NoteRow = (i64, Vec<u8>, String, String, Option<String>, String, String, Option<String>);
+
+/// Stars an owner hears of the day they come.
+const LOW: i64 = 3;
 
 pub(super) struct Emitter {
 	hooks: Vec<(i64, HashSet<Event>)>,
@@ -67,6 +70,19 @@ impl Emitter {
 			.await
 			.wrap_err("writing the review feed")?;
 		}
+		let low = review.rating.filter(|r| *r <= LOW);
+		let tier = match (event, low) {
+			(Event::ReviewNew, Some(_)) => Some(Tier::Important),
+			(Event::ReviewChanged, Some(now)) => {
+				let before: Option<i64> = sqlx::query_scalar("SELECT rating FROM review_versions WHERE review_id = ? ORDER BY id DESC LIMIT 1 OFFSET 1")
+					.bind(id.0)
+					.fetch_one(&mut *tx)
+					.await
+					.wrap_err("reading a changed review's stars before")?;
+				before.filter(|before| *before > now).map(|_| Tier::Important)
+			}
+			_ => None,
+		};
 		let payload = EventPayload {
 			event,
 			occurred_at: fmt_ts(self.now),
@@ -74,7 +90,7 @@ impl Emitter {
 			review: Some(review),
 			run: None,
 		};
-		self.insert(tx, &payload).await
+		self.insert(tx, &payload, tier).await
 	}
 
 	/// `run.failed` for this run, as just recorded.
@@ -87,10 +103,10 @@ impl Emitter {
 			review: None,
 			run: Some(run),
 		};
-		self.insert(tx, &payload).await
+		self.insert(tx, &payload, None).await
 	}
 
-	async fn insert(&self, tx: &mut SqliteConnection, payload: &EventPayload) -> eyre::Result<()> {
+	async fn insert(&self, tx: &mut SqliteConnection, payload: &EventPayload, tier: Option<Tier>) -> eyre::Result<()> {
 		let body = serde_json::to_string(payload)?;
 		let now = fmt_ts(self.now);
 		for (hook, events) in &self.hooks {
@@ -127,13 +143,14 @@ impl Emitter {
 			.await
 			.wrap_err("loading the event's place")?;
 		let (text, photo) = render(payload, &label);
-		sqlx::query("INSERT INTO alert_notes (id, rule, text, photo, gmbs, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+		sqlx::query("INSERT INTO alert_notes (id, rule, text, photo, gmbs, created_at, tier) VALUES (?, ?, ?, ?, ?, ?, ?)")
 			.bind(Uuid::new_v4().as_bytes().as_slice())
-			.bind(rule(payload.event).as_str())
+			.bind(rule(payload.event).as_ref())
 			.bind(serde_json::to_string(&text)?)
 			.bind(photo)
 			.bind(serde_json::to_string(&gmbs)?)
 			.bind(&now)
+			.bind(tier.map(|t| t.as_ref().to_owned()))
 			.execute(&mut *tx)
 			.await
 			.wrap_err("publishing an alert note")?;
@@ -200,7 +217,7 @@ fn truncate(s: String, max: usize) -> String {
 impl Store {
 	/// The Alerts feed past `after`, `limit` notes at most.
 	pub async fn notes(&self, after: i64, limit: u32) -> eyre::Result<NotePage> {
-		let rows: Vec<NoteRow> = sqlx::query_as("SELECT seq, id, rule, text, photo, gmbs, created_at FROM alert_notes WHERE seq > ? ORDER BY seq LIMIT ?")
+		let rows: Vec<NoteRow> = sqlx::query_as("SELECT seq, id, rule, text, photo, gmbs, created_at, tier FROM alert_notes WHERE seq > ? ORDER BY seq LIMIT ?")
 			.bind(after)
 			.bind(limit)
 			.fetch_all(&self.pool)
@@ -208,7 +225,8 @@ impl Store {
 			.wrap_err("loading alert notes")?;
 		let notes = rows
 			.into_iter()
-			.map(|(seq, id, rule, text, photo, gmbs, created_at)| {
+			.map(|(seq, id, rule, text, photo, gmbs, created_at, tier)| {
+				let gmbs: Vec<i64> = serde_json::from_str(&gmbs).wrap_err_with(|| format!("note {seq}'s GMBs"))?;
 				let note = Note {
 					seq,
 					rule: rule.parse()?,
@@ -218,8 +236,11 @@ impl Store {
 					text_pii: None,
 					skip_user: None,
 					buttons: vec![],
-					gmbs: serde_json::from_str(&gmbs).wrap_err_with(|| format!("note {seq}'s GMBs"))?,
+					// the first's: the conductor holds one GMB per place
+					link: gmbs.first().map(|g| format!("/?gmb={g}&tab=reviews")),
+					gmbs,
 					photo,
+					tier: tier.map(|t| t.parse()).transpose().wrap_err_with(|| format!("note {seq}'s tier"))?,
 				};
 				note.check(sa_auth::Service::ReviewArchive)?;
 				Ok(note)

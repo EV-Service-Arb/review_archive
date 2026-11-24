@@ -1875,6 +1875,7 @@ async fn the_conductor_pulls_alerts_on_tracked_places() {
 		],
 		"bob's track is off, so his GMB hears nothing"
 	);
+	assert!(all.iter().all(|n| n.link == Some(format!("/?gmb={}&tab=reviews", n.gmbs[0])) && n.tier.is_none()));
 	let gone = &all[1];
 	assert!(gone.text.text.starts_with("Review removed · "), "{:?}", gone.text);
 	assert!(gone.text.text.contains("author r1"), "{:?}", gone.text);
@@ -1896,6 +1897,43 @@ async fn the_conductor_pulls_alerts_on_tracked_places() {
 	let unknown = as_conductor(&e, &format!("/api/conductor/captures/{}.png", "0".repeat(64))).await;
 	assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
 	assert_eq!(as_conductor(&e, "/api/conductor/notifications?after=0&limit=0").await.status(), StatusCode::BAD_REQUEST);
+	e.server.abort();
+}
+
+/// Few stars are important as they come, and as an edit takes them; not as an edit leaves them.
+#[tokio::test]
+async fn low_stars_are_important() {
+	let e = env().await;
+	let alice = e.member(ALICE);
+	let a = e.gmb(ALICE, "a@gmail.com", PLACE).await;
+	let t = track_of(&alice, a).await.id;
+	let stars = |id: &str, rating, text: &str| Observed {
+		rating: Some(rating),
+		text: Some(text.into()),
+		..review(id)
+	};
+	record(&e, t, vec![review("r1")]).await;
+	record(&e, t, vec![stars("r1", 4, "ok"), stars("r2", 3, "meh"), stars("r3", 4, "ok")]).await;
+	record(&e, t, vec![stars("r1", 1, "bad"), stars("r2", 3, "still meh"), stars("r3", 4, "ok")]).await;
+	let mut got: Vec<(String, Option<sa_alerts::Tier>)> = notes(&e, 0, 500)
+		.await
+		.notes
+		.iter()
+		.map(|n| (n.text.text.lines().skip(1).collect::<Vec<_>>().join(" "), n.tier))
+		.collect();
+	got[..3].sort_by(|a, b| a.0.cmp(&b.0));
+	got[3..].sort_by(|a, b| a.0.cmp(&b.0));
+	let important = Some(sa_alerts::Tier::Important);
+	assert_eq!(
+		got,
+		[
+			("★★★ author r2 meh".to_owned(), important),
+			("★★★★ author r1 ok".to_owned(), None),
+			("★★★★ author r3 ok".to_owned(), None),
+			("★ author r1 bad".to_owned(), important),
+			("★★★ author r2 still meh".to_owned(), None),
+		]
+	);
 	e.server.abort();
 }
 
