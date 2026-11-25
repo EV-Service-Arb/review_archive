@@ -934,6 +934,80 @@ pub struct DayReviews {
 	pub lost: u32,
 }
 
+/// `GET /me/stick`.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+#[serde(default)]
+pub struct StickQuery {
+	/// The conductor's ids of the GMBs counted, separated by commas, or `*`; absent, every one of the member's. Empty, none.
+	pub gmbs: Option<String>,
+}
+
+/// Whether reviews stick: how many of those posted since their place's first scan stay listed.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+pub struct StickReport {
+	/// Every place's, a place tracked twice once.
+	pub overall: Stick,
+	/// By stars, most first; a group without reviews is left out.
+	pub by_stars: Vec<StickGroup>,
+	/// By how many of the place's counted reviews were posted on the same UTC day.
+	pub by_burst: Vec<StickGroup>,
+	/// By the UTC week they were first seen, its Monday `YYYY-MM-DD`, oldest first.
+	pub by_week: Vec<StickGroup>,
+	/// Per GMB.
+	pub gmbs: Vec<StickGmb>,
+}
+
+/// The stick rate of some reviews.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+pub struct Stick {
+	/// Reviews counted: posted since their place's first scan, as far as their date tells.
+	pub posted: u32,
+	/// Of which gone now; one that came back is not.
+	pub lost: u32,
+	/// The rate at each age, shortest first.
+	pub points: Vec<StickPoint>,
+}
+
+/// The stick rate at an age: Kaplan–Meier, so a review too young counts for the days it has had.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+pub struct StickPoint {
+	/// Days since a scan first listed the review.
+	pub days: u32,
+	/// The share still listed after them, 0 to 1; `null` where none was watched that long.
+	pub rate: Option<f64>,
+	/// How many were watched that long at least.
+	pub watched: u32,
+}
+
+/// One of a report's groups.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+pub struct StickGroup {
+	/// What it groups.
+	pub name: String,
+	/// Its rate.
+	#[serde(flatten)]
+	pub stick: Stick,
+}
+
+/// One GMB's.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]
+pub struct StickGmb {
+	/// The conductor's id.
+	pub gmb: i64,
+	/// Its name.
+	pub name: String,
+	/// Its rate.
+	#[serde(flatten)]
+	pub stick: Stick,
+}
+
 /// A page of one of the conductor's feeds (`sa_core::feeds`): charges, usage, notifications.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[cfg_attr(feature = "openapi", derive(schemars::JsonSchema))]

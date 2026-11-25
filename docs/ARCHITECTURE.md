@@ -10,6 +10,7 @@ crates/review_archive_core/     no I/O: no browser, database, network or clock
                                 what callers type in (intervals, langs, dates) and Rejected
   src/reconcile.rs              a scan against what is stored → new / changed / unchanged / gone / reappeared
   src/schedule.rs               when a target is next due: interval, jitter, backoff
+  src/stick.rs                  whether reviews stick: survival over those posted since their place's first scan
   src/dashboards.rs             the Grafana dashboards' uids, variables and what they post up, for the server and the page
   src/views.rs                  the dashboard's views (ev_lib `Views`): the document's `x-views`, the page's routes
   src/tokens.rs                 the account's hourly limit, a walk's steps at the conductor's prices, and the walk's meter (what it spent, and each step done)
@@ -128,7 +129,7 @@ DELETE /webhooks/{id}                                  archive:operate
 GET    /layouts/{dock}
 PUT    /layouts/{dock}/{band}                          archive:operate
 GET    /me
-GET    /me/{overview,gmbs,settings}
+GET    /me/{overview,gmbs,settings,stick}
 PATCH  /me/settings
 DELETE /me/settings
 GET    /me/gmbs/{gmb}/events

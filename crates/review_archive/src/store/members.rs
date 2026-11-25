@@ -10,9 +10,10 @@ use review_archive_core::{
 	PersonId, Rejected, ReviewId, Target, TargetId,
 	dto::{
 		Board, BoardCard, DayReviews, GmailDto, GmailOverview, GmbEvent, GmbEvents, GmbReviews, GmbSummary, Happened, LocationSummary, MyGmbs, PostDto, ReinstatementDto, ReviewDto,
-		ReviewRef, ScanState, TrackPatch,
+		ReviewRef, ScanState, StickReport, TrackPatch,
 	},
 	fmt_ts,
+	stick::{self, Tracked, Watched},
 	tokens::WalkPrices,
 };
 use sa_core::feeds::{GONE_MAX, GoneReview};
@@ -554,6 +555,60 @@ impl Store {
 				.collect(),
 			places_tracked,
 		})
+	}
+
+	/// How the reviews of the member's GMBs' places stick, of `gmbs` only when given.
+	pub async fn stick(&self, member: PersonId, gmbs: Option<&[i64]>) -> eyre::Result<StickReport> {
+		let mut tx = self.pool.begin().await.wrap_err("starting a read")?;
+		type TrackRow = (i64, String, i64, Option<String>, Option<String>);
+		let tracks: Vec<TrackRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+			"SELECT k.gmb_id, m.name, k.target_id,
+			        (SELECT MIN(started_at) FROM runs WHERE target_id = k.target_id AND ad_hoc = 0 AND status IN ('ok', 'partial')),
+			        (SELECT MAX(finished_at) FROM runs WHERE target_id = k.target_id AND ad_hoc = 0 AND status IN ('ok', 'partial'))
+			 FROM tracks k JOIN gmb_mirror m ON m.id = k.gmb_id
+			 WHERE k.gmb_id IN ({MEMBERS_GMBS}) ORDER BY k.gmb_id"
+		)))
+		.bind(member.0)
+		.fetch_all(&mut *tx)
+		.await
+		.wrap_err("listing a member's tracks")?;
+		let mut tracked = Vec::new();
+		for (gmb, name, target, from, to) in tracks {
+			if gmbs.is_some_and(|ids| !ids.contains(&gmb)) {
+				continue;
+			}
+			// a place no scan has read yet has nothing watched
+			let (Some(from), Some(to)) = (from, to) else { continue };
+			tracked.push(Tracked {
+				gmb,
+				name,
+				target: TargetId(target),
+				from: parse_ts(&from)?,
+				to: parse_ts(&to)?,
+			});
+		}
+		let targets = serde_json::to_string(&tracked.iter().map(|t| t.target.0).collect::<Vec<_>>()).expect("ids serialize");
+		type SeenRow = (i64, Option<i64>, Option<String>, Option<String>, String, Option<String>);
+		let rows: Vec<SeenRow> =
+			sqlx::query_as("SELECT target_id, rating, published_raw, published_est, first_seen, gone_at FROM reviews WHERE target_id IN (SELECT value FROM json_each(?))")
+				.bind(targets)
+				.fetch_all(&mut *tx)
+				.await
+				.wrap_err("loading the tracked places' reviews")?;
+		let reviews = rows
+			.into_iter()
+			.map(|(target, stars, published_raw, published_est, first_seen, gone_at)| {
+				Ok(Watched {
+					target: TargetId(target),
+					stars,
+					published_raw,
+					published_est: published_est.as_deref().map(parse_ts).transpose()?,
+					first_seen: parse_ts(&first_seen)?,
+					gone_at: gone_at.as_deref().map(parse_ts).transpose()?,
+				})
+			})
+			.collect::<eyre::Result<Vec<_>>>()?;
+		Ok(stick::report(&tracked, &reviews))
 	}
 
 	/// [`Rejected::NotFound`] unless the GMB is the member's and not removed.

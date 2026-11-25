@@ -349,6 +349,106 @@ const OVERVIEW_STYLES: &str = r#".ra-grid { display: grid; grid-template-columns
 .ra-menu > div button:hover { background: rgba(128,128,128,.2); }
 .ra-gold { color: #ff9830; font-style: normal; }"#;
 
+/// A share's look: 0 to 1.
+fn share() -> Value {
+	json!({
+		"unit": "percentunit", "decimals": 0, "min": 0, "max": 1, "noValue": "too young",
+		"color": { "mode": "palette-classic" },
+	})
+}
+
+/// [`share`], colored by how much it is: a rate none was watched long enough for stays uncolored.
+fn graded() -> Value {
+	let mut look = share();
+	look["color"] = json!({ "mode": "thresholds" });
+	look["thresholds"] = json!({
+		"mode": "absolute",
+		"steps": [{ "color": "text", "value": null }, { "color": "red", "value": 0 }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 0.8 }],
+	});
+	look
+}
+
+/// The reviews' stick rate at `days` of a group of `my_stick`'s.
+fn stuck(days: u32) -> String {
+	format!("points[days = {days}].rate")
+}
+
+/// Bars, a group per bar, of what `my_stick` answers; a bar's `posted` is in its tooltip.
+fn bars(x: &str) -> Value {
+	json!({
+		"options": { "xField": x, "orientation": "auto", "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+		"fieldConfig": {
+			"defaults": share(),
+			"overrides": [
+				// a label like "5" is a number to a percent axis
+				{ "matcher": { "id": "byName", "options": x }, "properties": [{ "id": "unit", "value": "string" }] },
+				{
+					"matcher": { "id": "byRegexp", "options": "posted|watched" },
+					"properties": [
+						{ "id": "custom.hideFrom", "value": { "viz": true, "legend": true, "tooltip": false } },
+						{ "id": "unit", "value": "none" },
+						{ "id": "max", "value": null },
+					],
+				}
+			],
+		},
+	})
+}
+
+/// `my_stick` over the GMBs `gmbs` names, its rows made by `root` (JSONata without the tie).
+fn stick_panel<'a>(board: Board<'a>, gmbs: &str, panel: Panel, root: &str, columns: &[(&str, Column)], display: Value) -> Board<'a> {
+	let root = format!(r#"($tie := "{}"; {root})"#, v(var::REV));
+	// Infinity answers the columns by name
+	let order: serde_json::Map<_, _> = columns.iter().enumerate().map(|(i, (name, _))| ((*name).to_owned(), json!(i))).collect();
+	let mut display = display;
+	display["transformations"] = json!([{ "id": "organize", "options": { "indexByName": order } }]);
+	board.panel(
+		panel,
+		Query {
+			operation: op_id(super::my_stick),
+			path: &[],
+			params: &[("gmbs", gmbs)],
+			select: Some(Select { root_selector: &root, columns }),
+		},
+		display,
+	)
+}
+
+/// The headline: the share still listed 7, 14, 30 and 90 days after.
+fn stick_headline<'a>(board: Board<'a>, gmbs: &str, id: u32, grid: [u32; 4], dock: Option<Value>) -> Board<'a> {
+	let cols: Vec<(String, u32)> = [7, 14, 30, 90].map(|d| (format!("{d} days"), d)).into();
+	let root = format!("[overall.{{{}}}]", cols.iter().map(|(n, d)| format!(r#""{n}": {}"#, stuck(*d))).collect::<Vec<_>>().join(", "));
+	let columns: Vec<(&str, Column)> = cols.iter().map(|(n, _)| (n.as_str(), Column::Number)).collect();
+	let mut display = json!({
+		"transparent": true,
+		"description": "Of the reviews posted since the place's first scan, the share still listed that many days after it was first seen. A review too young counts for the days it has had; one that came back counts as never gone.",
+		"fieldConfig": { "defaults": graded(), "overrides": [] },
+		"options": {
+			"reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": false },
+			"colorMode": "value",
+			"graphMode": "none",
+			"textMode": "value_and_name",
+			"orientation": "auto",
+		},
+	});
+	if let Some(dock) = dock {
+		display["dock"] = dock;
+	}
+	stick_panel(
+		board,
+		gmbs,
+		Panel {
+			id,
+			kind: "stat",
+			title: "Stick rate",
+			grid,
+		},
+		&root,
+		&columns,
+		display,
+	)
+}
+
 pub(super) fn all(doc: &OpenApi) -> Vec<Value> {
 	let boards = vec![location(doc), overview(doc)];
 	for b in &boards {
@@ -480,13 +580,13 @@ fn location(doc: &OpenApi) -> Value {
 	let status: Value = serde_json::from_str(STATUS).expect("a JSON literal");
 	let by_start = json!([{ "id": "sortBy", "options": { "sort": [{ "field": "started_at" }] } }]);
 	let color = |name: &str, color: &str| json!({ "matcher": { "id": "byName", "options": name }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": color } }] });
-	board
+	let board = board
 		.panel(
 			Panel {
 				id: 1,
 				kind: "state-timeline",
 				title: "Runs",
-				grid: [16, 0, 8, 6],
+				grid: [16, 5, 8, 4],
 			},
 			runs(&[("limit", "500")], &[("started_at", Column::Timestamp), ("status", Column::String)]),
 			json!({
@@ -502,7 +602,7 @@ fn location(doc: &OpenApi) -> Value {
 				id: 2,
 				kind: "timeseries",
 				title: "Reviews per run",
-				grid: [16, 11, 8, 11],
+				grid: [16, 13, 8, 9],
 			},
 			runs(
 				&[("limit", "500")],
@@ -541,7 +641,7 @@ fn location(doc: &OpenApi) -> Value {
 				id: 3,
 				kind: "stat",
 				title: "Last run",
-				grid: [16, 6, 8, 5],
+				grid: [16, 9, 8, 4],
 			},
 			runs(&[("limit", "1")], &[("status", Column::String), ("seen", Column::Number), ("tokens", Column::Number)]),
 			json!({
@@ -556,24 +656,24 @@ fn location(doc: &OpenApi) -> Value {
 					"orientation": "vertical",
 				},
 			}),
-		)
-		.build(json!({
-			"uid": LOCATION,
-			"title": "review_archive · location",
-			"tags": ["review_archive"],
-			"schemaVersion": 41,
-			"editable": true,
-			"time": { "from": "now-30d", "to": "now" },
-			"refresh": "1m",
-			"templating": {
-				"list": ([var::GMB, var::TARGET, var::REV, var::API])
-					.into_iter()
-					.map(hidden)
-					.chain(Review::iter().map(|r| hidden(&format!("{r:?}"))))
-					.chain(LANES.iter().map(|(l, _)| hidden(&format!("n_{l}"))))
-					.collect::<Vec<_>>(),
-			},
-		}))
+		);
+	stick_headline(board, &gmb, 4, [16, 0, 8, 5], Some(json!({ "minHRem": 6.5 }))).build(json!({
+		"uid": LOCATION,
+		"title": "review_archive · location",
+		"tags": ["review_archive"],
+		"schemaVersion": 41,
+		"editable": true,
+		"time": { "from": "now-30d", "to": "now" },
+		"refresh": "1m",
+		"templating": {
+			"list": ([var::GMB, var::TARGET, var::REV, var::API])
+				.into_iter()
+				.map(hidden)
+				.chain(Review::iter().map(|r| hidden(&format!("{r:?}"))))
+				.chain(LANES.iter().map(|(l, _)| hidden(&format!("n_{l}"))))
+				.collect::<Vec<_>>(),
+		},
+	}))
 }
 
 /// The member's places as cards, in the order the page's filter keeps them, and as a table.
@@ -593,7 +693,8 @@ fn overview(doc: &OpenApi) -> Value {
 	.into_iter()
 	.fold(OVERVIEW_AFTER_RENDER.to_owned(), |js, (at, kind)| js.replace(at, kind));
 	let status: Value = serde_json::from_str(STATUS).expect("a JSON literal");
-	Board::new(doc, DATASOURCE)
+	let gmbs = format!("${{{}:csv}}", var::GMBS);
+	let board = Board::new(doc, DATASOURCE)
 		// the element steers it to the conductor's GMB selection, and a pick here becomes that selection
 		.variable(
 			var::GMBS,
@@ -616,13 +717,118 @@ fn overview(doc: &OpenApi) -> Value {
 				"current": { "text": ["All"], "value": ["$__all"] },
 				"options": [],
 			}),
+		);
+	let board = stick_headline(board, &gmbs, 4, [0, 0, 8, 8], None);
+	let board = stick_panel(
+		board,
+		&gmbs,
+		Panel {
+			id: 5,
+			kind: "barchart",
+			title: "Still listed, by age",
+			grid: [8, 0, 11, 8],
+		},
+		r#"overall.points.{"age": $string(days) & "d", "stuck": rate, "watched": watched}"#,
+		&[("age", Column::String), ("stuck", Column::Number), ("watched", Column::Number)],
+		bars("age"),
+	);
+	let board = stick_panel(
+		board,
+		&gmbs,
+		Panel {
+			id: 6,
+			kind: "stat",
+			title: "Reviews counted",
+			grid: [19, 0, 5, 8],
+		},
+		r#"[overall.{"posted": posted, "gone": lost}]"#,
+		&[("posted", Column::Number), ("gone", Column::Number)],
+		json!({
+			"transparent": true,
+			"description": "Reviews posted since their place's first scan, and how many are gone now.",
+			"fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "text" } }, "overrides": [] },
+			"options": {
+				"reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": false },
+				"colorMode": "value",
+				"graphMode": "none",
+				"textMode": "value_and_name",
+				"orientation": "vertical",
+			},
+		}),
+	);
+	let groups = [
+		("Stick rate by stars", "by_stars", "name", 7),
+		("Stick rate by posts a day", "by_burst", "name", 8),
+		("Stick rate by week", "by_week", "$substring(name, 5)", 9), // no year: the labels of adjacent weeks meet
+	];
+	let board = groups.into_iter().zip([0, 8, 16]).fold(board, |board, ((title, list, label, id), x)| {
+		let root = format!(r#"{list}.{{"group": {label}, "14 days": {}, "30 days": {}, "posted": posted}}"#, stuck(14), stuck(30));
+		stick_panel(
+			board,
+			&gmbs,
+			Panel {
+				id,
+				kind: "barchart",
+				title,
+				grid: [x, 40, 8, 9],
+			},
+			&root,
+			&[("group", Column::String), ("14 days", Column::Number), ("30 days", Column::Number), ("posted", Column::Number)],
+			bars("group"),
 		)
+	});
+	let board = stick_panel(
+		board,
+		&gmbs,
+		Panel {
+			id: 10,
+			kind: "table",
+			title: "Stick rate by GMB",
+			grid: [0, 49, 24, 10],
+		},
+		&format!(
+			r#"gmbs.{{"GMB": name, "posted": posted, "gone": lost, "7 days": {}, "14 days": {}, "30 days": {}, "90 days": {}}}"#,
+			stuck(7),
+			stuck(14),
+			stuck(30),
+			stuck(90)
+		),
+		&[
+			("GMB", Column::String),
+			("posted", Column::Number),
+			("gone", Column::Number),
+			("7 days", Column::Number),
+			("14 days", Column::Number),
+			("30 days", Column::Number),
+			("90 days", Column::Number),
+		],
+		json!({
+			"fieldConfig": {
+				"defaults": { "custom": { "align": "auto", "filterable": true } },
+				"overrides": [{
+					"matcher": { "id": "byRegexp", "options": "/days$/" },
+					"properties": [
+						{ "id": "unit", "value": "percentunit" },
+						{ "id": "decimals", "value": 0 },
+						{ "id": "min", "value": 0 },
+						{ "id": "max", "value": 1 },
+						{ "id": "noValue", "value": "too young" },
+						{ "id": "color", "value": { "mode": "thresholds" } },
+							{ "id": "thresholds", "value": graded()["thresholds"] },
+						{ "id": "custom.cellOptions", "value": { "type": "color-text" } },
+					],
+				}],
+			},
+			"options": { "showHeader": true, "sortBy": [{ "displayName": "30 days", "desc": false }] },
+		}),
+	);
+	board
 		.panel(
 			Panel {
 				id: 2,
 				kind: "marcusolsson-dynamictext-panel",
 				title: "Locations",
-				grid: [0, 0, 24, 22],
+				grid: [0, 8, 24, 22],
 			},
 			Query {
 				operation: op_id(super::my_overview),
@@ -652,7 +858,7 @@ fn overview(doc: &OpenApi) -> Value {
 				id: 3,
 				kind: "table",
 				title: "All locations",
-				grid: [0, 22, 24, 10],
+				grid: [0, 30, 24, 10],
 			},
 			2,
 			json!({

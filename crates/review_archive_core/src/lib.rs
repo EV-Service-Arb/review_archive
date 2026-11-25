@@ -38,6 +38,7 @@ pub mod maps;
 pub mod reconcile;
 pub mod relative_date;
 pub mod schedule;
+pub mod stick;
 pub mod tokens;
 pub mod views;
 

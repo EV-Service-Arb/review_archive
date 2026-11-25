@@ -1652,6 +1652,192 @@
         },
         "type": "object"
       },
+      "Stick": {
+        "description": "The stick rate of some reviews.",
+        "properties": {
+          "lost": {
+            "description": "Of which gone now; one that came back is not.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "points": {
+            "description": "The rate at each age, shortest first.",
+            "items": {
+              "$ref": "#/components/schemas/StickPoint"
+            },
+            "type": "array"
+          },
+          "posted": {
+            "description": "Reviews counted: posted since their place's first scan, as far as their date tells.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "posted",
+          "lost",
+          "points"
+        ],
+        "type": "object"
+      },
+      "StickGmb": {
+        "description": "One GMB's.",
+        "properties": {
+          "gmb": {
+            "description": "The conductor's id.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "lost": {
+            "description": "Of which gone now; one that came back is not.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "Its name.",
+            "type": "string"
+          },
+          "points": {
+            "description": "The rate at each age, shortest first.",
+            "items": {
+              "$ref": "#/components/schemas/StickPoint"
+            },
+            "type": "array"
+          },
+          "posted": {
+            "description": "Reviews counted: posted since their place's first scan, as far as their date tells.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "gmb",
+          "name",
+          "posted",
+          "lost",
+          "points"
+        ],
+        "type": "object"
+      },
+      "StickGroup": {
+        "description": "One of a report's groups.",
+        "properties": {
+          "lost": {
+            "description": "Of which gone now; one that came back is not.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "What it groups.",
+            "type": "string"
+          },
+          "points": {
+            "description": "The rate at each age, shortest first.",
+            "items": {
+              "$ref": "#/components/schemas/StickPoint"
+            },
+            "type": "array"
+          },
+          "posted": {
+            "description": "Reviews counted: posted since their place's first scan, as far as their date tells.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "posted",
+          "lost",
+          "points"
+        ],
+        "type": "object"
+      },
+      "StickPoint": {
+        "description": "The stick rate at an age: Kaplan–Meier, so a review too young counts for the days it has had.",
+        "properties": {
+          "days": {
+            "description": "Days since a scan first listed the review.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rate": {
+            "description": "The share still listed after them, 0 to 1; `null` where none was watched that long.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "watched": {
+            "description": "How many were watched that long at least.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days",
+          "rate",
+          "watched"
+        ],
+        "type": "object"
+      },
+      "StickReport": {
+        "description": "Whether reviews stick: how many of those posted since their place's first scan stay listed.",
+        "properties": {
+          "by_burst": {
+            "description": "By how many of the place's counted reviews were posted on the same UTC day.",
+            "items": {
+              "$ref": "#/components/schemas/StickGroup"
+            },
+            "type": "array"
+          },
+          "by_stars": {
+            "description": "By stars, most first; a group without reviews is left out.",
+            "items": {
+              "$ref": "#/components/schemas/StickGroup"
+            },
+            "type": "array"
+          },
+          "by_week": {
+            "description": "By the UTC week they were first seen, its Monday `YYYY-MM-DD`, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/StickGroup"
+            },
+            "type": "array"
+          },
+          "gmbs": {
+            "description": "Per GMB.",
+            "items": {
+              "$ref": "#/components/schemas/StickGmb"
+            },
+            "type": "array"
+          },
+          "overall": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Stick"
+              }
+            ],
+            "description": "Every place's, a place tracked twice once."
+          }
+        },
+        "required": [
+          "overall",
+          "by_stars",
+          "by_burst",
+          "by_week",
+          "gmbs"
+        ],
+        "type": "object"
+      },
       "TargetDetail": {
         "description": "A target with how it is doing.",
         "properties": {
@@ -4512,6 +4698,134 @@
           "not_found": 404,
           "timed_out": 408,
           "too_large": 413,
+          "unauthenticated": 401,
+          "unclaimable": 403
+        }
+      }
+    },
+    "/me/stick": {
+      "get": {
+        "operationId": "my_stick",
+        "parameters": [
+          {
+            "description": "The conductor's ids of the GMBs counted, separated by commas, or `*`; absent, every one of the member's. Empty, none.",
+            "in": "query",
+            "name": "gmbs",
+            "schema": {
+              "description": "The conductor's ids of the GMBs counted, separated by commas, or `*`; absent, every one of the member's. Empty, none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StickReport"
+                }
+              }
+            },
+            "description": "Whether reviews stick: how many of those posted since their place's first scan stay listed."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`bad_request`, `invalid`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`unauthenticated`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`forbidden`, `unclaimable`"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`timed_out`"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`conflict`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`busy`"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`internal`"
+          }
+        },
+        "summary": "Whether reviews stick: of those posted since their place's first scan, the share still listed 1 to 90 days after, over the member's GMBs and by stars, by posts a day, by week and by GMB.",
+        "tags": [
+          "http"
+        ],
+        "x-errors": {
+          "bad_request": 400,
+          "busy": 429,
+          "conflict": 409,
+          "forbidden": 403,
+          "internal": 500,
+          "invalid": 400,
+          "not_found": 404,
+          "timed_out": 408,
           "unauthenticated": 401,
           "unclaimable": 403
         }

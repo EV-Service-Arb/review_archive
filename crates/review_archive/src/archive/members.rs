@@ -6,8 +6,8 @@ use jiff::Timestamp;
 use review_archive_core::{
 	PersonId, Rejected, ReviewId, TargetId,
 	dto::{
-		Board, ChargePage, GmailOverview, GmbEvents, JobKind, MAX_PAGE, MyGmbs, OnGoogle, ReinstatementDto, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, TargetDto, TrackPatch,
-		UsagePage,
+		Board, ChargePage, GmailOverview, GmbEvents, JobKind, MAX_PAGE, MyGmbs, OnGoogle, ReinstatementDto, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StickQuery, StickReport,
+		TargetDto, TrackPatch, UsagePage,
 	},
 	parse_interval,
 };
@@ -101,6 +101,20 @@ impl Archive {
 	pub async fn gmb_events(&self, member: PersonId, gmb: i64, before: Option<&str>) -> eyre::Result<GmbEvents> {
 		let before = before.map(|s| s.parse::<Timestamp>().map_err(|e| Rejected::invalid(format!("before {s:?}: {e}")))).transpose()?;
 		self.store()?.gmb_events(member, gmb, before).await
+	}
+
+	/// How the reviews of the member's GMBs' places stick: of all of them, or those `q` names.
+	pub async fn stick(&self, member: PersonId, q: &StickQuery) -> eyre::Result<StickReport> {
+		let gmbs = match q.gmbs.as_deref() {
+			None | Some("*") => None,
+			Some("") => Some(Vec::new()),
+			Some(ids) => Some(
+				ids.split(',')
+					.map(|id| id.parse::<i64>().map_err(|e| Rejected::invalid(format!("gmbs {ids:?}: {id:?}: {e}"))))
+					.collect::<Result<Vec<_>, _>>()?,
+			),
+		};
+		self.store()?.stick(member, gmbs.as_deref()).await
 	}
 
 	/// Records that the review's reinstatement was asked of Google, now.

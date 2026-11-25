@@ -36,8 +36,8 @@ use review_archive_core::{
 	ReviewId, TargetId,
 	dto::{
 		self, Board, CaptureRequest, ChargePage, DayStats, EventsQuery, ExportQuery, FeedQuery, GmailOverview, GmbEvents, JobAccepted, JobDto, LayoutDto, Me, MyGmbs, NewLayout, NewTarget,
-		NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, TargetDetail, TargetDto, TargetPatch,
-		TrackPatch, UsagePage, WaitQuery, WebhookDto, stats_csv,
+		NewWebhook, ReinstatementDto, ReviewDetail, ReviewDto, ReviewsQuery, RunDto, RunsQuery, Settings, SettingsPatch, Snapshot, StatsQuery, StickQuery, StickReport, TargetDetail,
+		TargetDto, TargetPatch, TrackPatch, UsagePage, WaitQuery, WebhookDto, stats_csv,
 	},
 	views::View,
 };
@@ -227,6 +227,7 @@ fn routes() -> Vec<ApiRoute> {
 		ApiRoute::new(M::GET, "/me", user, me),
 		ApiRoute::new(M::GET, "/me/overview", user, my_overview),
 		ApiRoute::new(M::GET, "/me/gmbs", user, my_gmbs),
+		ApiRoute::new(M::GET, "/me/stick", user, my_stick),
 		ApiRoute::new(M::GET, "/me/settings", user, my_settings),
 		ApiRoute::new(M::PATCH, "/me/settings", user, patch_my_settings),
 		ApiRoute::new(M::DELETE, "/me/settings", user, reset_my_settings),
@@ -678,6 +679,12 @@ async fn my_overview(State(s): State<AppState>, Caller(m): Caller) -> ApiResult<
 /// The archive's tag on each of the member's GMBs, for the conductor's page.
 async fn my_gmbs(State(s): State<AppState>, Caller(m): Caller) -> ApiResult<Json<MyGmbs>> {
 	Ok(Json(s.archive.my_gmbs(m).await?))
+}
+
+/// Whether reviews stick: of those posted since their place's first scan, the share still listed 1 to 90 days after,
+/// over the member's GMBs and by stars, by posts a day, by week and by GMB.
+async fn my_stick(State(s): State<AppState>, Caller(m): Caller, Params(q): Params<StickQuery>) -> ApiResult<Json<StickReport>> {
+	Ok(Json(s.archive.stick(m, &q).await?))
 }
 
 /// What the member chose, each beside its default.

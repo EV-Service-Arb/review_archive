@@ -1501,6 +1501,36 @@ async fn a_reinstatement_is_asked_withdrawn_and_answered_by_a_scan() {
 	e.server.abort();
 }
 
+/// What sticks is told of the reviews posted since the place's first scan, of the GMBs asked for, to their owner only.
+#[tokio::test]
+async fn stick_rates_are_of_reviews_posted_since_the_first_scan_and_the_members_own() {
+	let e = env().await;
+	let (alice, bob) = (e.member(ALICE), e.member(BOB));
+	let g = e.gmb(ALICE, "ops.paris@gmail.com", PLACE).await;
+	let t = track_of(&alice, g).await;
+	let posted = |id: &str, at: &str| Observed {
+		published_raw: Some(at.to_owned()),
+		published_est: Some(at.parse().unwrap()),
+		..review(id)
+	};
+	let before = posted("backlog", "2026-01-01T00:00:00Z");
+	record(&e, t.id, vec![before.clone()]).await;
+	let now = review_archive::core::fmt_ts(Timestamp::now());
+	let (stays, goes) = (posted("stays", &now), posted("goes", &now));
+	record(&e, t.id, vec![before.clone(), stays.clone(), goes]).await;
+	record(&e, t.id, vec![stays]).await;
+
+	let all = alice.my_stick(None).await.unwrap();
+	assert_eq!((all.overall.posted, all.overall.lost), (2, 1), "the backlog is not counted, gone or not");
+	assert_eq!(all.gmbs.iter().map(|s| (s.gmb, s.stick.posted)).collect::<Vec<_>>(), [(g, 2)]);
+	assert_eq!(alice.my_stick(Some("*")).await.unwrap(), all);
+	assert_eq!(alice.my_stick(Some(&g.to_string())).await.unwrap(), all);
+	assert_eq!(alice.my_stick(Some("")).await.unwrap().overall.posted, 0, "no GMB picked");
+	assert_eq!(alice.my_stick(Some("paris")).await.unwrap_err().status(), Some(StatusCode::BAD_REQUEST));
+	assert_eq!(bob.my_stick(Some(&g.to_string())).await.unwrap().gmbs, vec![], "not bob's");
+	e.server.abort();
+}
+
 /// The conductor's map tags a GMB with what needs the operator: its suspended reviews, its
 /// open appeals, and a failing latest walk; a `partial` walk still made a snapshot.
 #[tokio::test]

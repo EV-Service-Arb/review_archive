@@ -220,6 +220,22 @@ impl Client {
 		Ok(res.json().await?)
 	}
 
+	/// Whether reviews stick: of those posted since their place's first scan, the share still listed 1 to 90 days after, over the member's GMBs and by stars, by posts a day, by week and by GMB.
+	///
+	/// `GET /me/stick`
+	pub async fn my_stick(&self, gmbs: Option<&str>) -> Result<review_archive_core::dto::StickReport, Error> {
+		let req = self.request(reqwest::Method::GET, "/me/stick")?.query(&{
+			#[derive(serde::Serialize)]
+			struct Query<'a> {
+				#[serde(skip_serializing_if = "Option::is_none")]
+				gmbs: Option<&'a str>,
+			}
+			Query { gmbs }
+		});
+		let res = Self::send(req).await?;
+		Ok(res.json().await?)
+	}
+
 	/// A review with every version and capture.
 	///
 	/// `GET /reviews/{id}`

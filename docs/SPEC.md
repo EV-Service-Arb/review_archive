@@ -14,7 +14,7 @@ In:
 - On each scan: detect reviews not seen before, store their data, take a WebP
   screenshot of the review card, keep edit history, note reviews that are no
   longer listed.
-- Statistics and export over what was stored.
+- Statistics, stick rates among them, and export over what was stored.
 
 Out — do not build, even as an option:
 
@@ -251,6 +251,12 @@ The archive keeps a mirror of them and annotates them; it adds and removes none.
   from its last walk; `suspended` and `reinstating` the overview's counts while its track is on;
   `failing`: its track is on and its latest finished non-ad-hoc run is `failed`, a `partial` one is not; `live_30d`: 30 UTC days to today of `{live, lost}` on the target `rating` is from, `null` on a day no finished `ok`/`partial` non-ad-hoc run collected, `live` the reviews listed at the day's end and `lost` the day's runs' gone) and `places_tracked`: what the conductor's `/gmbs` page
   tags a GMB with.
+
+- `GET /me/stick?gmbs=` (the conductor's ids by commas, `*` or absent for all, empty for none) is the stick rate: of the
+  reviews posted since their place's first `ok`/`partial` non-ad-hoc run (by the earliest their date can mean; an undated one
+  is left out), the share still listed 1, 3, 7, 14, 30, 60 and 90 days after `first_seen`, Kaplan–Meier: a listed one is
+  known to have stayed until the place's latest such run, and a rate nothing was watched long enough for is `null`. A review that came back
+  counts as never gone, a place tracked twice once. Over all, by stars, by how many of the place's were posted the same UTC day, by the week first seen, and by GMB.
 
 ### Tokens
 
